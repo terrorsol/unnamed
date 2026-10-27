@@ -92,3 +92,28 @@ export function compare(base: Omit<Params, 'mode'>) {
   const none = simulate({ ...base, mode: 'none' }); const floor = simulate({ ...base, mode: 'floor' }); const mm = simulate({ ...base, mode: 'mm' })
   return { none, floor, mm }
 }
+
+// ---- synthetic chart shapes for testing the classifier: returns a price/volume/txn history and the features a live board would see ----
+export type Shape = 'runner' | 'rug' | 'bundle' | 'crash' | 'dead' | 'healthy'
+export function shapeFeatures(shape: Shape, seed = 1) {
+  const r = rng(seed); const S0 = 80; let S = S0, T = 4e8; const price = () => S / T
+  const hist: { t: number; p: number; buy: boolean; sol: number }[] = []
+  const buy = (sol: number) => { const dT = T - (S * T) / (S + sol); S += sol; T -= dT; return dT }
+  const sell = (sol: number) => { let tokens = sol / price(); tokens = Math.min(tokens, T * 0.45); const dS = S - (S * T) / (T + tokens); S -= dS; T += tokens }
+  const steps = 6 * 720; let top1 = 3, top10 = 25, ageMin = 360, liqFrac = 1
+  for (let i = 0; i < steps; i++) {
+    const h = i / 720; let pb = 0.5, inten = 0.2, size = 0.3 + r() * r() * 2
+    if (shape === 'runner') { pb = 0.58; inten = 0.25 + h * 0.08; if (i % 300 < 40) pb = 0.35 } // steady bid, periodic shallow dips, rising participation
+    if (shape === 'healthy') { pb = 0.5; inten = 0.2 }
+    if (shape === 'crash') { pb = h < 4 ? 0.68 : 0.22; inten = h < 4 ? 0.5 : 0.7; size *= h < 4 ? 1.2 : 2 }
+    if (shape === 'rug') { pb = h < 5.8 ? 0.56 : 0.05; inten = h < 5.8 ? 0.3 : 1; if (h >= 5.9 && i % 10 === 0) { sell(S * 0.35); hist.push({ t: i * 5000, p: price(), buy: false, sol: S * 0.35 }) } top1 = 28; liqFrac = 0.4 }
+    if (shape === 'bundle') { ageMin = 12; top10 = 68; top1 = 14; pb = h < 0.15 ? 0.95 : 0.45; inten = h < 0.15 ? 1 : 0.9; size *= h < 0.15 ? 6 : 1.5 }
+    if (shape === 'dead') { pb = 0.45; inten = h < 1 ? 0.3 : 0.004; size *= 0.5 }
+    if (r() < inten) { const isBuy = r() < pb; if (isBuy) buy(size); else sell(size); hist.push({ t: i * 5000, p: price(), buy: isBuy, sol: size }) }
+  }
+  const now = steps * 5000; const pAt = (minAgo: number) => { const t = now - minAgo * 60000; const x = [...hist].reverse().find((e) => e.t <= t); return x ? x.p : hist[0]?.p || price() }
+  const pct = (minAgo: number) => (price() / pAt(minAgo) - 1) * 100
+  const win = (minAgo: number) => hist.filter((e) => e.t >= now - minAgo * 60000)
+  const SOLUSD = 160; const mcap = 1e9 * price() * SOLUSD
+  return { m5: pct(5), h1: pct(60), h6: pct(360), h24: pct(360), vol5m: win(5).reduce((a, e) => a + e.sol, 0) * SOLUSD, vol1h: win(60).reduce((a, e) => a + e.sol, 0) * SOLUSD, vol24: win(360).reduce((a, e) => a + e.sol, 0) * SOLUSD, mcap, liq: S * liqFrac * SOLUSD * 2, ageMin, buys1h: win(60).filter((e) => e.buy).length, sells1h: win(60).filter((e) => !e.buy).length, buys5m: win(5).filter((e) => e.buy).length, sells5m: win(5).filter((e) => !e.buy).length, top1, top10, mintAuth: shape === 'rug', freezeAuth: false, vault: false }
+}

@@ -125,6 +125,18 @@ export default function App() {
     try { const { sig, vault } = await K.depositToVault(connection, activeB58, v, sol, tokens, decimals, signLegacy, setBusy); setVaultV((x) => x + 1); toast({ kind: 'ok', title: 'Deposited into the vault', rows: [['Chest', S(vault.chest) + ' SOL'], ['Vault supply', vault.tokens.toLocaleString(undefined, { maximumFractionDigits: 0 })]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
     catch (e: any) { toast({ kind: 'err', title: 'Deposit failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
   }
+  const onSwitch = async (from: Coin, toMint: string, toSymbol: string) => {
+    const x = ctx(); if (!x) return needWallet()
+    const h = ws.tokens.find((t) => t.mint === from.mint); if (!h) return
+    try {
+      const before = ws.sol || 0
+      setBusy('Selling ' + from.symbol + '…'); const sig1 = await T.sell(x, from.mint, 1, BigInt(h.raw), from.onCurve); recordSell(ws.owner, from.mint, from.symbol, 1, 0, sig1)
+      const after = await connection.getBalance(x.owner).then((b) => b / 1e9).catch(() => before); const got = Math.max(0, after - before - 0.003)
+      if (got < 0.02) throw new Error('nothing to switch')
+      const to = await D.tokenPairs(toMint); setBusy('Buying ' + toSymbol + '…'); const sig2 = await T.buy(x, toMint, +got.toFixed(4), !!to?.onCurve); recordBuy(ws.owner, toMint, toSymbol, got, sig2); setLedgerV((v) => v + 1)
+      toast({ kind: 'ok', title: `Switched ${from.symbol} → ${toSymbol}`, rows: [['Moved', S(got) + ' SOL'], ['Tx', short(sig2, 6)]], href: solscan(sig2) }); setTimeout(() => setRk((k) => k + 1), 1500); go('coin/' + toMint)
+    } catch (e: any) { toast({ kind: 'err', title: 'Switch failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
+  }
   const onMode = async (v: K.VaultPub, m: 'floor' | 'mm', c: number) => { try { await K.vaultSetMode(v.id, ws.owner, m, c); setVaultV((x) => x + 1); toast({ kind: 'ok', title: m === 'mm' ? `Market maker on · ceiling ${Math.round(c * 100)}%` : 'Floor mode' }) } catch (e: any) { toast({ kind: 'err', title: 'Mode change failed', rows: [['Reason', e.message]] }) } }
   const renounce = async (v: K.VaultPub) => { try { await K.vaultRenounce(v.id, ws.owner); setVaultV((x) => x + 1); toast({ kind: 'ok', title: 'Cut renounced' }) } catch (e: any) { toast({ kind: 'err', title: 'Renounce failed', rows: [['Reason', e.message]] }) } }
   const onWithdraw = async (to: string, sol: number) => { if (!burner) return; const sig = await B.withdraw(connection, burner, to, sol); toast({ kind: 'ok', title: `Sent ${S(sol)} SOL`, rows: [['To', short(to, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
@@ -164,7 +176,7 @@ export default function App() {
   const toggleWatch = (m: string) => setSettings({ watch: settings.watch.includes(m) ? settings.watch.filter((x) => x !== m) : [...settings.watch, m] })
 
   const content = () => {
-    if (page === 'coin' && arg) { const h = ws.tokens.find((t) => t.mint === arg); return <CoinPage mint={arg} coin={byMint[arg]} solPrice={solPrice} holding={h} lot={ledger.lots[arg]} sol={ws.sol} connected={connected} busy={busy} onBuy={onBuy} onSell={onSell} needWallet={needWallet} quickSol={settings.quickBuy} watch={settings.watch} toggleWatch={toggleWatch} trades={fresh.trades} subscribe={fresh.subscribe} desk={{ owner: ws.owner, connected, bidder, deskUp, busy, takeBid, holdingUi: h?.amount || 0, solPrice }} deskTick={deskTick} vaultV={vaultV} onRenounce={renounce} onRedeem={onRedeem} onDeposit={onDeposit} onMode={onMode} go={go} ordersV={ordersV} bumpOrders={() => setOrdersV((v) => v + 1)} /> }
+    if (page === 'coin' && arg) { const h = ws.tokens.find((t) => t.mint === arg); return <CoinPage mint={arg} coin={byMint[arg]} solPrice={solPrice} holding={h} lot={ledger.lots[arg]} sol={ws.sol} connected={connected} busy={busy} onBuy={onBuy} onSell={onSell} needWallet={needWallet} quickSol={settings.quickBuy} watch={settings.watch} toggleWatch={toggleWatch} trades={fresh.trades} subscribe={fresh.subscribe} desk={{ owner: ws.owner, connected, bidder, deskUp, busy, takeBid, holdingUi: h?.amount || 0, solPrice }} deskTick={deskTick} vaultV={vaultV} onRenounce={renounce} onRedeem={onRedeem} onDeposit={onDeposit} onMode={onMode} onSwitch={onSwitch} go={go} ordersV={ordersV} bumpOrders={() => setOrdersV((v) => v + 1)} /> }
     if (page === 'portfolio') return <Portfolio sol={ws.sol} tokens={ws.tokens} coins={byMint} lots={ledger.lots} fills={ledger.fills} solPrice={solPrice} go={go} owner={ws.owner} />
     if (page === 'settings') return <SettingsPage s={settings} set={setSettings} />
     if (page === 'about') return <About />

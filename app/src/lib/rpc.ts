@@ -31,3 +31,18 @@ export async function confirmByPolling(conn: Connection, sig: string, timeoutMs 
   throw new Error('Confirmation timed out — check Solscan: ' + solscan(sig))
 }
 export const solscan = (sig: string) => `https://solscan.io/tx/${sig}`
+
+/** Rug check: authorities + holder concentration, straight from the chain */
+export type RugCheck = { mintAuthority: boolean; freezeAuthority: boolean; top10Pct: number; top1Pct: number; holders: { address: string; pct: number }[]; supply: number; decimals: number }
+export async function rugCheck(conn: Connection, mint: string, knownVault?: string): Promise<RugCheck> {
+  const mp = new PublicKey(mint)
+  const [info, largest, supply] = await Promise.all([conn.getParsedAccountInfo(mp), conn.getTokenLargestAccounts(mp), conn.getTokenSupply(mp)])
+  const parsed = (info.value?.data as any)?.parsed?.info || {}
+  const total = +(supply.value.uiAmount || 0) || 1
+  // largest accounts are token accounts; resolve owners so we can label pool / vault
+  const accs = largest.value.slice(0, 10)
+  const owners = await conn.getMultipleParsedAccounts(accs.map((a) => a.address)).then((r) => r.value.map((v) => (v?.data as any)?.parsed?.info?.owner || '')).catch(() => accs.map(() => ''))
+  const holders = accs.map((a, i) => ({ address: owners[i] || a.address.toBase58(), pct: (+(a.uiAmount || 0) / total) * 100 }))
+  const nonPool = holders.filter((h) => h.address !== knownVault)
+  return { mintAuthority: !!parsed.mintAuthority, freezeAuthority: !!parsed.freezeAuthority, top10Pct: holders.reduce((s, h) => s + h.pct, 0), top1Pct: nonPool[0]?.pct || 0, holders, supply: total, decimals: supply.value.decimals }
+}

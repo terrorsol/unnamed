@@ -8,10 +8,13 @@ import type { Lot } from '../lib/positions'
 import type { TradeEvt } from '../lib/pumpportal'
 import { CoinDesk, CoinVault, VaultExtras, VaultDeposit, SellBlock, type DeskCtx } from './Desk'
 import { loadOrders, addOrder, removeOrder } from '../lib/orders'
+import { rugCheck, type RugCheck } from '../lib/rpc'
+import { classify, featsFromCoin, labelTone } from '../lib/signal'
+import { useConnection } from '@solana/wallet-adapter-react'
 import * as K from '../lib/desk'
 
 type Props = { mint: string; coin?: D.Coin; solPrice: number; holding?: Holding; lot?: Lot; sol: number | null; connected: boolean; busy: string
-  onBuy: (c: D.Coin, sol: number) => void; onSell: (c: D.Coin, frac: number) => Promise<void>; quickSol: number; watch: string[]; toggleWatch: (m: string) => void; needWallet: () => void; trades: TradeEvt[]; subscribe: (m: string[]) => void; desk: DeskCtx; deskTick: number; vaultV: number; onRenounce: (v: K.VaultPub) => void; onRedeem: (c: D.Coin, tokens: number, decimals: number) => void; onDeposit: (v: K.VaultPub, sol: number, tokens: number, decimals: number) => void; onMode: (v: K.VaultPub, m: 'floor' | 'mm', c: number) => void; go: (p: string) => void; ordersV: number; bumpOrders: () => void }
+  onBuy: (c: D.Coin, sol: number) => void; onSell: (c: D.Coin, frac: number) => Promise<void>; quickSol: number; watch: string[]; toggleWatch: (m: string) => void; needWallet: () => void; trades: TradeEvt[]; subscribe: (m: string[]) => void; desk: DeskCtx; deskTick: number; vaultV: number; onRenounce: (v: K.VaultPub) => void; onRedeem: (c: D.Coin, tokens: number, decimals: number) => void; onDeposit: (v: K.VaultPub, sol: number, tokens: number, decimals: number) => void; onMode: (v: K.VaultPub, m: 'floor' | 'mm', c: number) => void; onSwitch: (from: D.Coin, toMint: string, toSymbol: string) => void; go: (p: string) => void; ordersV: number; bumpOrders: () => void }
 
 function Orders({ c, owner, held, ordersV, bump }: { c: D.Coin; owner: string; held: number; ordersV: number; bump: () => void }) {
   const [type, setType] = useState<'tp' | 'sl'>('tp'); const [mult, setMult] = useState(2); const [frac, setFrac] = useState(0.5)
@@ -47,6 +50,9 @@ export default function CoinPage(p: Props) {
   }
   const [vault, setVault] = useState<K.VaultPub | null | undefined>(undefined)
   useEffect(() => { const f = () => K.vaultByMint(p.mint).then(setVault).catch(() => setVault(null)); f(); const i = setInterval(f, 8000); return () => clearInterval(i) }, [p.mint, p.vaultV])
+  const { connection } = useConnection(); const [rug, setRug] = useState<RugCheck | null | undefined>(undefined); const [fam, setFam] = useState<K.Family | null>(null)
+  useEffect(() => { K.family(p.mint).then(setFam).catch(() => setFam(null)) }, [p.mint, p.vaultV])
+  useEffect(() => { setRug(undefined); rugCheck(connection, p.mint, vault?.pub).then(setRug).catch(() => setRug(null)) }, [p.mint, vault?.pub])
   useEffect(() => { setCoin(p.coin) }, [p.coin])
   useEffect(() => {
     let on = true; p.subscribe([p.mint])
@@ -76,6 +82,17 @@ export default function CoinPage(p: Props) {
       <div className="tile"><div className="l">Volume 24h</div><div className="v"><Mc v={c.vol24} /></div><div className="s num"><span className="up">{c.buys24}</span> / <span className="dn">{c.sells24}</span> txns</div></div>
       <div className="tile"><div className="l">Your position</div><div className="v num">{held ? S(valSol) + ' SOL' : '—'}</div><div className="s num">{held ? `${held.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${c.symbol}` : 'not holding'}{cost ? <> · <span className={pnl >= 0 ? 'up' : 'dn'}>{pnl >= 0 ? '+' : ''}{S(pnl)} SOL</span></> : null}</div></div>
     </div>
+    {(() => { const sg = classify(featsFromCoin(c, rug || null, !!vault)); return <div className="card" style={{ marginBottom: 10, padding: '8px 12px' }}><div className="row" style={{ gap: 8, flexWrap: 'wrap', fontSize: 12 }}><span className={'tag ' + labelTone(sg.label)}>{sg.label}</span><span className="dim">run {sg.score} · risk {sg.risk}</span><span className="dim">·</span><span className="dim" style={{ flex: 1, minWidth: 200 }}>{sg.reasons.slice(0, 4).join(' · ')}</span>{fam && fam.members.length > 1 && (() => { const leader = fam.members.find((m) => m.leader); return leader && leader.mint !== p.mint ? <button className="btn sm pri" disabled={!!p.busy || !held} onClick={() => p.onSwitch(c, leader.mint, leader.symbol)}>Switch → {leader.symbol} (leader)</button> : <span className="tag live">LEADER</span> })()}</div></div> })()}
+    {rug !== undefined && <div className="row" style={{ marginBottom: 10, gap: 8, flexWrap: 'wrap', fontSize: 12 }}>
+      {rug === null ? <span className="dim">rug check unavailable</span> : <>
+        <span className={'tag ' + (rug.mintAuthority ? 'pre' : 'live')}>{rug.mintAuthority ? 'MINT AUTHORITY ON' : 'mint revoked'}</span>
+        <span className={'tag ' + (rug.freezeAuthority ? 'pre' : 'live')}>{rug.freezeAuthority ? 'FREEZE ON' : 'freeze revoked'}</span>
+        <span className={'tag ' + (rug.top1Pct > 20 ? 'pre' : '')}>top holder {rug.top1Pct.toFixed(1)}%</span>
+        <span className={'tag ' + (rug.top10Pct > 60 ? 'pre' : '')}>top 10 {rug.top10Pct.toFixed(0)}%</span>
+        {vault && <span className="tag live">vault {(rug.holders.find((h) => h.address === vault.pub)?.pct || 0).toFixed(1)}%</span>}
+        <span className="dim">· largest accounts incl. pools</span>
+      </>}
+    </div>}
     <div className="lay">
       <div>
         <div className="chart">{c.pair ? <iframe src={D.chartUrl(c.pair)} title="chart" allow="clipboard-write" /> : <div className="empty">No chart yet</div>}</div>
@@ -116,7 +133,7 @@ export default function CoinPage(p: Props) {
                     <div className="kv"><span>Route</span><b>{c.onCurve ? 'pump.fun curve · PumpPortal' : 'Jupiter aggregator'}</b></div>
           <button className="btn big sell" disabled={!!p.busy || (p.connected && !held)} onClick={() => p.connected ? smartSell() : p.needWallet()}>{p.busy || (!p.connected ? 'Connect wallet' : !held ? 'Nothing to sell' : `Sell ${Math.round(frac * 100)}%`)}</button>
           {route && <div className="nm">{route}</div>}
-          {held > 0 && !c.onCurve && <button className="btn" style={{ width: '100%', fontSize: 12, fontWeight: 500 }} onClick={() => setSb(true)}>Sell a block on the desk → set max loss, shop for buyers</button>}
+          {held > 0 && !c.onCurve && <button className="btn" style={{ width: '100%', fontSize: 12, fontWeight: 500 }} onClick={() => setSb(true)}>OTC · sell a block off-chart</button>}
           <Orders c={c} owner={p.desk.owner} held={held} ordersV={p.ordersV} bump={p.bumpOrders} />
         </>}
         <div className="nm">Non-custodial · slippage &amp; priority in Settings · curve trades carry PumpPortal's 0.5%.</div>
