@@ -11,14 +11,26 @@ export async function holdings(conn: Connection, owner: PublicKey): Promise<Hold
   }
   return out
 }
+/** Helius priority-fee estimate (falls back to the configured fee on any other RPC) */
+export async function priorityFee(conn: Connection, fallbackSol: number): Promise<number> {
+  try {
+    const ep = (conn as any)._rpcEndpoint as string; if (!/helius/.test(ep)) return fallbackSol
+    const r = await fetch(ep, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getPriorityFeeEstimate', params: [{ options: { priorityLevel: 'High' } }] }) })
+    const d = await r.json(); const microLamportsPerCu = d?.result?.priorityFeeEstimate; if (!microLamportsPerCu) return fallbackSol
+    const sol = (microLamportsPerCu * 200_000) / 1e6 / 1e9; return Math.min(0.01, Math.max(0.0001, sol))
+  } catch { return fallbackSol }
+}
+let bhCache: { bh: string; t: number } | null = null
+export async function warmBlockhash(conn: Connection) { try { const b = await conn.getLatestBlockhash('confirmed'); bhCache = { bh: b.blockhash, t: Date.now() }; return b.blockhash } catch { return bhCache?.bh } }
 export async function sendAndConfirm(conn: Connection, tx: VersionedTransaction, signTx: (t: VersionedTransaction) => Promise<VersionedTransaction>, onStatus?: (s: string) => void) {
   onStatus?.('Waiting for your signature…')
   const signed = await signTx(tx)
   onStatus?.('Sending…')
-  const sig = await conn.sendRawTransaction(signed.serialize(), { skipPreflight: false, maxRetries: 3 })
-  onStatus?.('Confirming…')
-  await confirmByPolling(conn, sig)
-  return sig
+  const raw = signed.serialize()
+  const sig = await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0, preflightCommitment: 'confirmed' })
+  // re-broadcast a few times while confirming — the cheap way to beat dropped txs without a Jito bundle
+  const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 2000); setTimeout(() => clearInterval(rb), 20000)
+  try { onStatus?.('Confirming…'); await confirmByPolling(conn, sig); return sig } finally { clearInterval(rb) }
 }
 /** Poll signature status (no websocket dependency). Throws on on-chain error or ~60s timeout. */
 export async function confirmByPolling(conn: Connection, sig: string, timeoutMs = 60000) {

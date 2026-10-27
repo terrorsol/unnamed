@@ -4,17 +4,18 @@ import { Pfp, Ch, Mc, Status, Addr } from './ui'
 import { F, S, ago, pct } from '../lib/fmt'
 import { flipFee, FLIP_WINDOW_MIN, vaultPct, deskOpen, deskMinBlock } from '../lib/protocol'
 import type { Holding } from '../lib/rpc'
-import type { Lot } from '../lib/positions'
+import type { Lot, Fill } from '../lib/positions'
 import type { TradeEvt } from '../lib/pumpportal'
 import { CoinDesk, CoinVault, VaultExtras, VaultDeposit, SellBlock, type DeskCtx } from './Desk'
 import { loadOrders, addOrder, removeOrder } from '../lib/orders'
+import Chart from './Chart'
 import { rugCheck, type RugCheck } from '../lib/rpc'
 import { classify, featsFromCoin, labelTone } from '../lib/signal'
 import { useConnection } from '@solana/wallet-adapter-react'
 import * as K from '../lib/desk'
 
 type Props = { mint: string; coin?: D.Coin; solPrice: number; holding?: Holding; lot?: Lot; sol: number | null; connected: boolean; busy: string
-  onBuy: (c: D.Coin, sol: number) => void; onSell: (c: D.Coin, frac: number) => Promise<void>; quickSol: number; watch: string[]; toggleWatch: (m: string) => void; needWallet: () => void; trades: TradeEvt[]; subscribe: (m: string[]) => void; desk: DeskCtx; deskTick: number; vaultV: number; onRenounce: (v: K.VaultPub) => void; onRedeem: (c: D.Coin, tokens: number, decimals: number) => void; onDeposit: (v: K.VaultPub, sol: number, tokens: number, decimals: number) => void; onMode: (v: K.VaultPub, m: 'floor' | 'mm', c: number) => void; onSwitch: (from: D.Coin, toMint: string, toSymbol: string) => void; go: (p: string) => void; ordersV: number; bumpOrders: () => void }
+  onBuy: (c: D.Coin, sol: number) => void; onSell: (c: D.Coin, frac: number) => Promise<void>; quickSol: number; watch: string[]; toggleWatch: (m: string) => void; needWallet: () => void; trades: TradeEvt[]; subscribe: (m: string[]) => void; desk: DeskCtx; deskTick: number; vaultV: number; onRenounce: (v: K.VaultPub) => void; onRedeem: (c: D.Coin, tokens: number, decimals: number) => void; onDeposit: (v: K.VaultPub, sol: number, tokens: number, decimals: number) => void; onMode: (v: K.VaultPub, m: 'floor' | 'mm', c: number) => void; onSwitch: (from: D.Coin, toMint: string, toSymbol: string) => void; go: (p: string) => void; ordersV: number; bumpOrders: () => void; fills: Fill[] }
 
 function Orders({ c, owner, held, ordersV, bump }: { c: D.Coin; owner: string; held: number; ordersV: number; bump: () => void }) {
   const [type, setType] = useState<'tp' | 'sl'>('tp'); const [mult, setMult] = useState(2); const [frac, setFrac] = useState(0.5)
@@ -95,7 +96,7 @@ export default function CoinPage(p: Props) {
     </div>}
     <div className="lay">
       <div>
-        <div className="chart">{c.pair ? <iframe src={D.chartUrl(c.pair)} title="chart" allow="clipboard-write" /> : <div className="empty">No chart yet</div>}</div>
+        <Chart coin={c} solPrice={p.solPrice} vault={vault} fills={p.fills} lot={p.lot} orders={loadOrders(p.desk.owner)} trades={p.trades} owner={p.desk.owner} />
         <div className="card" style={{ marginTop: 12 }}>
           <h3><span className="seg" style={{ marginLeft: -4 }}><button className={tab === 'trades' ? 'on' : ''} onClick={() => setTab('trades')}>Trades</button><button className={tab === 'desk' ? 'on' : ''} onClick={() => setTab('desk')}>Desk</button><button className={tab === 'vault' ? 'on' : ''} onClick={() => setTab('vault')}>Vault {vault && <span className="tag live" style={{ marginLeft: 4 }}>ON</span>}</button><button className={tab === 'protocol' ? 'on' : ''} onClick={() => setTab('protocol')}>Rules</button></span></h3>
           {tab === 'trades' ? <div className="feed">{myTrades.map((t, i) => <div className="it" key={i}><span className={t.txType === 'buy' ? 'up' : 'dn'} style={{ width: 40, fontWeight: 600 }}>{t.txType.toUpperCase()}</span><span className="num" style={{ width: 90 }}>{S(t.sol, 3)} SOL</span><span className="num dim" style={{ width: 110 }}>{F(t.mcapSol * p.solPrice)} mc</span><span className="dim num" style={{ flex: 1 }}>{t.trader.slice(0, 4)}…{t.trader.slice(-4)}</span><span className="nm">{ago(t.ts)}</span></div>)}
@@ -121,7 +122,7 @@ export default function CoinPage(p: Props) {
           <div className="inp"><input value={amt} onChange={(e) => setAmt(e.target.value)} inputMode="decimal" placeholder="0.0" /><span>SOL</span></div>
           <div className="kv"><span>Balance</span><b className="num">{p.sol == null ? '—' : S(p.sol) + ' SOL'}</b></div>
           <div className="kv"><span>≈ USD</span><b className="num">${S(n * p.solPrice, 2)}</b></div>
-          <div className="kv"><span>Route</span><b>{c.onCurve ? 'pump.fun curve · PumpPortal' : 'Jupiter aggregator'}</b></div>
+          <div className="kv"><span>Route</span><b>{c.onCurve ? 'pump.fun curve · direct' : 'Jupiter best route · Jito tip'}</b></div>
           <div className="kv"><span>Est. tokens</span><b className="num">{c.priceUsd ? ((n * p.solPrice) / c.priceUsd).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'}</b></div>
           <button className="btn pri big" disabled={!!p.busy || (p.connected && (n <= 0 || (p.sol != null && n > p.sol - 0.005)))} onClick={() => p.connected ? p.onBuy(c, n) : p.needWallet()}>{p.busy || (!p.connected ? 'Connect wallet' : `Buy ${c.symbol}`)}</button>
         </> : <>

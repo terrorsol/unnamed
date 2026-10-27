@@ -2,15 +2,16 @@
 import { Connection, PublicKey, VersionedTransaction } from '@solana/web3.js'
 import * as J from './jupiter'
 import * as P from './pumpportal'
-import { sendAndConfirm } from './rpc'
+import { sendAndConfirm, priorityFee } from './rpc'
 import { SOL_MINT, LAMPORTS } from './fmt'
 import type { Settings } from './store'
 
 export type Signer = (t: VersionedTransaction) => Promise<VersionedTransaction>
 export type Ctx = { conn: Connection; owner: PublicKey; sign: Signer; settings: Settings; onStatus?: (s: string) => void }
 
+async function fee(ctx: Ctx) { return ctx.settings.autoFee ? priorityFee(ctx.conn, ctx.settings.priorityFeeSol) : ctx.settings.priorityFeeSol }
 export async function buy(ctx: Ctx, mint: string, sol: number, onCurve: boolean): Promise<string> {
-  const { conn, owner, sign, settings, onStatus } = ctx
+  const { conn, owner, sign, onStatus } = ctx; const settings = { ...ctx.settings, priorityFeeSol: await fee(ctx) }
   const pk = owner.toBase58()
   const slipPct = settings.slippageBps / 100
   if (onCurve) {
@@ -22,7 +23,7 @@ export async function buy(ctx: Ctx, mint: string, sol: number, onCurve: boolean)
     onStatus?.('Quoting on Jupiter…')
     const q = await J.quote(SOL_MINT, mint, Math.floor(sol * LAMPORTS), settings.slippageBps)
     onStatus?.('Building swap…')
-    const tx = await J.buildSwap(q, pk, Math.floor(settings.priorityFeeSol * LAMPORTS))
+    const tx = await J.buildSwap(q, pk, Math.floor(settings.priorityFeeSol * LAMPORTS), settings.mev ? Math.floor(settings.jitoTipSol * LAMPORTS) : 0)
     return await sendAndConfirm(conn, tx, sign, onStatus)
   } catch (e: any) {
     if (/signature|reject|user/i.test(String(e?.message))) throw e
@@ -34,7 +35,7 @@ export async function buy(ctx: Ctx, mint: string, sol: number, onCurve: boolean)
 
 /** frac 0..1 of current holding; rawAmount = integer token units held */
 export async function sell(ctx: Ctx, mint: string, frac: number, rawAmount: bigint, onCurve: boolean): Promise<string> {
-  const { conn, owner, sign, settings, onStatus } = ctx
+  const { conn, owner, sign, onStatus } = ctx; const settings = { ...ctx.settings, priorityFeeSol: await fee(ctx) }
   const pk = owner.toBase58()
   const slipPct = settings.slippageBps / 100
   const pct = Math.round(frac * 100)
@@ -48,7 +49,7 @@ export async function sell(ctx: Ctx, mint: string, frac: number, rawAmount: bigi
     onStatus?.('Quoting on Jupiter…')
     const q = await J.quote(mint, SOL_MINT, amt, settings.slippageBps)
     onStatus?.('Building swap…')
-    const tx = await J.buildSwap(q, pk, Math.floor(settings.priorityFeeSol * LAMPORTS))
+    const tx = await J.buildSwap(q, pk, Math.floor(settings.priorityFeeSol * LAMPORTS), settings.mev ? Math.floor(settings.jitoTipSol * LAMPORTS) : 0)
     return await sendAndConfirm(conn, tx, sign, onStatus)
   } catch (e: any) {
     if (/signature|reject|user/i.test(String(e?.message))) throw e

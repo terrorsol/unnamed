@@ -6,9 +6,10 @@ export async function quote(inputMint: string, outputMint: string, amount: numbe
   const u = `${BASE}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}&restrictIntermediateTokens=true`
   const r = await fetch(u); if (!r.ok) throw new Error('jupiter quote: ' + (await r.text().catch(() => r.status))); return r.json()
 }
-export async function buildSwap(q: Quote, userPublicKey: string, priorityFeeLamports: number): Promise<VersionedTransaction> {
+export async function buildSwap(q: Quote, userPublicKey: string, priorityFeeLamports: number, jitoTipLamports = 0): Promise<VersionedTransaction> {
+  const prio = jitoTipLamports > 0 ? { jitoTipLamports } : { priorityLevelWithMaxLamports: { maxLamports: Math.max(1000, priorityFeeLamports), priorityLevel: 'high' } }
   const r = await fetch(`${BASE}/swap`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ quoteResponse: q, userPublicKey, wrapAndUnwrapSol: true, dynamicComputeUnitLimit: true, dynamicSlippage: false, prioritizationFeeLamports: { priorityLevelWithMaxLamports: { maxLamports: Math.max(1000, priorityFeeLamports), priorityLevel: 'high' } } }) })
+    body: JSON.stringify({ quoteResponse: q, userPublicKey, wrapAndUnwrapSol: true, dynamicComputeUnitLimit: true, dynamicSlippage: false, prioritizationFeeLamports: prio }) })
   if (!r.ok) throw new Error('jupiter swap: ' + (await r.text().catch(() => r.status)))
   const d = await r.json()
   return VersionedTransaction.deserialize(Buffer.from(d.swapTransaction, 'base64'))
