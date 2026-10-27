@@ -71,12 +71,14 @@ export default function CoinPage(p: Props) {
             : tab === 'desk' ? <CoinDesk mint={p.mint} symbol={c.symbol} d={p.desk} key={p.deskTick} />
             : tab === 'vault' ? <><CoinVault mint={p.mint} v={vault} isDev={!!vault && vault.dev === p.desk.owner} onRenounce={() => vault && p.onRenounce(vault)} solPrice={p.solPrice} />{vault && <div className="panel" style={{ paddingTop: 0 }}><VaultExtras mint={p.mint} v={vault} holdingUi={held} decimals={p.holding?.decimals ?? 6} connected={p.connected} busy={p.busy} onRedeem={(t) => p.onRedeem(c, t, p.holding?.decimals ?? 6)} go={p.go} solPrice={p.solPrice} needWallet={p.needWallet} /></div>}</>
             : <div className="panel" style={{ gap: 8 }}>
-              <div className="note"><b>How this coin would run on UNNAMED.</b> These rules are computed live from the market data; they become enforced on-chain when the programs ship. Nothing below changes what your wallet does today.</div>
-              <div className="kv"><span>Vault (block-zero stake → supply)</span><b className="num">e.g. 1 SOL → {S(vaultPct(1), 1)}% · 3.1 SOL → 10% cap</b></div>
-              <div className="kv"><span>Early-flip fee right now (your lot)</span><b className="num">{p.lot ? `${pct((8 * Math.max(0, 1 - heldMin / FLIP_WINDOW_MIN)))} of profit · ${Math.max(0, FLIP_WINDOW_MIN - heldMin).toFixed(0)} min left` : 'no position'}</b></div>
-              <div className="kv"><span>Desk</span><b>{deskOpen(!c.onCurve, c.mcap) ? `open · min block ${S(deskMinBlock(c.liq / 2 / (p.solPrice || 1)), 2)} SOL` : 'closed (needs graduated + $100K mc)'}</b></div>
-              <div className="kv"><span>Per-wallet cap</span><b>2.5% of supply (curve phase)</b></div>
-              <div className="kv"><span>Burn-to-redeem</span><b>pro-rata on vault chest, 7% haircut</b></div>
+              <div className="note"><b>Rules on this coin.</b> Green = enforced live. Amber = computed, not yet enforced (needs the on-chain program).</div>
+              <div className="kv"><span><span className="tag live">LIVE</span> Desk</span><b>{deskOpen(!c.onCurve, c.mcap) ? `open · min block ${S(deskMinBlock(c.liq / 2 / (p.solPrice || 1)), 2)} SOL · bids −3–5% · 60s rest · all-or-none` : 'closed until graduated + $100K mc'}</b></div>
+              <div className="kv"><span><span className={vault ? 'tag live' : 'tag'}>{vault ? 'LIVE' : 'NONE'}</span> Vault</span><b>{vault ? `${S(vault.chest)} SOL chest · ${vault.pct}% supply target · dip buys ≤40%/crash · trims above cost+VWAP` : 'not launched with a stake'}</b></div>
+              <div className="kv"><span><span className={vault ? 'tag live' : 'tag'}>{vault ? 'LIVE' : 'NONE'}</span> Burn-to-redeem</span><b>{vault ? 'pro-rata on chest · 7% haircut · max 25%/redeem' : '—'}</b></div>
+              <div className="kv"><span><span className={vault ? 'tag live' : 'tag'}>{vault ? 'LIVE' : 'NONE'}</span> Copies</span><b>{vault ? (vault.copyOf ? 'copy · half of cut streams to original' : `original · ${vault.copies?.length || 0} copies`) : '—'}</b></div>
+              <div className="kv"><span><span className="tag pre">PREVIEW</span> Early-flip fee</span><b className="num">{p.lot ? `${pct((8 * Math.max(0, 1 - heldMin / FLIP_WINDOW_MIN)))} of profit · ${Math.max(0, FLIP_WINDOW_MIN - heldMin).toFixed(0)} min left` : '8% → 0 over 30 min, losses free'}</b></div>
+              <div className="kv"><span><span className="tag pre">PREVIEW</span> Wallet cap</span><b>2.5% of supply during curve (own curve, v1)</b></div>
+              <div className="kv"><span><span className="tag pre">PREVIEW</span> Stake pricing</span><b className="num">1 SOL → {S(vaultPct(1), 1)}% · 3.1 SOL → 10% cap</b></div>
             </div>}
         </div>
       </div>
