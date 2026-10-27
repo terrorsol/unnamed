@@ -1,27 +1,42 @@
-name: Deploy to GitHub Pages
+name: Build and publish to gh-pages
 on:
-  push: { branches: [main] }
+  push:
+    branches: [main]
   workflow_dispatch:
-permissions: { contents: read, pages: write, id-token: write }
-concurrency: { group: pages, cancel-in-progress: true }
+permissions:
+  contents: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm, cache-dependency-path: app/package-lock.json }
-      - run: npm ci
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Install
         working-directory: app
-      - run: npm run build -- --base=/${{ github.event.repository.name }}/app/
+        run: npm ci
+      - name: Test
         working-directory: app
-      - run: mkdir -p site/app && cp -r app/dist/* site/app/ && cp demo/index.html site/index.html && cp demo/*.md site/ 2>/dev/null || true
-      - uses: actions/upload-pages-artifact@v3
-        with: { path: site }
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment: { name: github-pages, url: ${{ steps.deployment.outputs.page_url }} }
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+        run: npm test
+      - name: Build app
+        working-directory: app
+        run: npm run build -- --base=/unnamed/app/
+      - name: Assemble site
+        run: |
+          mkdir -p site/app
+          cp -r app/dist/* site/app/
+          cp demo/index.html site/index.html
+          cp demo/*.md site/ || true
+          touch site/.nojekyll
+      - name: Publish
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          force_orphan: true
