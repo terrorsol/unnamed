@@ -92,10 +92,15 @@ export default function App() {
     try { const { sig, sol } = await K.redeem(connection, activeB58, c.mint, tokens, decimals, signLegacy, setBusy); recordSell(ws.owner, c.mint, c.symbol, 0, sol, sig); setLedgerV((v) => v + 1); setVaultV((x) => x + 1); toast({ kind: 'ok', title: `Redeemed ${c.symbol} against the vault`, rows: [['Received', S(sol, 4) + ' SOL'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
     catch (e: any) { toast({ kind: 'err', title: 'Redeem failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
   }
-  const onClaim = async (mint: string) => {
+  const onClaim = async (mint: string, toVault?: K.VaultPub) => {
     const x = ctx(); if (!x) return needWallet()
-    try { const sig = await T.collectCreatorFee(x, mint); toast({ kind: 'ok', title: 'Creator fees claimed', rows: [['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
-    catch (e: any) { toast({ kind: 'err', title: 'Claim failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
+    try {
+      const before = await connection.getBalance(x.owner).then((b) => b / 1e9)
+      const sig = await T.collectCreatorFee(x, mint); const after = await connection.getBalance(x.owner).then((b) => b / 1e9); const got = Math.max(0, after - before)
+      toast({ kind: 'ok', title: `Creator fees claimed · ${S(got, 4)} SOL`, rows: [['Tx', short(sig, 6)]], href: solscan(sig) })
+      if (toVault && got > 0.01) { setBusy('Sending to chest…'); const { sig: s2, vault } = await K.depositToVault(connection, x.owner.toBase58(), toVault, +(got - 0.002).toFixed(4), 0, 6, signLegacy, setBusy); setVaultV((v) => v + 1); toast({ kind: 'ok', title: `${S(got - 0.002, 4)} SOL → ${vault.symbol} chest`, href: solscan(s2) }) }
+      setTimeout(() => setRk((k) => k + 1), 1500)
+    } catch (e: any) { toast({ kind: 'err', title: 'Claim failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
   }
   // TP/SL engine: check armed orders against live prices while the tab is open
   const [ordersV, setOrdersV] = useState(0); const firing = React.useRef(false); const tokRef = React.useRef(ws.tokens); tokRef.current = ws.tokens; const busyRef = React.useRef(busy); busyRef.current = busy; const sellRef = React.useRef<(c: Coin, f: number) => Promise<void>>(async () => {})

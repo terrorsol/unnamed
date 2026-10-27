@@ -9,7 +9,7 @@ type Props = { onClose: () => void; onLaunch: (m: CreateMeta, devBuy: number, st
 export default function Launch(p: Props) {
   const [name, setName] = useState(''); const [symbol, setSymbol] = useState(''); const [desc, setDesc] = useState(''); const [file, setFile] = useState<File | undefined>()
   const [tw, setTw] = useState(''); const [tg, setTg] = useState(''); const [web, setWeb] = useState('')
-  const [dev, setDev] = useState(0.5); const [stake, setStake] = useState(1); const [mode, setMode] = useState<'floor' | 'mm'>('mm'); const [ceiling, setCeiling] = useState(0.3)
+  const [dev, setDev] = useState(0.5); const [stake, setStake] = useState(1); const [mode, setMode] = useState<'floor' | 'mm'>('mm'); const [ceiling, setCeiling] = useState(0.3); const [adv, setAdv] = useState(false)
   const [cq, setCq] = useState(''); const [cres, setCres] = useState<D.Coin[]>([]); const [copyOf, setCopyOf] = useState<D.Coin | null>(null)
   React.useEffect(() => { if (!cq.trim() || copyOf) { setCres([]); return } const t = setTimeout(() => D.search(cq).then((r) => setCres(r.slice(0, 5))).catch(() => {}), 300); return () => clearTimeout(t) }, [cq, copyOf])
   const ok = name.trim().length > 1 && symbol.trim().length > 0 && symbol.length <= 10 && !!file
@@ -20,8 +20,10 @@ export default function Launch(p: Props) {
       <div className="fld"><div className="lbl">Name</div><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Glass Frog" maxLength={32} /></div>
       <div className="fld"><div className="lbl">Ticker</div><input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} placeholder="GLASS" maxLength={10} /></div>
     </div>
+    <div className="fld"><div className="lbl">Image</div><input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0])} /></div>
+    <button className="btn ghost" style={{ alignSelf: 'flex-start', height: 28, padding: 0 }} onClick={() => setAdv(!adv)}>{adv ? '− Hide advanced' : '+ Advanced (description, socials, copy-of, dev buy, mode)'}</button>
+    {adv && <>
     <div className="fld"><div className="lbl">Description</div><textarea value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="What is it" maxLength={500} /></div>
-    <div className="fld"><div className="lbl">Image (required by pump.fun)</div><input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0])} /></div>
     <div className="two" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
       <div className="fld"><div className="lbl">X / Twitter</div><input value={tw} onChange={(e) => setTw(e.target.value)} placeholder="https://x.com/…" /></div>
       <div className="fld"><div className="lbl">Telegram</div><input value={tg} onChange={(e) => setTg(e.target.value)} placeholder="https://t.me/…" /></div>
@@ -32,10 +34,11 @@ export default function Launch(p: Props) {
         : <><input value={cq} onChange={(e) => setCq(e.target.value)} placeholder="search ticker or mint of the original" />{cres.length > 0 && <div className="card" style={{ marginTop: 4 }}>{cres.map((c) => <div key={c.mint} className="it row" style={{ padding: '7px 10px', cursor: 'pointer', borderBottom: '1px solid var(--line)' }} onClick={() => { setCopyOf(c); setCres([]) }}><b>{c.symbol}</b><span className="nm">{c.name.slice(0, 24)}</span><span className="sp" /><span className="dim num">{c.mcap ? '$' + Math.round(c.mcap / 1000) + 'K' : ''}</span></div>)}</div>}</>}
     </div>
     <div className="fld"><div className="lbl">Dev buy (block zero) — <b className="num">{S(dev, 2)} SOL</b></div><input type="range" className="slider" min={0} max={5} step={0.05} value={dev} onChange={(e) => setDev(+e.target.value)} /></div>
+    </>}
     <div className="note"><div className="row"><b>Vault stake</b><span className="tag live">LIVE · bot</span><span className="sp" /><b className="num">{S(stake, 2)} SOL → {S(vaultPct(stake), 1)}% supply</b></div>
       <input type="range" className="slider" min={0} max={5} step={0.05} value={stake} onChange={(e) => setStake(+e.target.value)} style={{ marginTop: 6 }} />
       <div className="nm" style={{ marginTop: 4 }}>Half buys block-zero supply, half is the chest. Cut = vaulted %, renounceable. 0 = plain pump launch.</div>
-      {stake > 0 && <div style={{ marginTop: 8 }}><ModePicker mode={mode} ceiling={ceiling} onChange={(m, c) => { setMode(m); setCeiling(c) }} /></div>}</div>
+      {stake > 0 && adv && <div style={{ marginTop: 8 }}><ModePicker mode={mode} ceiling={ceiling} onChange={(m, c) => { setMode(m); setCeiling(c) }} compact /></div>}{stake > 0 && !adv && <div className="nm">Market maker · capture ceiling {Math.round(ceiling * 100)}%</div>}</div>
     <div className="kv"><span>Cost now</span><b className="num">{S(total, 2)} SOL (dev buy + vault stake + ~0.02 fees)</b></div>
     <div className="kv"><span>Wallet</span><b className="num">{p.sol == null ? '—' : S(p.sol) + ' SOL'}</b></div>
     <div className="row"><button className="btn" onClick={p.onClose}>Cancel</button><span className="sp" />

@@ -3,6 +3,7 @@ import { Keypair } from '@solana/web3.js'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import * as B from '../lib/burner'
+import QR from 'qrcode'
 import { S, short } from '../lib/fmt'
 import { toast } from '../lib/store'
 
@@ -11,7 +12,8 @@ export default function WalletPanel(p: Props) {
   const w = useWallet()
   const [pw, setPw] = useState(''); const [pw2, setPw2] = useState(''); const [imp, setImp] = useState(''); const [showImp, setShowImp] = useState(false)
   const [secret, setSecret] = useState(''); const [to, setTo] = useState(''); const [amt, setAmt] = useState(''); const [busy, setBusy] = useState(false)
-  const has = B.hasBurner()
+  const has = B.hasBurner(); const [qr, setQr] = useState('')
+  React.useEffect(() => { if (p.burner) QR.toDataURL(p.burner.publicKey.toBase58(), { margin: 1, width: 180, color: { dark: '#f3f2ec', light: '#141412' } }).then(setQr).catch(() => {}) }, [p.burner])
   const run = async (f: () => Promise<void>) => { setBusy(true); try { await f() } catch (e: any) { toast({ kind: 'err', title: String(e?.message || e) }) } finally { setBusy(false) } }
   const copy = (t: string) => navigator.clipboard?.writeText(t).then(() => toast({ kind: 'ok', title: 'Copied' })).catch(() => {})
   return <div className="modal" onClick={p.onClose}><div className="box" onClick={(e) => e.stopPropagation()}>
@@ -31,7 +33,7 @@ export default function WalletPanel(p: Props) {
       <div className="row"><button className="btn ghost dn" onClick={() => { if (confirmRemove()) { B.removeBurner(); p.setBurner(null); p.onClose() } }}>Forget wallet</button><span className="sp" /><button className="btn pri" disabled={busy || !pw} onClick={() => run(async () => p.setBurner(await B.unlockBurner(pw)))}>Unlock</button></div>
     </> : <>
       <div className="tiles" style={{ gridTemplateColumns: '1fr 1fr' }}><div className="tile"><div className="l">Balance</div><div className="v num">{p.sol == null ? '…' : S(p.sol) + ' SOL'}</div></div><div className="tile"><div className="l">Address · tap to copy</div><div className="v num" style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => copy(p.burner!.publicKey.toBase58())}>{p.burner.publicKey.toBase58()}</div></div></div>
-      <div className="nm">Send SOL to the address above. Hot wallet — keep it small.</div>
+      <div className="row" style={{ alignItems: 'flex-start' }}>{qr && <img src={qr} alt="deposit QR" style={{ width: 120, height: 120, borderRadius: 8, border: '1px solid var(--line)' }} />}<div className="nm" style={{ paddingTop: 4 }}>Scan from Phantom to deposit. Hot wallet — keep it small.</div></div>
       <div className="fld"><div className="lbl">Withdraw</div><div className="two"><input value={to} onChange={(e) => setTo(e.target.value)} placeholder="destination address" style={{ background: 'var(--s2)', border: '1px solid var(--line)', borderRadius: 8, padding: '9px 11px' }} /><div className="row"><input value={amt} onChange={(e) => setAmt(e.target.value)} placeholder="SOL" inputMode="decimal" style={{ background: 'var(--s2)', border: '1px solid var(--line)', borderRadius: 8, padding: '9px 11px', width: 90 }} /><button className="btn" disabled={busy || !to || !(+amt > 0)} onClick={() => run(() => p.onWithdraw(to, +amt))}>Send</button><button className="btn ghost" onClick={() => setAmt(String(Math.max(0, (p.sol || 0) - 0.001).toFixed(4)))}>max</button></div></div></div>
       <div className="row"><button className="btn ghost" onClick={() => setSecret(secret ? '' : B.exportSecret(p.burner!))}>{secret ? 'Hide key' : 'Export private key'}</button><button className="btn ghost" onClick={() => p.setBurner(null)}>Lock</button><span className="sp" /><button className="btn ghost dn" onClick={() => { if (confirmRemove()) { B.removeBurner(); p.setBurner(null); p.onClose() } }}>Forget wallet</button></div>
       {secret && <div className="note"><div className="num" style={{ wordBreak: 'break-all', cursor: 'pointer' }} onClick={() => copy(secret)}>{secret}</div><div style={{ marginTop: 6, color: 'var(--dn)' }}>Anyone with this key owns the funds. Tap to copy, store offline, then hide.</div></div>}

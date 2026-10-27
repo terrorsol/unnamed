@@ -8,6 +8,16 @@ import { solscan } from '../lib/rpc'
 import type { Settings } from '../lib/store'
 import { flipFee, FLIP_WINDOW_MIN } from '../lib/protocol'
 
+function pnlCard(symbol: string, pnlSol: number, pct: number, held: string, solPrice: number) {
+  const c = document.createElement('canvas'); c.width = 1200; c.height = 630; const x = c.getContext('2d')!
+  x.fillStyle = '#0d0d0c'; x.fillRect(0, 0, 1200, 630); x.fillStyle = 'rgba(246,245,240,.07)'; x.fillRect(0, 0, 1200, 4)
+  x.fillStyle = '#f3f2ec'; x.font = '700 34px Geist, sans-serif'; x.fillText('UNNAMED', 72, 90); x.fillStyle = 'rgba(243,242,236,.44)'; x.font = '500 26px Geist, sans-serif'; x.fillText('vaulted memecoin terminal', 240, 90)
+  x.fillStyle = 'rgba(243,242,236,.66)'; x.font = '600 44px Geist, sans-serif'; x.fillText(symbol, 72, 220)
+  x.fillStyle = pnlSol >= 0 ? '#3ecf8e' : '#f0556b'; x.font = '700 150px Geist, sans-serif'; x.fillText((pct >= 0 ? '+' : '') + pct.toFixed(0) + '%', 72, 380)
+  x.fillStyle = '#f3f2ec'; x.font = '600 48px Geist, sans-serif'; x.fillText((pnlSol >= 0 ? '+' : '') + pnlSol.toFixed(2) + ' SOL  ·  $' + (Math.abs(pnlSol * solPrice)).toFixed(0), 72, 470)
+  x.fillStyle = 'rgba(243,242,236,.44)'; x.font = '500 28px Geist, sans-serif'; x.fillText(held + ' · held ' + new Date().toLocaleDateString(), 72, 560)
+  return c.toDataURL('image/png')
+}
 export function Portfolio({ sol, tokens, coins, lots, fills, solPrice, go, owner }: { sol: number | null; tokens: Holding[]; coins: Record<string, Coin>; lots: Record<string, Lot>; fills: Fill[]; solPrice: number; go: (p: string) => void; owner: string }) {
   if (!owner) return <div className="empty">Connect or unlock a wallet to see holdings</div>
   const rows = tokens.map((t) => { const c = coins[t.mint]; const val = c ? t.amount * c.priceUsd : 0; return { t, c, val, lot: lots[t.mint] } }).sort((a, b) => b.val - a.val)
@@ -21,7 +31,7 @@ export function Portfolio({ sol, tokens, coins, lots, fills, solPrice, go, owner
       <div className="tile"><div className="l">Fills recorded</div><div className="v num">{fills.length}</div><div className="s">this browser</div></div>
     </div>
     <div className="lay">
-      <div className="card"><h3>Holdings</h3><div style={{ overflowX: 'auto' }}><table><thead><tr><th>Token</th><th className="r">Amount</th><th className="r">Value</th><th className="r">Cost</th><th className="r">P&amp;L</th><th className="r">Held</th><th className="r">Flip fee now</th><th className="r">24h</th></tr></thead>
+      <div className="card"><h3>Holdings</h3><div style={{ overflowX: 'auto' }}><table><thead><tr><th>Token</th><th className="r">Amount</th><th className="r">Value</th><th className="r">Cost</th><th className="r">P&amp;L</th><th className="r">Held</th><th className="r">24h</th><th className="r"></th></tr></thead>
         <tbody>{rows.length === 0 && <tr><td colSpan={8} className="empty">No SPL tokens found</td></tr>}
           {rows.map(({ t, c, val, lot }) => { const vs = solPrice ? val / solPrice : 0; const pnl = lot ? vs - lot.costSol : 0; const hm = lot ? (Date.now() - lot.t) / 60000 : 999; const fee = flipFee(pnl, hm)
             return <tr key={t.mint} onClick={() => go('coin/' + t.mint)}>
@@ -31,8 +41,8 @@ export function Portfolio({ sol, tokens, coins, lots, fills, solPrice, go, owner
               <td className="r num">{lot ? S(lot.costSol) + ' SOL' : <span className="dim">—</span>}</td>
               <td className={'r num ' + (lot ? (pnl >= 0 ? 'up' : 'dn') : 'dim')}>{lot ? (pnl >= 0 ? '+' : '') + S(pnl) + ' SOL' : '—'}</td>
               <td className="r num dim">{lot ? ago(lot.t) : '—'}</td>
-              <td className="r num">{lot ? (fee > 0 ? <span className="gold">{S(fee, 4)} SOL · {Math.max(0, FLIP_WINDOW_MIN - hm).toFixed(0)}m</span> : <span className="dim">0</span>) : '—'}</td>
-              <td className="r">{c ? <Ch v={c.ch24} /> : '—'}</td></tr> })}</tbody></table></div></div>
+              <td className="r">{c ? <Ch v={c.ch24} /> : '—'}</td>
+              <td className="r">{lot && c ? <button className="btn sm" onClick={(e) => { e.stopPropagation(); const url = pnlCard(c.symbol, pnl, lot.costSol ? (pnl / lot.costSol) * 100 : 0, t.amount.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' ' + c.symbol, solPrice); const w = window.open(); if (w) { w.document.write('<body style="margin:0;background:#000"><img src="' + url + '" style="max-width:100%"></body>') } }}>Share</button> : null}</td></tr> })}</tbody></table></div></div>
       <div className="card"><h3>History</h3><div className="feed">{fills.map((f) => <div className="it" key={f.sig}><span className={f.side === 'sell' ? 'dn' : 'up'} style={{ width: 52, fontWeight: 600 }}>{f.side.toUpperCase()}</span><span className="tk" style={{ width: 70 }}>{f.symbol}</span><span className="num" style={{ flex: 1 }}>{S(f.sol)} SOL</span><a className="dim" href={solscan(f.sig)} target="_blank" rel="noreferrer">{ago(f.t)} ↗</a></div>)}{!fills.length && <div className="empty">Your trades from this app appear here</div>}</div></div>
     </div>
   </>

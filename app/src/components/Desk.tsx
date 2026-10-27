@@ -127,7 +127,7 @@ export function VaultExtras({ mint, v, holdingUi, decimals, connected, busy, onR
   </>
 }
 
-export function MinePage({ owner, go, solPrice, onRenounce, onClaim, busy }: { owner: string; go: (p: string) => void; solPrice: number; onRenounce: (v: K.VaultPub) => void; onClaim: (mint: string) => void; busy: string }) {
+export function MinePage({ owner, go, solPrice, onRenounce, onClaim, busy }: { owner: string; go: (p: string) => void; solPrice: number; onRenounce: (v: K.VaultPub) => void; onClaim: (mint: string, toVault?: K.VaultPub) => void; busy: string }) {
   const [list, setList] = useState<K.VaultPub[] | null>(null); const [err, setErr] = useState('')
   useEffect(() => { if (!owner) return; const f = () => K.devVaults(owner).then((l) => { setList(l); setErr('') }).catch((e) => setErr(String(e.message || e))); f(); const i = setInterval(f, 10000); return () => clearInterval(i) }, [owner])
   if (!owner) return <div className="empty">Connect a wallet to see your launches</div>
@@ -143,7 +143,7 @@ export function MinePage({ owner, go, solPrice, onRenounce, onClaim, busy }: { o
       {(!list || !list.length) && <tr><td colSpan={7} className="empty">{err ? 'Server unreachable: ' + err : 'No launches from this wallet yet. Hit Launch — set a stake and the vault is yours.'}</td></tr>}
       {list?.map((v) => <tr key={v.id}><td className="tk" style={{ cursor: v.mint ? 'pointer' : 'default' }} onClick={() => v.mint && go('coin/' + v.mint)}>{v.symbol || '(unfunded)'} {v.copyOf && <span className="tag">COPY</span>} {!v.armed && <span className="tag pre">AWAITING STAKE</span>}<div className="nm">{v.mint ? short(v.mint, 4) : 'send ' + v.stakeSol + ' SOL to ' + short(v.pub, 4)}</div></td>
         <td className="r num">{S(v.chest)} SOL</td><td className="r num">{v.tokens.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td><td className="r num">{v.renounced ? '0% · renounced' : v.cut + '%'}</td><td className="r num gold">{S(v.devPaid, 4)}</td><td className="r num">{v.deskBid ? S(v.deskBid, 2) + ' SOL' : '—'}</td>
-        <td className="r"><div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>{v.mint && <button className="btn sm" disabled={!!busy} onClick={() => onClaim(v.mint!)}>Claim pump fees</button>}{v.armed && !v.renounced && <button className="btn sm" onClick={() => onRenounce(v)}>Renounce</button>}</div></td></tr>)}
+        <td className="r"><div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>{v.mint && <button className="btn sm" disabled={!!busy} onClick={() => onClaim(v.mint!)}>Claim fees</button>}{v.mint && v.armed && <button className="btn sm pri" disabled={!!busy} onClick={() => onClaim(v.mint!, v)}>Claim → chest</button>}{v.armed && !v.renounced && <button className="btn sm" onClick={() => onRenounce(v)}>Renounce</button>}</div></td></tr>)}
     </tbody></table></div>
     <div className="nm" style={{ marginTop: 10 }}>Cut = vaulted %, paid only from trims above holder cost. Renounce is permanent.</div>
   </>
