@@ -12,6 +12,7 @@ import Board from './components/Board'
 import CoinPage from './components/CoinPage'
 import Launch from './components/Launch'
 import { Portfolio, SettingsPage, About } from './components/Pages'
+import Simulate from './components/Simulate'
 import { Toasts } from './components/ui'
 import { toast } from './lib/store'
 import * as T from './lib/trade'
@@ -21,7 +22,7 @@ import { loadLedger, recordBuy, recordSell, recordCreate } from './lib/positions
 import { S, short } from './lib/fmt'
 import type { Coin } from './lib/dex'
 
-const NAV: [string, string][] = [['home', 'Home'], ['portfolio', 'Portfolio'], ['desk', 'Desk'], ['vault', 'Vault'], ['mine', 'My launches'], ['import', 'Import coin'], ['leaderboard', 'Leaderboard'], ['settings', 'Settings'], ['about', 'How it works']]
+const NAV: [string, string][] = [['home', 'Home'], ['portfolio', 'Portfolio'], ['desk', 'Desk'], ['vault', 'Vault'], ['mine', 'My launches'], ['import', 'Import coin'], ['simulate', 'Simulate'], ['leaderboard', 'Leaderboard'], ['settings', 'Settings'], ['about', 'How it works']]
 
 export default function App() {
   const { page, arg, go } = useRoute()
@@ -162,6 +163,7 @@ export default function App() {
     if (page === 'portfolio') return <Portfolio sol={ws.sol} tokens={ws.tokens} coins={byMint} lots={ledger.lots} fills={ledger.fills} solPrice={solPrice} go={go} owner={ws.owner} />
     if (page === 'settings') return <SettingsPage s={settings} set={setSettings} />
     if (page === 'about') return <About />
+    if (page === 'simulate') return <Simulate />
     if (page === 'vault') return <VaultPage go={go} solPrice={solPrice} />
     if (page === 'desk') return <DeskPage go={go} />
     if (page === 'mine') return <MinePage owner={ws.owner} go={go} solPrice={solPrice} onRenounce={renounce} onClaim={onClaim} busy={busy} />

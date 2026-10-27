@@ -30,7 +30,21 @@ function Orders({ c, owner, held, ordersV, bump }: { c: D.Coin; owner: string; h
 export default function CoinPage(p: Props) {
   const [coin, setCoin] = useState<D.Coin | undefined>(p.coin)
   const [side, setSide] = useState<'buy' | 'sell'>('buy'); const [amt, setAmt] = useState(String(p.quickSol)); const [frac, setFrac] = useState(1)
-  const [tab, setTab] = useState<'trades' | 'desk' | 'vault' | 'protocol'>('trades'); const [sb, setSb] = useState(false)
+  const [tab, setTab] = useState<'trades' | 'desk' | 'vault' | 'protocol'>('trades'); const [sb, setSb] = useState(false); const [route, setRoute] = useState('')
+  // Smart sell: if a resting desk bid beats the chart impact and fits inside the size, take it first; the rest goes to the pool.
+  const smartSell = async () => {
+    const cc = coin!; const held0 = p.holding ? p.holding.amount : 0; const pxSol = cc.raw?.priceNative ? +cc.raw.priceNative : (p.solPrice ? cc.priceUsd / p.solPrice : 0); const liqSol = (cc.raw?.liquidity as any)?.quote || (p.solPrice ? cc.liq / 2 / p.solPrice : 0)
+    const sizeSol = held0 * frac * pxSol; const impact = K.poolImpactBps(sizeSol, liqSol)
+    try {
+      if (!cc.onCurve && p.desk.deskUp && sizeSol > 0.2) {
+        const book = await K.getBook(cc.mint, p.desk.owner)
+        const best = book.bids.filter((b) => !b.mine && b.restable && b.discBps < impact && b.sol <= sizeSol * 1.02).sort((a, b) => a.discBps - b.discBps)[0]
+        if (best) { setRoute(`Routing ${S(best.sol, 2)} SOL via desk at −${(best.discBps / 100).toFixed(1)}% (chart would cost −${(impact / 100).toFixed(1)}%)`); await p.desk.takeBid(best.id); const rest = sizeSol - best.sol; if (rest > 0.05) { setRoute(`Desk filled · ${S(rest, 2)} SOL left → pool`); await p.onSell(cc, Math.min(1, rest / Math.max(1e-9, pxSol * held0))) } else setRoute('Filled entirely on the desk · zero chart impact'); return }
+        if (impact > 300) setRoute(`No desk bid beats −${(impact / 100).toFixed(1)}% chart impact — use "Sell a block" to shop one`)
+      }
+    } catch {}
+    await p.onSell(cc, frac)
+  }
   const [vault, setVault] = useState<K.VaultPub | null | undefined>(undefined)
   useEffect(() => { const f = () => K.vaultByMint(p.mint).then(setVault).catch(() => setVault(null)); f(); const i = setInterval(f, 8000); return () => clearInterval(i) }, [p.mint, p.vaultV])
   useEffect(() => { setCoin(p.coin) }, [p.coin])
@@ -100,7 +114,8 @@ export default function CoinPage(p: Props) {
           <div className="kv"><span>Selling</span><b className="num">≈ {S(sellSol)} SOL (${S(sellSol * p.solPrice, 2)})</b></div>
           {cost > 0 && <div className="kv"><span>P&amp;L on this sell</span><b className={'num ' + (sellProfit >= 0 ? 'up' : 'dn')}>{sellProfit >= 0 ? '+' : ''}{S(sellProfit)} SOL</b></div>}
                     <div className="kv"><span>Route</span><b>{c.onCurve ? 'pump.fun curve · PumpPortal' : 'Jupiter aggregator'}</b></div>
-          <button className="btn big sell" disabled={!!p.busy || (p.connected && !held)} onClick={() => p.connected ? p.onSell(c, frac) : p.needWallet()}>{p.busy || (!p.connected ? 'Connect wallet' : !held ? 'Nothing to sell' : `Sell ${Math.round(frac * 100)}%`)}</button>
+          <button className="btn big sell" disabled={!!p.busy || (p.connected && !held)} onClick={() => p.connected ? smartSell() : p.needWallet()}>{p.busy || (!p.connected ? 'Connect wallet' : !held ? 'Nothing to sell' : `Sell ${Math.round(frac * 100)}%`)}</button>
+          {route && <div className="nm">{route}</div>}
           {held > 0 && !c.onCurve && <button className="btn" style={{ width: '100%', fontSize: 12, fontWeight: 500 }} onClick={() => setSb(true)}>Sell a block on the desk → set max loss, shop for buyers</button>}
           <Orders c={c} owner={p.desk.owner} held={held} ordersV={p.ordersV} bump={p.bumpOrders} />
         </>}
