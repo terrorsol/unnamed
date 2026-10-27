@@ -30,6 +30,10 @@ const server = createServer(async (req, res) => {
     if (p.startsWith('/vault/') && req.method === 'GET') return json(res, 200, V.get(p.slice(7)))
     if (p === '/vault/create' && req.method === 'POST') { const b = await readBody(req); if (!(b.stakeSol > 0)) throw new Error('stake required'); return json(res, 200, V.create(b.dev, +b.stakeSol, b.copyOf)) }
     if (p === '/vault/arm' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.arm(b.id, b.mint, b.symbol || '', b.name || '')) }
+    if (p.startsWith('/import/quote/')) return json(res, 200, await V.importQuote(p.slice(14)))
+    if (p === '/import/create' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importCreate(b.owner, b.mint)) }
+    if (p === '/import/activate' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importActivate(b.id, b.sig)) }
+    if (p === '/vault/deposit' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.deposit(b.id, b.from, b.sig)) }
     if (p === '/vault/renounce' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, V.renounce(b.id, b.dev)) }
     json(res, 404, { error: 'not found' })
   } catch (e: any) { json(res, 400, { error: String(e.message || e) }) }

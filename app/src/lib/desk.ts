@@ -94,7 +94,7 @@ export const signMsgWith = (kp: Keypair) => async (m: Uint8Array) => nacl.sign.d
 export const signLegacyWith = (kp: Keypair) => async (t: Transaction) => { t.partialSign(kp); return t }
 
 // ---- vault ----
-export type VaultPub = { id: string; pub: string; mint?: string; symbol?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; avgCost: number; tokens: number; chest: number; devPaid: number; createdAt: number; copyOf?: string; streamed: number; redeemed: number; supply: number; deskBid: number; name?: string; copies: { mint: string; symbol: string; pub: string }[]; activity: { t: number; kind: string; sol?: number; tokens?: number; price?: number; sig?: string; msg?: string }[] }
+export type VaultPub = { id: string; pub: string; mint?: string; symbol?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; avgCost: number; tokens: number; chest: number; devPaid: number; createdAt: number; copyOf?: string; streamed: number; redeemed: number; supply: number; deskBid: number; name?: string; copies: { mint: string; symbol: string; pub: string }[]; imported?: boolean; feePaid?: number; depositedTokens?: number; funders?: Record<string, number>; activity: { t: number; kind: string; sol?: number; tokens?: number; price?: number; sig?: string; msg?: string }[] }
 export const vaultCreate = (dev: string, stakeSol: number, copyOf?: string): Promise<VaultPub> => j('/vault/create', { dev, stakeSol, copyOf })
 export const vaultArm = (id: string, mint: string, symbol: string, name = ''): Promise<VaultPub> => j('/vault/arm', { id, mint, symbol, name })
 export const vaultRenounce = (id: string, dev: string): Promise<VaultPub> => j('/vault/renounce', { id, dev })
@@ -119,4 +119,27 @@ export async function redeem(conn: Connection, holder: string, mint: string, tok
   onStatus?.('Sign to redeem…'); const signed = await signTx(tx)
   onStatus?.('Vault co-signing…'); const r = await j('/redeem', { mint, holder, tokens: tokensUi, tx: btoa(String.fromCharCode(...signed.serialize({ requireAllSignatures: false }))) })
   return { sig: r.sig as string, sol: r.sol as number }
+}
+
+// ---- import a coin / activate vault ----
+export type ImportQuote = { mint: string; symbol: string; mcapUsd: number; liqSol: number; priceSol: number; feeSol: number; seedSol: number; treasurySol: number; treasury: string }
+export const importQuote = (mint: string): Promise<ImportQuote> => j('/import/quote/' + mint)
+export const importCreate = (owner: string, mint: string): Promise<VaultPub & { quote: ImportQuote }> => j('/import/create', { owner, mint })
+export const importActivate = (id: string, sig: string): Promise<VaultPub> => j('/import/activate', { id, sig })
+export const vaultDeposit = (id: string, from: string, sig: string): Promise<VaultPub> => j('/vault/deposit', { id, from, sig })
+/** One signature: fee → treasury, seed → vault chest */
+export async function payImport(conn: Connection, owner: string, v: VaultPub & { quote: ImportQuote }, signTx: (t: Transaction) => Promise<Transaction>, onStatus?: (s: string) => void) {
+  const op = new PublicKey(owner); const tx = new Transaction(); tx.feePayer = op; tx.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash
+  tx.add(SystemProgram.transfer({ fromPubkey: op, toPubkey: new PublicKey(v.quote.treasury), lamports: Math.floor(v.quote.treasurySol * 1e9) }), SystemProgram.transfer({ fromPubkey: op, toPubkey: new PublicKey(v.pub), lamports: Math.floor(v.quote.seedSol * 1e9) }))
+  onStatus?.('Sign to activate the vault…'); const signed = await signTx(tx)
+  const sig = await conn.sendRawTransaction(signed.serialize(), { maxRetries: 3 }); onStatus?.('Confirming…'); await confirmByPolling(conn, sig)
+  onStatus?.('Arming vault…'); return { sig, vault: await importActivate(v.id, sig) }
+}
+/** Deposit SOL and/or tokens into an armed vault */
+export async function depositToVault(conn: Connection, from: string, v: VaultPub, sol: number, tokensUi: number, decimals: number, signTx: (t: Transaction) => Promise<Transaction>, onStatus?: (s: string) => void) {
+  const fp = new PublicKey(from), vp = new PublicKey(v.pub); const tx = new Transaction(); tx.feePayer = fp; tx.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash
+  if (sol > 0) tx.add(SystemProgram.transfer({ fromPubkey: fp, toPubkey: vp, lamports: Math.floor(sol * 1e9) }))
+  if (tokensUi > 0) { const mp = new PublicKey(v.mint!); const vAta = getAssociatedTokenAddressSync(mp, vp, true), fAta = getAssociatedTokenAddressSync(mp, fp, true); tx.add(createAssociatedTokenAccountIdempotentInstruction(fp, vAta, vp, mp), createTransferInstruction(fAta, vAta, fp, BigInt(Math.floor(tokensUi * 10 ** decimals)))) }
+  onStatus?.('Sign deposit…'); const signed = await signTx(tx); const sig = await conn.sendRawTransaction(signed.serialize(), { maxRetries: 3 }); onStatus?.('Confirming…'); await confirmByPolling(conn, sig)
+  onStatus?.('Recording…'); await new Promise((r) => setTimeout(r, 1500)); return { sig, vault: await vaultDeposit(v.id, from, sig) }
 }

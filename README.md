@@ -51,3 +51,6 @@ Default wallet is a browser-side keypair encrypted with a user password (PBKDF2-
 
 ## Desk + vault (live, bot-run)
 See `server/README.md`. Desk = non-custodial block bids matched by our server, settled by a two-signer tx. Vault = our bot running the market-maker rules per coin (custodial in beta).
+
+## Import a coin · activate a vault
+Any coin with a market: 15 SOL (10 → treasury, 5 → chest), one signature, verified on-chain by the server before arming. Owner can deposit tokens ("vault your bag"); anyone can top up the chest. Trims capped 2%/trim, 5%/day, 10% of 1h volume.

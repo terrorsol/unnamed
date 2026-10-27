@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState, useEffect } from 'react'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { Keypair, PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
 import * as K from './lib/desk'
-import { DeskPage, VaultPage, MinePage, LeaderboardPage } from './components/Desk'
+import { DeskPage, VaultPage, MinePage, LeaderboardPage, ImportPage } from './components/Desk'
 import { due, removeOrder, loadOrders } from './lib/orders'
 import { confirmByPolling } from './lib/rpc'
 import WalletPanel from './components/WalletPanel'
@@ -21,7 +21,7 @@ import { loadLedger, recordBuy, recordSell, recordCreate } from './lib/positions
 import { S, short } from './lib/fmt'
 import type { Coin } from './lib/dex'
 
-const NAV: [string, string][] = [['home', 'Home'], ['portfolio', 'Portfolio'], ['desk', 'Desk'], ['vault', 'Vault'], ['mine', 'My launches'], ['leaderboard', 'Leaderboard'], ['settings', 'Settings'], ['about', 'How it works']]
+const NAV: [string, string][] = [['home', 'Home'], ['portfolio', 'Portfolio'], ['desk', 'Desk'], ['vault', 'Vault'], ['mine', 'My launches'], ['import', 'Import coin'], ['leaderboard', 'Leaderboard'], ['settings', 'Settings'], ['about', 'How it works']]
 
 export default function App() {
   const { page, arg, go } = useRoute()
@@ -76,6 +76,8 @@ export default function App() {
     catch (e: any) { toast({ kind: 'err', title: 'Desk fill failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
   }
   const [vaultV, setVaultV] = useState(0)
+  const [vaulted, setVaulted] = useState<Set<string>>(new Set())
+  useEffect(() => { if (!deskUp) return; const f = () => K.vaults().then((l) => setVaulted(new Set(l.map((v) => v.mint!).filter(Boolean)))).catch(() => {}); f(); const i = setInterval(f, 30000); return () => clearInterval(i) }, [deskUp, vaultV])
   const onRedeem = async (c: Coin, tokens: number, decimals: number) => {
     if (!activeB58) return needWallet()
     try { const { sig, sol } = await K.redeem(connection, activeB58, c.mint, tokens, decimals, signLegacy, setBusy); recordSell(ws.owner, c.mint, c.symbol, 0, sol, sig); setLedgerV((v) => v + 1); setVaultV((x) => x + 1); toast({ kind: 'ok', title: `Redeemed ${c.symbol} against the vault`, rows: [['Received', S(sol, 4) + ' SOL'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
@@ -99,6 +101,16 @@ export default function App() {
           firing.current = true; toast({ kind: 'info', title: `${o.type === 'tp' ? 'Take profit' : 'Stop loss'} hit on ${o.symbol} — selling ${Math.round(o.frac * 100)}%` }); try { await sellRef.current(c, o.frac) } finally { firing.current = false } } }
     }, 6000); return () => clearInterval(i)
   }, [ws.owner])
+  const onImport = async (mint: string) => {
+    if (!activeB58) return needWallet()
+    try { setBusy('Reserving vault…'); const v = await K.importCreate(activeB58, mint); const { sig, vault } = await K.payImport(connection, activeB58, v, signLegacy, setBusy); setVaultV((x) => x + 1); toast({ kind: 'ok', title: `${vault.symbol} is now VAULTED`, rows: [['Chest', S(vault.chest) + ' SOL'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500); go('coin/' + mint) }
+    catch (e: any) { toast({ kind: 'err', title: 'Import failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
+  }
+  const onDeposit = async (v: K.VaultPub, sol: number, tokens: number, decimals: number) => {
+    if (!activeB58) return needWallet()
+    try { const { sig, vault } = await K.depositToVault(connection, activeB58, v, sol, tokens, decimals, signLegacy, setBusy); setVaultV((x) => x + 1); toast({ kind: 'ok', title: 'Deposited into the vault', rows: [['Chest', S(vault.chest) + ' SOL'], ['Vault supply', vault.tokens.toLocaleString(undefined, { maximumFractionDigits: 0 })]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
+    catch (e: any) { toast({ kind: 'err', title: 'Deposit failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
+  }
   const renounce = async (v: K.VaultPub) => { try { await K.vaultRenounce(v.id, ws.owner); setVaultV((x) => x + 1); toast({ kind: 'ok', title: 'Cut renounced' }) } catch (e: any) { toast({ kind: 'err', title: 'Renounce failed', rows: [['Reason', e.message]] }) } }
   const onWithdraw = async (to: string, sol: number) => { if (!burner) return; const sig = await B.withdraw(connection, burner, to, sol); toast({ kind: 'ok', title: `Sent ${S(sol)} SOL`, rows: [['To', short(to, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
 
@@ -137,7 +149,7 @@ export default function App() {
   const toggleWatch = (m: string) => setSettings({ watch: settings.watch.includes(m) ? settings.watch.filter((x) => x !== m) : [...settings.watch, m] })
 
   const content = () => {
-    if (page === 'coin' && arg) { const h = ws.tokens.find((t) => t.mint === arg); return <CoinPage mint={arg} coin={byMint[arg]} solPrice={solPrice} holding={h} lot={ledger.lots[arg]} sol={ws.sol} connected={connected} busy={busy} onBuy={onBuy} onSell={onSell} needWallet={needWallet} quickSol={settings.quickBuy} watch={settings.watch} toggleWatch={toggleWatch} trades={fresh.trades} subscribe={fresh.subscribe} desk={{ owner: ws.owner, connected, bidder, deskUp, busy, takeBid, holdingUi: h?.amount || 0, solPrice }} deskTick={deskTick} vaultV={vaultV} onRenounce={renounce} onRedeem={onRedeem} go={go} ordersV={ordersV} bumpOrders={() => setOrdersV((v) => v + 1)} /> }
+    if (page === 'coin' && arg) { const h = ws.tokens.find((t) => t.mint === arg); return <CoinPage mint={arg} coin={byMint[arg]} solPrice={solPrice} holding={h} lot={ledger.lots[arg]} sol={ws.sol} connected={connected} busy={busy} onBuy={onBuy} onSell={onSell} needWallet={needWallet} quickSol={settings.quickBuy} watch={settings.watch} toggleWatch={toggleWatch} trades={fresh.trades} subscribe={fresh.subscribe} desk={{ owner: ws.owner, connected, bidder, deskUp, busy, takeBid, holdingUi: h?.amount || 0, solPrice }} deskTick={deskTick} vaultV={vaultV} onRenounce={renounce} onRedeem={onRedeem} onDeposit={onDeposit} go={go} ordersV={ordersV} bumpOrders={() => setOrdersV((v) => v + 1)} /> }
     if (page === 'portfolio') return <Portfolio sol={ws.sol} tokens={ws.tokens} coins={byMint} lots={ledger.lots} fills={ledger.fills} solPrice={solPrice} go={go} owner={ws.owner} />
     if (page === 'settings') return <SettingsPage s={settings} set={setSettings} />
     if (page === 'about') return <About />
@@ -145,8 +157,9 @@ export default function App() {
     if (page === 'desk') return <DeskPage go={go} />
     if (page === 'mine') return <MinePage owner={ws.owner} go={go} solPrice={solPrice} onRenounce={renounce} onClaim={onClaim} busy={busy} />
     if (page === 'leaderboard') return <LeaderboardPage owner={ws.owner} />
+    if (page === 'import') return <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} go={go} initialMint={arg} needWallet={needWallet} sol={ws.sol} />
     if (false) return <div className="prose"><h2>{page === 'vault' ? 'Vault' : 'Desk'} <span className="tag pre">PREVIEW</span></h2><p>{page === 'vault' ? 'Program-owned market maker funded by the dev\'s block-zero stake. Buys dips (≤40% of chest per crash), trims only above holder cost basis and 30-min VWAP, never withdraws. Ships on-chain in Beta v1 — the per-coin preview is on each coin page under Protocol.' : 'Escrowed block bids at −3–5%, 60s rest, all-or-none, min block 2% of pool reserve, open once a coin has graduated and holds $100K mc. Ships with the vault program; the gating is already computed live on each coin page.'}</p></div>
-    return <Board coins={q.trim() ? results : coins} fresh={fresh.list} freshCoins={freshCoins} trades={fresh.trades} live={fresh.live} solPrice={solPrice} watch={settings.watch} go={go} quick={quick} quickSol={settings.quickBuy} err={err} />
+    return <Board coins={q.trim() ? results : coins} fresh={fresh.list} freshCoins={freshCoins} trades={fresh.trades} live={fresh.live} solPrice={solPrice} watch={settings.watch} go={go} quick={quick} quickSol={settings.quickBuy} err={err} vaulted={vaulted} />
   }
   return <div className="app">
     <div className="top">

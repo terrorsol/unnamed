@@ -67,7 +67,7 @@ export function DeskPage({ go }: { go: (p: string) => void }) {
 /** Vault panel for one coin */
 export function CoinVault({ mint, v, isDev, onRenounce, solPrice }: { mint: string; v: K.VaultPub | null | undefined; isDev: boolean; onRenounce: () => void; solPrice: number }) {
   if (v === undefined) return <div className="empty" style={{ padding: 18 }}>Loading vault…</div>
-  if (!v) return <div className="panel"><div className="note">No vault on this coin — it wasn't launched through UNNAMED with a stake. Coins launched here come with a program-style market maker funded by the dev's block-zero stake.</div></div>
+  if (!v) return <div className="panel"><div className="note">No vault on this coin yet. Launch through UNNAMED with a stake and it's free — or <a href={'#/import/' + mint} style={{ textDecoration: 'underline' }}>import this coin and activate a vault</a> for 15 SOL (5 seeds the chest). Then vault your bag.</div></div>
   return <div className="panel" style={{ gap: 10 }}>
     <div className="tiles" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>
       <div className="tile"><div className="l">Chest</div><div className="v num">{S(v.chest)} SOL</div><div className="s">buys dips, never withdraws</div></div>
@@ -158,4 +158,48 @@ export function LeaderboardPage({ owner }: { owner: string }) {
     </tbody></table></div>
     <div className="card"><h3>Recent desk fills</h3><div className="feed">{fl.map((f) => <div className="it" key={f.sig}><span className="tk" style={{ width: 70 }}>{f.symbol}</span><span className="num" style={{ width: 80 }}>{S(f.sol, 2)} SOL</span><span className="num dn" style={{ width: 50 }}>−{(f.discBps / 100).toFixed(1)}%</span><span className="dim" style={{ flex: 1 }}>{f.vault ? 'vault bid' : short(f.bidder, 3)} ← {short(f.seller, 3)}</span><a className="dim" href={solscan(f.sig)} target="_blank" rel="noreferrer">↗</a><span className="nm">{ago(f.t)}</span></div>)}{!fl.length && <div className="empty">Nothing yet</div>}</div></div>
   </div>
+}
+
+/** Import an existing coin and activate a vault on it */
+export function ImportPage({ owner, connected, busy, onPay, go, initialMint, needWallet, sol }: { owner: string; connected: boolean; busy: string; onPay: (mint: string) => Promise<void>; go: (p: string) => void; initialMint?: string; needWallet: () => void; sol: number | null }) {
+  const [mint, setMint] = useState(initialMint || ''); const [q, setQ] = useState<K.ImportQuote | null>(null); const [err, setErr] = useState('')
+  useEffect(() => { if (mint.trim().length < 32) { setQ(null); setErr(''); return } const t = setTimeout(() => K.importQuote(mint.trim()).then((x) => { setQ(x); setErr('') }).catch((e) => { setQ(null); setErr(String(e.message || e)) }), 400); return () => clearTimeout(t) }, [mint])
+  const canPay = !!q && connected && !busy && (sol == null || sol >= (q.feeSol + 0.01))
+  return <div style={{ maxWidth: 720 }}>
+    <h2 style={{ margin: '0 0 6px', fontSize: 18 }}>Import a coin · activate a vault</h2>
+    <div className="dim" style={{ marginBottom: 14, fontSize: 12 }}>Any coin with a market — pump, bonk, anything. Pay once, the vault runs the same rules as a native launch: buys crashes, trims only above cost and VWAP (≤2% per trim, ≤5% per day, ≤10% of volume), never withdraws. The coin gets the <span className="tag live">VAULTED</span> badge and a public activity feed.</div>
+    <div className="fld"><div className="lbl">Mint address</div><input value={mint} onChange={(e) => setMint(e.target.value)} placeholder="paste the token's mint" /></div>
+    {err && <div className="note" style={{ marginTop: 8, color: 'var(--dn)' }}>{err}</div>}
+    {q && <div className="card" style={{ marginTop: 10 }}><div className="panel">
+      <div className="tiles" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>
+        <div className="tile"><div className="l">Coin</div><div className="v">{q.symbol}</div></div>
+        <div className="tile"><div className="l">Market cap</div><div className="v num">{F(q.mcapUsd)}</div></div>
+        <div className="tile"><div className="l">Pool reserve</div><div className="v num">{S(q.liqSol, 1)} SOL</div></div>
+        <div className="tile"><div className="l">Price</div><div className="v num" style={{ fontSize: 13 }}>{q.priceSol.toPrecision(3)} SOL</div></div>
+      </div>
+      <div className="kv"><span>Import fee</span><b className="num">{q.feeSol} SOL</b></div>
+      <div className="kv"><span>→ seeds the chest</span><b className="num up">{q.seedSol} SOL</b></div>
+      <div className="kv"><span>→ UNNAMED treasury</span><b className="num">{q.treasurySol} SOL</b></div>
+      <div className="kv"><span>Owner (gets the cut, can renounce)</span><b className="num">{owner ? short(owner, 6) : '—'}</b></div>
+      <button className="btn pri big" disabled={!canPay && connected} onClick={() => (connected ? onPay(q.mint) : needWallet())}>{busy || (!connected ? 'Connect wallet' : sol != null && sol < q.feeSol + 0.01 ? `Need ${q.feeSol} SOL` : `Pay ${q.feeSol} SOL · activate vault`)}</button>
+      <div className="note">After activation you can deposit your own tokens into the vault from the coin page — "vault your bag". Once in, they can only leave through trims above holder cost or holder redeems. Cut: 5% of trim profit, renounceable.</div>
+    </div></div>}
+  </div>
+}
+
+/** Deposit controls shown on the vault tab */
+export function VaultDeposit({ v, owner, holdingUi, busy, onDeposit, needWallet, connected }: { v: K.VaultPub; owner: string; holdingUi: number; busy: string; onDeposit: (sol: number, tokens: number) => void; needWallet: () => void; connected: boolean }) {
+  const [sol, setSol] = useState(''); const [tok, setTok] = useState('')
+  const isOwner = owner === v.dev
+  return <>
+    <div className="lbl" style={{ marginTop: 10 }}>Fund the vault</div>
+    <div className="lay" style={{ gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div>
+        <div className="inp"><input value={sol} onChange={(e) => setSol(e.target.value)} inputMode="decimal" placeholder="0.0" /><span>SOL → chest</span></div>
+        <div className="inp" style={{ marginTop: 6 }}><input value={tok} onChange={(e) => setTok(e.target.value)} inputMode="decimal" placeholder={holdingUi ? `up to ${holdingUi.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '0'} /><span>{v.symbol} → vault</span></div>
+        <div className="row" style={{ marginTop: 6 }}><button className="btn sm" onClick={() => setTok(String(Math.floor(holdingUi)))} disabled={!holdingUi}>all my {v.symbol}</button><span className="sp" /><button className="btn pri" disabled={!!busy || (connected && !(+sol > 0 || +tok > 0))} onClick={() => (connected ? onDeposit(+sol || 0, +tok || 0) : needWallet())}>{busy || (!connected ? 'Connect wallet' : 'Deposit')}</button></div>
+      </div>
+      <div className="note">{isOwner ? <><b>Vault your bag.</b> Tokens you deposit become vault supply: they can only leave via rule-bound trims above holder cost (capped 2% / trim, 5% / day, 10% of volume) or holder redeems. It's a public, inspectable "I can't dump on you".</> : <><b>Anyone can top up the chest.</b> More chest = bigger dip buys and a bigger desk bid. Tokens deposited by non-owners also become vault supply.</>} Funders: {Object.keys(v.funders || {}).length || 0}.</div>
+    </div>
+  </>
 }

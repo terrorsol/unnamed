@@ -40,3 +40,10 @@ test('verifyFill accepts a well-formed fill and rejects tampering', () => {
   assert.equal(tx2.signatures.filter((s) => s.signature).length, 2)
   assert.doesNotThrow(() => tx2.serialize())
 })
+test('trim caps: per-trim, per-day, per-volume', () => {
+  const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-6, `${a} ≈ ${b}`)
+  near(R.trimSize(1000, 0, 1000, 0.001), 20)          // 2% of position wins
+  near(R.trimSize(1000, 45, 1000, 0.001), 5)          // day cap: 50 - 45
+  near(R.trimSize(1000, 0, 0.1, 0.001), 10)           // vol cap: 0.1*0.1/0.001 = 10
+  near(R.trimSize(1000, 50, 1000, 0.001), 0)
+})

@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import bs58 from 'bs58'
 import * as R from './rules.ts'
 import { market } from './market.ts'
-import { balanceSol, tokenBalance, pumpTrade, conn, confirm, decimals } from './chain.ts'
+import { balanceSol, tokenBalance, pumpTrade, conn, confirm, decimals, TREASURY } from './chain.ts'
 import * as D from './desk.ts'
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import { PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from '@solana/web3.js'
@@ -18,20 +18,21 @@ const enc = (u: Uint8Array) => { const iv = randomBytes(12); const c = createCip
 const dec = (s: string) => { const b = Buffer.from(s, 'base64'); const d = createDecipheriv('aes-256-gcm', key, b.subarray(0, 12)); d.setAuthTag(b.subarray(12, 28)); return new Uint8Array(Buffer.concat([d.update(b.subarray(28)), d.final()])) }
 
 export type Act = { t: number; kind: 'stake' | 'seed' | 'buy' | 'trim' | 'cut' | 'note' | 'redeem' | 'stream' | 'bid'; sol?: number; tokens?: number; price?: number; sig?: string; msg?: string }
-export type Vault = { id: string; pub: string; sk: string; mint?: string; symbol?: string; name?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; createdAt: number; copyOf?: string; streamed: number; redeemed: number; supply: number; deskBid: number
+export type Vault = { id: string; pub: string; sk: string; mint?: string; symbol?: string; name?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; createdAt: number; copyOf?: string; streamed: number; redeemed: number; supply: number; deskBid: number; imported?: boolean; feePaid?: number; trimmedToday: number; trimDay: number; depositedTokens: number; funders: Record<string, number>
   avgCost: number; tokens: number; chest: number; spentEpisode: number; high15: { t: number; p: number }[]; samples: { t: number; p: number; v: number }[]; ema5: number | null; ema15: number | null; lastBuy: number; lastTrim: number; activity: Act[]; devPaid: number }
 let vaults: Record<string, Vault> = {}
+let SOLUSD = 0; setInterval(() => fetch(`${process.env.DEX_URL || 'https://api.dexscreener.com'}/tokens/v1/solana/So11111111111111111111111111111111111111112`).then((r) => r.json()).then((a: any[]) => { const x = a?.[0]?.priceUsd; if (x) SOLUSD = +x }).catch(() => {}), 30000)
 export function load() { if (existsSync(FILE)) vaults = JSON.parse(readFileSync(FILE, 'utf8')) }
 function save() { mkdirSync(DIR, { recursive: true }); writeFileSync(FILE, JSON.stringify(vaults)) }
 const kp = (v: Vault) => Keypair.fromSecretKey(dec(v.sk))
-const pub = (v: Vault) => ({ id: v.id, pub: v.pub, mint: v.mint, symbol: v.symbol, name: v.name, dev: v.dev, stakeSol: v.stakeSol, pct: v.pct, cut: v.cut, armed: v.armed, renounced: v.renounced, avgCost: v.avgCost, tokens: v.tokens, chest: v.chest, devPaid: v.devPaid, activity: v.activity.slice(0, 50), createdAt: v.createdAt, copyOf: v.copyOf, streamed: v.streamed || 0, redeemed: v.redeemed || 0, supply: v.supply || 1e9, deskBid: v.deskBid || 0, copies: Object.values(vaults).filter((c) => c.copyOf === v.mint && c.armed).map((c) => ({ mint: c.mint, symbol: c.symbol, pub: c.pub })) })
+const pub = (v: Vault) => ({ id: v.id, pub: v.pub, mint: v.mint, symbol: v.symbol, name: v.name, dev: v.dev, stakeSol: v.stakeSol, pct: v.pct, cut: v.cut, armed: v.armed, renounced: v.renounced, avgCost: v.avgCost, tokens: v.tokens, chest: v.chest, devPaid: v.devPaid, activity: v.activity.slice(0, 50), createdAt: v.createdAt, copyOf: v.copyOf, imported: !!v.imported, feePaid: v.feePaid || 0, depositedTokens: v.depositedTokens || 0, funders: v.funders || {}, streamed: v.streamed || 0, redeemed: v.redeemed || 0, supply: v.supply || 1e9, deskBid: v.deskBid || 0, copies: Object.values(vaults).filter((c) => c.copyOf === v.mint && c.armed).map((c) => ({ mint: c.mint, symbol: c.symbol, pub: c.pub })) })
 export const vaultPct = (s: number) => Math.min(10, (s / (s + 1)) * 13.3)
 
 /** Step 1 (before launch): make a vault address the dev will fund */
 export function create(dev: string, stakeSol: number, copyOf?: string) {
   const k = Keypair.generate(); const id = bs58.encode(randomBytes(8))
   const pct = +vaultPct(stakeSol).toFixed(2)
-  vaults[id] = { id, pub: k.publicKey.toBase58(), sk: enc(k.secretKey), dev, stakeSol, pct, cut: pct, armed: false, renounced: false, createdAt: Date.now(), copyOf: copyOf || undefined, streamed: 0, redeemed: 0, supply: 1e9, deskBid: 0, avgCost: 0, tokens: 0, chest: 0, spentEpisode: 0, high15: [], samples: [], ema5: null, ema15: null, lastBuy: 0, lastTrim: 0, activity: [], devPaid: 0 }
+  vaults[id] = { id, pub: k.publicKey.toBase58(), sk: enc(k.secretKey), dev, stakeSol, pct, cut: pct, armed: false, renounced: false, createdAt: Date.now(), copyOf: copyOf || undefined, streamed: 0, redeemed: 0, supply: 1e9, deskBid: 0, trimmedToday: 0, trimDay: 0, depositedTokens: 0, funders: {}, avgCost: 0, tokens: 0, chest: 0, spentEpisode: 0, high15: [], samples: [], ema5: null, ema15: null, lastBuy: 0, lastTrim: 0, activity: [], devPaid: 0 }
   save(); return pub(vaults[id])
 }
 /** Step 2 (after the coin exists + dev sent the stake): bind mint, seed the position */
@@ -43,6 +44,42 @@ export async function arm(id: string, mint: string, symbol: string, name = '') {
   const seed = +(bal * 0.5).toFixed(4)
   try { const sig = await pumpTrade(kp(v), 'buy', mint, seed, true, 15); await sync(v); v.avgCost = seed / Math.max(v.tokens, 1e-9); v.activity.unshift({ t: Date.now(), kind: 'seed', sol: seed, tokens: v.tokens, sig, msg: 'block-zero vault supply' }) }
   catch (e: any) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'seed failed: ' + e.message }) }
+  save(); return pub(v)
+}
+/** Bring-your-own-coin: quote the import for a mint */
+export async function importQuote(mint: string) {
+  if (Object.values(vaults).some((v) => v.mint === mint && v.armed)) throw new Error('this coin already has a vault')
+  const m = await market(mint); if (!m) throw new Error('no market found for this mint')
+  if (m.mcapUsd < R.IMPORT_MIN_MCAP_USD) throw new Error(`market cap below $${R.IMPORT_MIN_MCAP_USD / 1000}K`)
+  return { mint, symbol: m.symbol, mcapUsd: m.mcapUsd, liqSol: m.liqSol, priceSol: m.priceSol, feeSol: R.IMPORT_FEE_SOL, seedSol: R.IMPORT_SEED_SOL, treasurySol: R.IMPORT_FEE_SOL - R.IMPORT_SEED_SOL, treasury: TREASURY }
+}
+/** Step 1: reserve a vault for an existing coin (owner = whoever pays) */
+export async function importCreate(owner: string, mint: string) {
+  const q = await importQuote(mint); const k = Keypair.generate(); const id = bs58.encode(randomBytes(8))
+  vaults[id] = { id, pub: k.publicKey.toBase58(), sk: enc(k.secretKey), mint, symbol: q.symbol, dev: owner, stakeSol: R.IMPORT_SEED_SOL, pct: 0, cut: 5, armed: false, renounced: false, createdAt: Date.now(), streamed: 0, redeemed: 0, supply: 1e9, deskBid: 0, imported: true, feePaid: 0, trimmedToday: 0, trimDay: 0, depositedTokens: 0, funders: {}, avgCost: 0, tokens: 0, chest: 0, spentEpisode: 0, high15: [], samples: [], ema5: null, ema15: null, lastBuy: 0, lastTrim: 0, activity: [], devPaid: 0 }
+  save(); return { ...pub(vaults[id]), quote: q }
+}
+/** Step 2: after the fee tx (10 → treasury, 5 → vault) confirms, arm it. Verifies the tx on-chain. */
+export async function importActivate(id: string, sig: string) {
+  const v = vaults[id]; if (!v || !v.imported) throw new Error('no such import'); if (v.armed) return pub(v)
+  const tx = await conn.getParsedTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }); if (!tx || tx.meta?.err) throw new Error('fee transaction not found or failed')
+  const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58()); const pre = tx.meta!.preBalances, post = tx.meta!.postBalances
+  const delta = (pk: string) => { const i = keys.indexOf(pk); return i < 0 ? 0 : (post[i] - pre[i]) / 1e9 }
+  if (delta(TREASURY) < R.IMPORT_FEE_SOL - R.IMPORT_SEED_SOL - 0.001) throw new Error('treasury fee not found in tx')
+  if (delta(v.pub) < R.IMPORT_SEED_SOL - 0.001) throw new Error('chest seed not found in tx')
+  if (!keys.includes(v.dev)) throw new Error('tx not from the vault owner')
+  v.feePaid = R.IMPORT_FEE_SOL; v.funders[v.dev] = (v.funders[v.dev] || 0) + R.IMPORT_SEED_SOL
+  try { const sup = await conn.getTokenSupply(new PublicKey(v.mint!)); v.supply = +(sup.value.uiAmount || 1e9) } catch {}
+  await sync(v); v.armed = true; v.activity.unshift({ t: Date.now(), kind: 'stake', sol: v.chest, sig, msg: `vault activated · ${R.IMPORT_FEE_SOL} SOL import (${R.IMPORT_SEED_SOL} seeded)` }); save(); return pub(v)
+}
+/** Anyone can top up a chest; the owner can also deposit tokens (cost basis = price at deposit). Verified against chain balances. */
+export async function deposit(id: string, from: string, sig: string) {
+  const v = vaults[id]; if (!v || !v.armed) throw new Error('vault not armed')
+  const beforeSol = v.chest, beforeTok = v.tokens; await sync(v)
+  const dSol = v.chest - beforeSol, dTok = v.tokens - beforeTok
+  if (dSol < 0.001 && dTok <= 0) throw new Error('no deposit detected yet — wait a few seconds and retry')
+  if (dSol >= 0.001) { v.funders[from] = (v.funders[from] || 0) + dSol; v.activity.unshift({ t: Date.now(), kind: 'stake', sol: dSol, sig, msg: `chest top-up from ${from.slice(0, 4)}…` }) }
+  if (dTok > 0) { const m = await market(v.mint!); const px = m?.priceSol || 0; v.avgCost = (v.avgCost * beforeTok + px * dTok) / Math.max(v.tokens, 1e-9); v.depositedTokens += dTok; v.activity.unshift({ t: Date.now(), kind: 'seed', tokens: dTok, price: px, sig, msg: `${from === v.dev ? 'dev' : from.slice(0, 4) + '…'} vaulted ${(dTok / (v.supply || 1e9) * 100).toFixed(2)}% of supply` }); if (from === v.dev) v.pct = +Math.min(50, v.tokens / (v.supply || 1e9) * 100).toFixed(2) }
   save(); return pub(v)
 }
 export function renounce(id: string, dev: string) { const v = vaults[id]; if (!v || v.dev !== dev) throw new Error('not yours'); v.cut = 0; v.renounced = true; v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'dev renounced cut' }); save(); return pub(v) }
@@ -83,6 +120,12 @@ export async function redeem(mint: string, holder: string, tokensUi: number, txB
   return { sig, sol: q.sol }
 }
 
+function trimAllowed(v: Vault, m: any, p: number, now: number) {
+  const day = Math.floor(now / 86400000); if (day !== v.trimDay) { v.trimDay = day; v.trimmedToday = 0 }
+  const vol1hSol = (m.vol1h || 0) / (SOLUSD || 150)
+  const size = R.trimSize(v.tokens, v.trimmedToday || 0, vol1hSol, p)
+  return size >= v.tokens * 0.002 ? size : 0
+}
 async function sync(v: Vault) { v.chest = await balanceSol(v.pub); v.tokens = (await tokenBalance(v.pub, v.mint!)).ui }
 
 export async function tick() {
@@ -107,10 +150,10 @@ export async function tick() {
         }
       }
       // trim
-      else if (v.tokens > 0 && R.mayTrim(p, v.avgCost, R.vwap(v.samples), v.ema5!, v.ema15!) && now - v.lastTrim > R.VAULT_TRIM_COOLDOWN_MS) {
-        const frac = R.VAULT_TRIM_FRAC; const before = v.chest
+      else if (v.tokens > 0 && R.mayTrim(p, v.avgCost, R.vwap(v.samples), v.ema5!, v.ema15!) && now - v.lastTrim > R.VAULT_TRIM_COOLDOWN_MS && trimAllowed(v, m, p, now) > 0) {
+        const frac = trimAllowed(v, m, p, now) / v.tokens; const before = v.chest
         const sig = await pumpTrade(kp(v), 'sell', v.mint, `${Math.round(frac * 100)}%`, false)
-        await sync(v); const got = v.chest - before; v.lastTrim = now
+        const sold = v.tokens * frac; await sync(v); const got = v.chest - before; v.lastTrim = now; v.trimmedToday += sold
         v.activity.unshift({ t: now, kind: 'trim', sol: got, price: p, sig, msg: 'above cost + VWAP' })
         const profit = got - v.avgCost * (v.tokens * frac / (1 - frac)); const cut = v.cut > 0 ? Math.max(0, profit) * (v.cut / 100) : 0
         // copies stream half their cut to the original's vault

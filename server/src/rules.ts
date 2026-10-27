@@ -33,6 +33,18 @@ export function expired(refreshedAt: number, now = Date.now()) { return now - re
 export const VAULT_MAX_CRASH_SPEND = 0.4       // ≤40% of chest per crash episode
 export const VAULT_TRIM_FRAC = 0.02            // trim ≤2% of position per trim
 export const VAULT_TRIM_COOLDOWN_MS = 120_000
+export const VAULT_TRIM_DAY_CAP = 0.05           // ≤5% of position per 24h
+export const VAULT_TRIM_VOL_CAP = 0.10           // a trim ≤10% of 1h volume
+export const IMPORT_FEE_SOL = 15                 // bring-your-own-coin vault: 10 → treasury, 5 → chest
+export const IMPORT_SEED_SOL = 5
+export const IMPORT_MIN_MCAP_USD = 50_000
+/** trim size in tokens given caps; 0 if nothing allowed */
+export function trimSize(positionTokens: number, trimmedToday: number, vol1hSol: number, priceSol: number) {
+  const perTrim = positionTokens * VAULT_TRIM_FRAC
+  const dayRoom = positionTokens * VAULT_TRIM_DAY_CAP - trimmedToday
+  const volRoom = priceSol > 0 ? (vol1hSol * VAULT_TRIM_VOL_CAP) / priceSol : 0
+  return Math.max(0, Math.min(perTrim, dayRoom, volRoom))
+}
 export const VAULT_DIP_TRIGGER = -0.12         // buy when price is ≥12% under the 15-min high
 export function dipBudget(chestSol: number, drawdown: number, spentThisEpisode: number) {
   if (drawdown > VAULT_DIP_TRIGGER) return 0
