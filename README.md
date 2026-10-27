@@ -45,3 +45,6 @@ src/lib/protocol.ts   UNNAMED rules (tested)
 src/lib/positions.ts  local cost-basis ledger
 src/components/       Board, CoinPage, Launch, Pages (Portfolio/Settings/About), ui
 ```
+
+## In-app wallet (1-click trading)
+Default wallet is a browser-side keypair encrypted with a user password (PBKDF2-310k → AES-GCM, localStorage). Deposit from Phantom, trade with no popups, withdraw anytime, export/import key. Phantom/Solflare/Backpack remain available under "Phantom / extension".

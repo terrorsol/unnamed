@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useConnection, useWallet } from '@solana/wallet-adapter-react'
+import { useConnection } from '@solana/wallet-adapter-react'
+import type { PublicKey } from '@solana/web3.js'
 import { LAMPORTS } from './lib/fmt'
 import { holdings, type Holding } from './lib/rpc'
 import * as D from './lib/dex'
@@ -43,12 +44,13 @@ export function useNewTokens(max = 60) {
   }, [])
   return { list, live, trades, subscribe: (m: string[]) => ref.current?.subscribe(m) }
 }
-export function useWalletState(refreshKey = 0) {
-  const { connection } = useConnection(); const { publicKey } = useWallet()
+export function useWalletState(publicKey: PublicKey | null, refreshKey = 0) {
+  const { connection } = useConnection()
   const [sol, setSol] = useState<number | null>(null); const [tokens, setTokens] = useState<Holding[]>([])
   const refresh = useCallback(async () => {
     if (!publicKey) { setSol(null); setTokens([]); return }
-    try { const [b, h] = await Promise.all([connection.getBalance(publicKey), holdings(connection, publicKey)]); setSol(b / LAMPORTS); setTokens(h) } catch {}
+    connection.getBalance(publicKey).then((b) => setSol(b / LAMPORTS)).catch(() => {})
+    holdings(connection, publicKey).then(setTokens).catch(() => {})
   }, [connection, publicKey])
   useEffect(() => { refresh(); const i = setInterval(refresh, 15000); return () => clearInterval(i) }, [refresh, refreshKey])
   return { sol, tokens, refresh, owner: publicKey?.toBase58() || '' }

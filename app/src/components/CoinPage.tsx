@@ -8,7 +8,7 @@ import type { Lot } from '../lib/positions'
 import type { TradeEvt } from '../lib/pumpportal'
 
 type Props = { mint: string; coin?: D.Coin; solPrice: number; holding?: Holding; lot?: Lot; sol: number | null; connected: boolean; busy: string
-  onBuy: (c: D.Coin, sol: number) => void; onSell: (c: D.Coin, frac: number) => void; quickSol: number; watch: string[]; toggleWatch: (m: string) => void; trades: TradeEvt[]; subscribe: (m: string[]) => void }
+  onBuy: (c: D.Coin, sol: number) => void; onSell: (c: D.Coin, frac: number) => void; quickSol: number; watch: string[]; toggleWatch: (m: string) => void; needWallet: () => void; trades: TradeEvt[]; subscribe: (m: string[]) => void }
 
 export default function CoinPage(p: Props) {
   const [coin, setCoin] = useState<D.Coin | undefined>(p.coin)
@@ -68,7 +68,7 @@ export default function CoinPage(p: Props) {
           <div className="kv"><span>≈ USD</span><b className="num">${S(n * p.solPrice, 2)}</b></div>
           <div className="kv"><span>Route</span><b>{c.onCurve ? 'pump.fun curve · PumpPortal' : 'Jupiter aggregator'}</b></div>
           <div className="kv"><span>Est. tokens</span><b className="num">{c.priceUsd ? ((n * p.solPrice) / c.priceUsd).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'}</b></div>
-          <button className="btn pri big" disabled={!p.connected || !!p.busy || n <= 0 || (p.sol != null && n > p.sol - 0.005)} onClick={() => p.onBuy(c, n)}>{p.busy || (!p.connected ? 'Connect wallet' : `Buy ${c.symbol}`)}</button>
+          <button className="btn pri big" disabled={!!p.busy || (p.connected && (n <= 0 || (p.sol != null && n > p.sol - 0.005)))} onClick={() => p.connected ? p.onBuy(c, n) : p.needWallet()}>{p.busy || (!p.connected ? 'Connect wallet' : `Buy ${c.symbol}`)}</button>
         </> : <>
           <div className="presets">{[0.25, 0.5, 0.75, 1].map((v) => <button key={v} className={frac === v ? 'on' : ''} onClick={() => setFrac(v)}>{v * 100}%</button>)}</div>
           <input type="range" className="slider" min={1} max={100} value={Math.round(frac * 100)} onChange={(e) => setFrac(+e.target.value / 100)} />
@@ -77,7 +77,7 @@ export default function CoinPage(p: Props) {
           {cost > 0 && <div className="kv"><span>P&amp;L on this sell</span><b className={'num ' + (sellProfit >= 0 ? 'up' : 'dn')}>{sellProfit >= 0 ? '+' : ''}{S(sellProfit)} SOL</b></div>}
           <div className="kv"><span>Early-flip fee <span className="tag pre">PREVIEW</span></span><b className="num">{fee > 0 ? `−${S(fee, 4)} SOL` : '0'}</b></div>
           <div className="kv"><span>Route</span><b>{c.onCurve ? 'pump.fun curve · PumpPortal' : 'Jupiter aggregator'}</b></div>
-          <button className="btn big sell" disabled={!p.connected || !!p.busy || !held} onClick={() => p.onSell(c, frac)}>{p.busy || (!p.connected ? 'Connect wallet' : !held ? 'Nothing to sell' : `Sell ${Math.round(frac * 100)}%`)}</button>
+          <button className="btn big sell" disabled={!!p.busy || (p.connected && !held)} onClick={() => p.connected ? p.onSell(c, frac) : p.needWallet()}>{p.busy || (!p.connected ? 'Connect wallet' : !held ? 'Nothing to sell' : `Sell ${Math.round(frac * 100)}%`)}</button>
         </>}
         <div className="note">Real trade. Your wallet signs; nothing is custodied. Slippage &amp; priority fee in Settings. PumpPortal charges 0.5% on curve trades; Jupiter routes are fee-free from us. <b>Flip-fee and vault rules are a preview</b> — not deducted yet.</div>
       </div></div>

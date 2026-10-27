@@ -3,7 +3,7 @@ import { vaultPct } from '../lib/protocol'
 import { S } from '../lib/fmt'
 import type { CreateMeta } from '../lib/pumpportal'
 
-type Props = { onClose: () => void; onLaunch: (m: CreateMeta, devBuy: number, stake: number) => void; busy: string; connected: boolean; sol: number | null }
+type Props = { onClose: () => void; onLaunch: (m: CreateMeta, devBuy: number, stake: number) => void; busy: string; connected: boolean; sol: number | null; needWallet: () => void }
 export default function Launch(p: Props) {
   const [name, setName] = useState(''); const [symbol, setSymbol] = useState(''); const [desc, setDesc] = useState(''); const [file, setFile] = useState<File | undefined>()
   const [tw, setTw] = useState(''); const [tg, setTg] = useState(''); const [web, setWeb] = useState('')
@@ -30,6 +30,6 @@ export default function Launch(p: Props) {
     <div className="kv"><span>Cost now</span><b className="num">{S(total, 2)} SOL (dev buy + ~0.02 fees)</b></div>
     <div className="kv"><span>Wallet</span><b className="num">{p.sol == null ? '—' : S(p.sol) + ' SOL'}</b></div>
     <div className="row"><button className="btn" onClick={p.onClose}>Cancel</button><span className="sp" />
-      <button className="btn pri" disabled={!ok || !!p.busy || !p.connected || (p.sol != null && total > p.sol)} onClick={() => p.onLaunch({ name: name.trim(), symbol: symbol.trim(), description: desc.trim(), file, twitter: tw || undefined, telegram: tg || undefined, website: web || undefined }, dev, stake)}>{p.busy || (!p.connected ? 'Connect wallet' : 'Create coin')}</button></div>
+      <button className="btn pri" disabled={!!p.busy || (p.connected && (!ok || (p.sol != null && total > p.sol)))} onClick={() => !p.connected ? p.needWallet() : p.onLaunch({ name: name.trim(), symbol: symbol.trim(), description: desc.trim(), file, twitter: tw || undefined, telegram: tg || undefined, website: web || undefined }, dev, stake)}>{p.busy || (!p.connected ? 'Connect wallet' : 'Create coin')}</button></div>
   </div></div>
 }

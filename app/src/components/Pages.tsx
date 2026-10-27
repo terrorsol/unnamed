@@ -9,7 +9,7 @@ import type { Settings } from '../lib/store'
 import { flipFee, FLIP_WINDOW_MIN } from '../lib/protocol'
 
 export function Portfolio({ sol, tokens, coins, lots, fills, solPrice, go, owner }: { sol: number | null; tokens: Holding[]; coins: Record<string, Coin>; lots: Record<string, Lot>; fills: Fill[]; solPrice: number; go: (p: string) => void; owner: string }) {
-  if (!owner) return <div className="empty">Connect a wallet to see holdings</div>
+  if (!owner) return <div className="empty">Connect or unlock a wallet to see holdings</div>
   const rows = tokens.map((t) => { const c = coins[t.mint]; const val = c ? t.amount * c.priceUsd : 0; return { t, c, val, lot: lots[t.mint] } }).sort((a, b) => b.val - a.val)
   const tot = rows.reduce((a, r) => a + r.val, 0)
   return <>
