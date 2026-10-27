@@ -24,8 +24,13 @@ jobs:
       - name: Test
         working-directory: app
         run: npm test
+      - name: Server tests
+        working-directory: server
+        run: npm ci && npm test
       - name: Build app
         working-directory: app
+        env:
+          VITE_SERVER_URL: ${{ vars.SERVER_URL }}
         run: npm run build -- --base=/unnamed/app/
       - name: Assemble site
         run: |

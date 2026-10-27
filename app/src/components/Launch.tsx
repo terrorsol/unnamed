@@ -9,7 +9,7 @@ export default function Launch(p: Props) {
   const [tw, setTw] = useState(''); const [tg, setTg] = useState(''); const [web, setWeb] = useState('')
   const [dev, setDev] = useState(0.5); const [stake, setStake] = useState(1)
   const ok = name.trim().length > 1 && symbol.trim().length > 0 && symbol.length <= 10 && !!file
-  const total = dev + 0.02
+  const total = dev + stake + 0.02
   return <div className="modal" onClick={p.onClose}><div className="box" onClick={(e) => e.stopPropagation()}>
     <div className="row"><h2>Launch a coin</h2><span className="sp" /><span className="tag live">LIVE · pump.fun</span></div>
     <div className="two">
@@ -24,10 +24,10 @@ export default function Launch(p: Props) {
       <div className="fld"><div className="lbl">Website</div><input value={web} onChange={(e) => setWeb(e.target.value)} placeholder="https://" /></div>
     </div>
     <div className="fld"><div className="lbl">Dev buy (block zero) — <b className="num">{S(dev, 2)} SOL</b></div><input type="range" className="slider" min={0} max={5} step={0.05} value={dev} onChange={(e) => setDev(+e.target.value)} /></div>
-    <div className="note"><div className="row"><b>Vault stake</b><span className="tag pre">PREVIEW</span><span className="sp" /><b className="num">{S(stake, 2)} SOL → {S(vaultPct(stake), 1)}% supply</b></div>
+    <div className="note"><div className="row"><b>Vault stake</b><span className="tag live">LIVE · bot</span><span className="sp" /><b className="num">{S(stake, 2)} SOL → {S(vaultPct(stake), 1)}% supply</b></div>
       <input type="range" className="slider" min={0} max={5} step={0.05} value={stake} onChange={(e) => setStake(+e.target.value)} style={{ marginTop: 6 }} />
-      On UNNAMED your stake buys vault supply the program market-makes with; your dev cut equals the vaulted %. Today this is recorded for you but the launch itself goes to pump.fun's curve (free, 85 SOL graduation). Vault contracts ship in Beta v1.</div>
-    <div className="kv"><span>Cost now</span><b className="num">{S(total, 2)} SOL (dev buy + ~0.02 fees)</b></div>
+      Your stake funds this coin's vault: half buys supply at block zero, half is the chest that buys crashes. It trims only above holder cost + 30-min VWAP, never dumps, never withdraws. Your cut = the vaulted %, renounceable. Set to 0 for a plain pump launch.</div>
+    <div className="kv"><span>Cost now</span><b className="num">{S(total, 2)} SOL (dev buy + vault stake + ~0.02 fees)</b></div>
     <div className="kv"><span>Wallet</span><b className="num">{p.sol == null ? '—' : S(p.sol) + ' SOL'}</b></div>
     <div className="row"><button className="btn" onClick={p.onClose}>Cancel</button><span className="sp" />
       <button className="btn pri" disabled={!!p.busy || (p.connected && (!ok || (p.sol != null && total > p.sol)))} onClick={() => !p.connected ? p.needWallet() : p.onLaunch({ name: name.trim(), symbol: symbol.trim(), description: desc.trim(), file, twitter: tw || undefined, telegram: tg || undefined, website: web || undefined }, dev, stake)}>{p.busy || (!p.connected ? 'Connect wallet' : 'Create coin')}</button></div>

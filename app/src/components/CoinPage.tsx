@@ -6,14 +6,18 @@ import { flipFee, FLIP_WINDOW_MIN, vaultPct, deskOpen, deskMinBlock } from '../l
 import type { Holding } from '../lib/rpc'
 import type { Lot } from '../lib/positions'
 import type { TradeEvt } from '../lib/pumpportal'
+import { CoinDesk, CoinVault, type DeskCtx } from './Desk'
+import * as K from '../lib/desk'
 
 type Props = { mint: string; coin?: D.Coin; solPrice: number; holding?: Holding; lot?: Lot; sol: number | null; connected: boolean; busy: string
-  onBuy: (c: D.Coin, sol: number) => void; onSell: (c: D.Coin, frac: number) => void; quickSol: number; watch: string[]; toggleWatch: (m: string) => void; needWallet: () => void; trades: TradeEvt[]; subscribe: (m: string[]) => void }
+  onBuy: (c: D.Coin, sol: number) => void; onSell: (c: D.Coin, frac: number) => void; quickSol: number; watch: string[]; toggleWatch: (m: string) => void; needWallet: () => void; trades: TradeEvt[]; subscribe: (m: string[]) => void; desk: DeskCtx; deskTick: number; vaultV: number; onRenounce: (v: K.VaultPub) => void }
 
 export default function CoinPage(p: Props) {
   const [coin, setCoin] = useState<D.Coin | undefined>(p.coin)
   const [side, setSide] = useState<'buy' | 'sell'>('buy'); const [amt, setAmt] = useState(String(p.quickSol)); const [frac, setFrac] = useState(1)
-  const [tab, setTab] = useState<'trades' | 'protocol'>('trades')
+  const [tab, setTab] = useState<'trades' | 'desk' | 'vault' | 'protocol'>('trades')
+  const [vault, setVault] = useState<K.VaultPub | null | undefined>(undefined)
+  useEffect(() => { K.vaultByMint(p.mint).then(setVault).catch(() => setVault(null)) }, [p.mint, p.vaultV])
   useEffect(() => { setCoin(p.coin) }, [p.coin])
   useEffect(() => {
     let on = true; p.subscribe([p.mint])
@@ -46,9 +50,11 @@ export default function CoinPage(p: Props) {
       <div>
         <div className="chart">{c.pair ? <iframe src={D.chartUrl(c.pair)} title="chart" allow="clipboard-write" /> : <div className="empty">No chart yet</div>}</div>
         <div className="card" style={{ marginTop: 12 }}>
-          <h3><span className="seg" style={{ marginLeft: -4 }}><button className={tab === 'trades' ? 'on' : ''} onClick={() => setTab('trades')}>Trades</button><button className={tab === 'protocol' ? 'on' : ''} onClick={() => setTab('protocol')}>Protocol <span className="tag pre" style={{ marginLeft: 4 }}>PREVIEW</span></button></span></h3>
+          <h3><span className="seg" style={{ marginLeft: -4 }}><button className={tab === 'trades' ? 'on' : ''} onClick={() => setTab('trades')}>Trades</button><button className={tab === 'desk' ? 'on' : ''} onClick={() => setTab('desk')}>Desk</button><button className={tab === 'vault' ? 'on' : ''} onClick={() => setTab('vault')}>Vault {vault && <span className="tag live" style={{ marginLeft: 4 }}>ON</span>}</button><button className={tab === 'protocol' ? 'on' : ''} onClick={() => setTab('protocol')}>Rules</button></span></h3>
           {tab === 'trades' ? <div className="feed">{myTrades.map((t, i) => <div className="it" key={i}><span className={t.txType === 'buy' ? 'up' : 'dn'} style={{ width: 40, fontWeight: 600 }}>{t.txType.toUpperCase()}</span><span className="num" style={{ width: 90 }}>{S(t.sol, 3)} SOL</span><span className="num dim" style={{ width: 110 }}>{F(t.mcapSol * p.solPrice)} mc</span><span className="dim num" style={{ flex: 1 }}>{t.trader.slice(0, 4)}…{t.trader.slice(-4)}</span><span className="nm">{ago(t.ts)}</span></div>)}
             {!myTrades.length && <div className="empty" style={{ padding: 24 }}>{c.onCurve ? 'Streaming curve trades… (pump.fun live feed)' : 'Live trade stream covers bonding-curve coins. Graduated: see dexscreener ↗'}</div>}</div>
+            : tab === 'desk' ? <CoinDesk mint={p.mint} symbol={c.symbol} d={p.desk} key={p.deskTick} />
+            : tab === 'vault' ? <CoinVault mint={p.mint} v={vault} isDev={!!vault && vault.dev === p.desk.owner} onRenounce={() => vault && p.onRenounce(vault)} solPrice={p.solPrice} />
             : <div className="panel" style={{ gap: 8 }}>
               <div className="note"><b>How this coin would run on UNNAMED.</b> These rules are computed live from the market data; they become enforced on-chain when the programs ship. Nothing below changes what your wallet does today.</div>
               <div className="kv"><span>Vault (block-zero stake → supply)</span><b className="num">e.g. 1 SOL → {S(vaultPct(1), 1)}% · 3.1 SOL → 10% cap</b></div>
@@ -79,7 +85,7 @@ export default function CoinPage(p: Props) {
           <div className="kv"><span>Route</span><b>{c.onCurve ? 'pump.fun curve · PumpPortal' : 'Jupiter aggregator'}</b></div>
           <button className="btn big sell" disabled={!!p.busy || (p.connected && !held)} onClick={() => p.connected ? p.onSell(c, frac) : p.needWallet()}>{p.busy || (!p.connected ? 'Connect wallet' : !held ? 'Nothing to sell' : `Sell ${Math.round(frac * 100)}%`)}</button>
         </>}
-        <div className="note">Real trade. Your wallet signs; nothing is custodied. Slippage &amp; priority fee in Settings. PumpPortal charges 0.5% on curve trades; Jupiter routes are fee-free from us. <b>Flip-fee and vault rules are a preview</b> — not deducted yet.</div>
+        <div className="note">Real trade. Your wallet signs; nothing is custodied. Slippage &amp; priority fee in Settings. PumpPortal charges 0.5% on curve trades; Jupiter routes are fee-free from us. <b>Early-flip fee is a preview</b> — not deducted yet. Desk and vault are live.</div>
       </div></div>
     </div>
   </>

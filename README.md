@@ -48,3 +48,6 @@ src/components/       Board, CoinPage, Launch, Pages (Portfolio/Settings/About),
 
 ## In-app wallet (1-click trading)
 Default wallet is a browser-side keypair encrypted with a user password (PBKDF2-310k → AES-GCM, localStorage). Deposit from Phantom, trade with no popups, withdraw anytime, export/import key. Phantom/Solflare/Backpack remain available under "Phantom / extension".
+
+## Desk + vault (live, bot-run)
+See `server/README.md`. Desk = non-custodial block bids matched by our server, settled by a two-signer tx. Vault = our bot running the market-maker rules per coin (custodial in beta).
