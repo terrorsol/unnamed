@@ -171,3 +171,13 @@ export async function tick() {
   }
   save()
 }
+
+/** Vault answers an RFQ: fills at −4% when the seller allows it, otherwise counters at −4%. Sized to what the chest can carry. */
+export async function respondRfq(mint: string, sizeSol: number, maxBps: number, rfqId: string) {
+  const v = Object.values(vaults).find((x) => x.mint === mint && x.armed); if (!v) return null
+  const sol = +Math.min(sizeSol, v.chest * 0.6 - 0.02).toFixed(3); if (sol < 0.2) return null
+  const m = await market(mint); if (!m || sol < R.minBlockSol(m)) return null
+  const b = await D.placeInternalRaw(kp(v), 'VAULT', mint, sol, 400, () => v.chest - 0.02, true); b.rfq = rfqId
+  v.activity.unshift({ t: Date.now(), kind: 'bid', sol, msg: `answered block request at −4%` })
+  return b
+}

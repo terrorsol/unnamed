@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState, useEffect } from 'react'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { Keypair, PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
 import * as K from './lib/desk'
-import { DeskPage, VaultPage, MinePage, LeaderboardPage, ImportPage } from './components/Desk'
+import { DeskPage, VaultPage, MinePage, LeaderboardPage, ImportPage, RfqPing } from './components/Desk'
 import { due, removeOrder, loadOrders } from './lib/orders'
 import { confirmByPolling } from './lib/rpc'
 import WalletPanel from './components/WalletPanel'
@@ -59,17 +59,25 @@ export default function App() {
   const signLegacy = useCallback(async (t: Transaction) => { if (mode === 'burner') { if (!burner) throw new Error('wallet locked'); t.partialSign(burner); return t } if (!wallet.signTransaction) throw new Error('wallet cannot sign'); return wallet.signTransaction(t) }, [mode, burner, wallet.signTransaction])
   const signMsg = useCallback(async (m: Uint8Array) => { if (mode === 'burner') { if (!burner) throw new Error('wallet locked'); return K.signMsgWith(burner)(m) } if (!wallet.signMessage) throw new Error('wallet cannot sign messages'); return wallet.signMessage(m) }, [mode, burner, wallet.signMessage])
   const [bidder, setBidder] = useState<K.BidderSession | null>(null); const [deskUp, setDeskUp] = useState(false); const [deskTick, setDeskTick] = useState(0)
+  const [pings, setPings] = useState<K.Rfq[]>([])
   useEffect(() => { K.health().then(() => setDeskUp(true)).catch(() => setDeskUp(false)); const i = setInterval(() => K.health().then(() => setDeskUp(true)).catch(() => setDeskUp(false)), 30000); return () => clearInterval(i) }, [])
   useEffect(() => {
     if (!activeB58 || !deskUp) { setBidder(null); return }
     const sess = K.openBidder(connection, activeB58, signMsg, signLegacy, async (m) => { const c = await D.tokenPairs(m); return c?.raw?.priceNative ? +c.raw.priceNative : 0 }, (e) => {
       setDeskTick((t) => t + 1)
+      if (e.type === 'rfq' && e.rfq.seller !== activeB58) setPings((l) => [e.rfq, ...l.filter((x) => x.id !== e.rfq.id)].slice(0, 4))
+      if (e.type === 'authed' && e.rfqs) setPings(e.rfqs.filter((r: K.Rfq) => r.seller !== activeB58).slice(0, 4))
       if (e.type === 'filled') { toast({ kind: 'ok', title: 'Your bid was filled', rows: [['Paid', S(Number(BigInt(e.expect.sellerLamports) + BigInt(e.expect.fee)) / 1e9) + ' SOL'], ['Tx', short(e.sig, 6)]], href: solscan(e.sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
       if (e.type === 'fillfail') toast({ kind: 'err', title: 'Fill rejected by your browser', rows: [['Reason', e.error]] })
       if (e.type === 'error' && e.re !== 'place') toast({ kind: 'err', title: 'Desk', rows: [['Error', e.error]] })
     })
     setBidder(sess); return () => sess.close()
   }, [activeB58, deskUp, connection, signMsg, signLegacy])
+  const onRespond = async (rfqId: string, discBps: number, sol: number) => {
+    if (!bidder) return needWallet()
+    try { await bidder.respond(rfqId, discBps, sol); setPings((l) => l.filter((x) => x.id !== rfqId)); toast({ kind: 'ok', title: discBps <= (pings.find((p) => p.id === rfqId)?.maxBps ?? discBps) ? 'Filling the block — seller is signing' : 'Counter sent to seller', rows: [['Your price', '−' + (discBps / 100).toFixed(2) + '%'], ['Size', S(sol, 2) + ' SOL']] }) }
+    catch (e: any) { toast({ kind: 'err', title: 'Could not respond', rows: [['Reason', String(e?.message || e)]] }) }
+  }
   const takeBid = async (id: string) => {
     if (!activeB58) return needWallet()
     try { const { sig, quote } = await K.takeBid(connection, activeB58, id, signLegacy, setBusy); const got = Number(BigInt(quote.sellerLamports)) / 1e9; recordSell(ws.owner, quote.mint, quote.bid.symbol, 0, got, sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Block sold on the desk`, rows: [['Received', S(got) + ' SOL'], ['Discount', '−' + (quote.bid.discBps / 100).toFixed(1) + '%'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
@@ -177,6 +185,7 @@ export default function App() {
     </div>
     {wp && <WalletPanel onClose={() => setWp(false)} burner={burner} setBurner={setBurner} mode={mode} setMode={setMode} sol={ws.sol} onWithdraw={onWithdraw} />}
     {launch && <Launch onClose={() => setLaunch(false)} onLaunch={onLaunch} busy={busy} connected={connected} sol={ws.sol} needWallet={needWallet} />}
+    <div className="toasts" style={{ bottom: 'auto', top: 64 }}>{pings.map((r) => <RfqPing key={r.id} r={r} bidder={bidder} onRespond={onRespond} onDismiss={() => setPings((l) => l.filter((x) => x.id !== r.id))} busy={busy} />)}</div>
     <Toasts />
   </div>
 }

@@ -26,14 +26,14 @@ export default function Launch(p: Props) {
       <div className="fld"><div className="lbl">Telegram</div><input value={tg} onChange={(e) => setTg(e.target.value)} placeholder="https://t.me/…" /></div>
       <div className="fld"><div className="lbl">Website</div><input value={web} onChange={(e) => setWeb(e.target.value)} placeholder="https://" /></div>
     </div>
-    <div className="fld"><div className="lbl">Copy of (optional) — launch as a declared copy; half your vault cut streams to the original's chest, and the family's leader is flagged by L = aged mc × √vol</div>
+    <div className="fld"><div className="lbl">Copy of (optional) — half your cut streams to the original</div>
       {copyOf ? <div className="row"><span className="tag">COPY OF</span><b>{copyOf.symbol}</b><span className="nm">{copyOf.name}</span><span className="sp" /><button className="btn sm" onClick={() => { setCopyOf(null); setCq('') }}>Clear</button></div>
         : <><input value={cq} onChange={(e) => setCq(e.target.value)} placeholder="search ticker or mint of the original" />{cres.length > 0 && <div className="card" style={{ marginTop: 4 }}>{cres.map((c) => <div key={c.mint} className="it row" style={{ padding: '7px 10px', cursor: 'pointer', borderBottom: '1px solid var(--line)' }} onClick={() => { setCopyOf(c); setCres([]) }}><b>{c.symbol}</b><span className="nm">{c.name.slice(0, 24)}</span><span className="sp" /><span className="dim num">{c.mcap ? '$' + Math.round(c.mcap / 1000) + 'K' : ''}</span></div>)}</div>}</>}
     </div>
     <div className="fld"><div className="lbl">Dev buy (block zero) — <b className="num">{S(dev, 2)} SOL</b></div><input type="range" className="slider" min={0} max={5} step={0.05} value={dev} onChange={(e) => setDev(+e.target.value)} /></div>
     <div className="note"><div className="row"><b>Vault stake</b><span className="tag live">LIVE · bot</span><span className="sp" /><b className="num">{S(stake, 2)} SOL → {S(vaultPct(stake), 1)}% supply</b></div>
       <input type="range" className="slider" min={0} max={5} step={0.05} value={stake} onChange={(e) => setStake(+e.target.value)} style={{ marginTop: 6 }} />
-      Your stake funds this coin's vault: half buys supply at block zero, half is the chest that buys crashes. It trims only above holder cost + 30-min VWAP, never dumps, never withdraws. Your cut = the vaulted %, renounceable. Set to 0 for a plain pump launch.</div>
+      <div className="nm" style={{ marginTop: 4 }}>Half buys block-zero supply, half is the chest. Cut = vaulted %, renounceable. 0 = plain pump launch.</div></div>
     <div className="kv"><span>Cost now</span><b className="num">{S(total, 2)} SOL (dev buy + vault stake + ~0.02 fees)</b></div>
     <div className="kv"><span>Wallet</span><b className="num">{p.sol == null ? '—' : S(p.sol) + ' SOL'}</b></div>
     <div className="row"><button className="btn" onClick={p.onClose}>Cancel</button><span className="sp" />

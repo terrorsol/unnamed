@@ -29,7 +29,7 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
             return <tr key={b.id}><td className="r num">{S(b.sol, 2)} SOL</td><td className="r num dn">−{(b.discBps / 100).toFixed(1)}%</td><td className="r num dim">{tokens ? tokens.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' ' + symbol : '—'}</td><td className="r num dim">{ago(b.placedAt)}{!b.restable && <span className="gold"> · resting</span>}</td>
               <td className="r">{b.mine ? <button className="btn sm" onClick={() => cancel(b.id)}>Cancel</button> : <button className="btn sm pri" disabled={!canTake || !!d.busy} title={!b.restable ? 'resting' : d.holdingUi < tokens ? 'you hold less than this block' : ''} onClick={() => d.takeBid(b.id)}>Sell block</button>}</td></tr> })}
         </tbody></table></div>
-        <div className="nm" style={{ marginTop: 6 }}>Selling a block delivers exactly the bid's size at the bidder's discount, off the pool — the chart doesn't move. One signature from you, the bidder co-signs within seconds, or nothing happens.</div>
+        <div className="nm" style={{ marginTop: 6 }}>Fills off-pool at the bid's discount. One signature; the bidder co-signs or nothing happens.</div>
       </div>
       <div>
         <div className="lbl">Place a block bid</div>
@@ -40,7 +40,7 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
         <div className="kv"><span>You receive ≈</span><b className="num">{book.market?.priceSol ? (+sol / (book.market.priceSol * (1 - disc / 10000))).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'} {symbol}</b></div>
         <button className="btn pri big" style={{ marginTop: 10 }} disabled={!book.open || !d.connected || !d.bidder?.connected() || !(+sol >= (book.minBlock || 0))} onClick={place}>{!d.connected ? 'Connect wallet' : !d.bidder?.connected() ? 'Linking bidder…' : +sol < (book.minBlock || 0) ? `Min block ${S(book.minBlock || 0, 2)} SOL` : 'Place bid'}</button>
         {msg && <div className="nm" style={{ marginTop: 6 }}>{msg}</div>}
-        <div className="note" style={{ marginTop: 10 }}>Your SOL stays in your wallet — a bid is a standing promise your browser honors by co-signing fills while this tab is open. Close the tab and the bid lifts. Fills are all-or-none at your discount, verified by your own browser before it signs.</div>
+        <div className="nm" style={{ marginTop: 8 }}>SOL stays in your wallet. Bid lives while this tab is open; your browser verifies every fill before signing.</div>
       </div>
     </div>
   </div>
@@ -60,7 +60,7 @@ export function DeskPage({ go }: { go: (p: string) => void }) {
       {(!list || !list.length) && <tr><td colSpan={4} className="empty">{err ? 'Desk server unreachable: ' + err : 'No bids resting anywhere yet. Open any graduated coin ≥ $100K and place one.'}</td></tr>}
       {list?.map((b) => <tr key={b.mint} onClick={() => go('coin/' + b.mint)}><td className="tk">{b.symbol} <span className="nm">{short(b.mint, 4)}</span></td><td className="r num">{b.bids}</td><td className="r num">{S(b.sol, 2)}</td><td className="r num dn">−{(b.bestDisc / 100).toFixed(1)}%</td></tr>)}
     </tbody></table></div>
-    <div className="prose" style={{ marginTop: 18 }}><h2>How the desk works</h2><p>Holders who want out without crashing the chart sell a block to a resting bid, 3–5% under spot, off the pool. Bids are all-or-none and rest 60 seconds before they can be hit. Nobody custodies anything: the fill is one transaction signed by both sides. Min block is 2% of the pool's SOL reserve; the desk opens once a coin has graduated and holds a $100K market cap. 0.5% of each cross goes to the treasury.</p></div>
+    <div className="nm" style={{ marginTop: 12 }}>Blocks trade off-pool 3–5% under spot · all-or-none · 60s rest · min block 2% of reserve · opens at $100K mc graduated · 0.5% cross fee · settled by one tx both sides sign.</div>
   </>
 }
 
@@ -79,7 +79,7 @@ export function CoinVault({ mint, v, isDev, onRenounce, solPrice }: { mint: stri
     <div className="feed" style={{ maxHeight: 260 }}>{v.activity.map((a, i) => <div className="it" key={i}><span className={a.kind === 'buy' || a.kind === 'seed' ? 'up' : a.kind === 'trim' ? 'dn' : a.kind === 'cut' ? 'gold' : 'dim'} style={{ width: 46, fontWeight: 600 }}>{a.kind.toUpperCase()}</span><span className="num" style={{ width: 90 }}>{a.sol != null ? S(a.sol, 3) + ' SOL' : ''}</span><span className="dim" style={{ flex: 1 }}>{a.msg}</span>{a.sig && <a className="dim" href={solscan(a.sig)} target="_blank" rel="noreferrer">↗</a>}<span className="nm">{ago(a.t)}</span></div>)}
       {!v.activity.length && <div className="empty" style={{ padding: 16 }}>Nothing yet</div>}</div>
     {isDev && !v.renounced && <div className="row"><span className="dim" style={{ fontSize: 11 }}>Renouncing forfeits your cut forever; the vault keeps running for holders.</span><span className="sp" /><button className="btn sm" onClick={onRenounce}>Renounce cut</button></div>}
-    <div className="note"><b>Beta:</b> the vault runs as our bot holding this coin's vault wallet, enforcing the same rules the on-chain program will — dip buys ≤40% of chest per crash, trims only above holder cost and 30-min VWAP, no withdrawals. v1 moves it into a program so it's trustless.</div>
+    <div className="nm">Bot-run in beta (on-chain program next). Rules: dip buys ≤40% of chest per crash · trims only above cost + 30-min VWAP, ≤2%/trim · 5%/day · 10% of vol · no withdrawals.</div>
   </div>
 }
 
@@ -97,7 +97,7 @@ export function VaultPage({ go, solPrice }: { go: (p: string) => void; solPrice:
       {(!list || !list.length) && <tr><td colSpan={5} className="empty">{err ? 'Vault server unreachable: ' + err : 'No vaults yet. Launch a coin with a stake and it shows up here.'}</td></tr>}
       {list?.map((v) => <tr key={v.id} onClick={() => v.mint && go('coin/' + v.mint)}><td className="tk">{v.symbol || '—'} <span className="nm">{v.mint ? short(v.mint, 4) : ''}</span></td><td className="r num">{S(v.chest)} SOL</td><td className="r num">{v.tokens.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td><td className="r num">{v.renounced ? '0%' : v.cut + '%'}</td><td className="r dim">{v.activity[0] ? `${v.activity[0].kind} · ${ago(v.activity[0].t)}` : '—'}</td></tr>)}
     </tbody></table></div>
-    <div className="prose" style={{ marginTop: 18 }}><h2>How the vault works</h2><p>At launch the dev stakes SOL; the stake buys vault supply at block zero (10% cap, reached around 3.1 SOL) and the rest sits as the chest. The vault buys crashes — at most 40% of the chest per episode — and trims only when price is above every holder's cost basis and the 30-minute VWAP, in an uptrend. It never dumps and never withdraws. The dev's cut equals the vaulted percentage of trim profit, and can be renounced. Burn-to-redeem against the chest and copies ship with the on-chain version.</p></div>
+    <div className="nm" style={{ marginTop: 12 }}>Dev stake → block-zero supply + chest. Buys crashes (≤40% of chest), trims only above holder cost + VWAP, never withdraws. Dev cut = vaulted % of trim profit, renounceable.</div>
   </>
 }
 
@@ -116,7 +116,7 @@ export function VaultExtras({ mint, v, holdingUi, decimals, connected, busy, onR
         <div className="kv"><span>You receive</span><b className="num up">{S(sol, 4)} SOL <span className="dim">(${S(sol * solPrice, 2)})</span></b></div>
         <button className="btn big" style={{ marginTop: 8 }} disabled={!!busy || (connected && (!holdingUi || sol < 0.001 || sol > v.chest * 0.25))} onClick={() => (connected ? onRedeem(tokens) : needWallet())}>{busy || (!connected ? 'Connect wallet' : !holdingUi ? 'Nothing to redeem' : sol < 0.001 ? 'Below 0.001 SOL' : sol > v.chest * 0.25 ? 'Max 25% of chest per redeem' : 'Burn & redeem')}</button>
       </div>
-      <div className="note">Your tokens go to the vault (never resold — they're the vault's forever), the vault pays your pro-rata share of the chest minus a 7% haircut, atomically in one transaction you sign and the vault co-signs. This is the floor under every holder: the chest can't be withdrawn, only redeemed against.</div>
+      <div className="nm">Tokens → vault, chest → you, pro-rata minus 7%, one tx. The floor under every holder.</div>
     </div>
     <div className="lbl" style={{ marginTop: 10 }}>Family {v.copyOf ? <span className="tag">COPY</span> : <span className="tag live">ORIGINAL</span>}</div>
     {fam && fam.members.length > 1 ? <div className="card"><table><thead><tr><th>Coin</th><th className="r">MC</th><th className="r">Vol 1h</th><th className="r">Score</th><th className="r"></th></tr></thead><tbody>
@@ -144,7 +144,7 @@ export function MinePage({ owner, go, solPrice, onRenounce, onClaim, busy }: { o
         <td className="r num">{S(v.chest)} SOL</td><td className="r num">{v.tokens.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td><td className="r num">{v.renounced ? '0% · renounced' : v.cut + '%'}</td><td className="r num gold">{S(v.devPaid, 4)}</td><td className="r num">{v.deskBid ? S(v.deskBid, 2) + ' SOL' : '—'}</td>
         <td className="r"><div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>{v.mint && <button className="btn sm" disabled={!!busy} onClick={() => onClaim(v.mint!)}>Claim pump fees</button>}{v.armed && !v.renounced && <button className="btn sm" onClick={() => onRenounce(v)}>Renounce</button>}</div></td></tr>)}
     </tbody></table></div>
-    <div className="note" style={{ marginTop: 12 }}><b>Dev rules.</b> Your cut equals the vaulted % and is paid only from vault trims above holder cost — you can't be paid by dumping. Renouncing is permanent. "Claim pump fees" collects the creator fees pump.fun accrues to you on curve trades.</div>
+    <div className="nm" style={{ marginTop: 10 }}>Cut = vaulted %, paid only from trims above holder cost. Renounce is permanent.</div>
   </>
 }
 
@@ -167,7 +167,7 @@ export function ImportPage({ owner, connected, busy, onPay, go, initialMint, nee
   const canPay = !!q && connected && !busy && (sol == null || sol >= (q.feeSol + 0.01))
   return <div style={{ maxWidth: 720 }}>
     <h2 style={{ margin: '0 0 6px', fontSize: 18 }}>Import a coin · activate a vault</h2>
-    <div className="dim" style={{ marginBottom: 14, fontSize: 12 }}>Any coin with a market — pump, bonk, anything. Pay once, the vault runs the same rules as a native launch: buys crashes, trims only above cost and VWAP (≤2% per trim, ≤5% per day, ≤10% of volume), never withdraws. The coin gets the <span className="tag live">VAULTED</span> badge and a public activity feed.</div>
+    <div className="dim" style={{ marginBottom: 14, fontSize: 12 }}>Any coin with a market. One payment → the vault runs, the coin gets <span className="tag live">VAULTED</span>, every move is public.</div>
     <div className="fld"><div className="lbl">Mint address</div><input value={mint} onChange={(e) => setMint(e.target.value)} placeholder="paste the token's mint" /></div>
     {err && <div className="note" style={{ marginTop: 8, color: 'var(--dn)' }}>{err}</div>}
     {q && <div className="card" style={{ marginTop: 10 }}><div className="panel">
@@ -182,7 +182,7 @@ export function ImportPage({ owner, connected, busy, onPay, go, initialMint, nee
       <div className="kv"><span>→ UNNAMED treasury</span><b className="num">{q.treasurySol} SOL</b></div>
       <div className="kv"><span>Owner (gets the cut, can renounce)</span><b className="num">{owner ? short(owner, 6) : '—'}</b></div>
       <button className="btn pri big" disabled={!canPay && connected} onClick={() => (connected ? onPay(q.mint) : needWallet())}>{busy || (!connected ? 'Connect wallet' : sol != null && sol < q.feeSol + 0.01 ? `Need ${q.feeSol} SOL` : `Pay ${q.feeSol} SOL · activate vault`)}</button>
-      <div className="note">After activation you can deposit your own tokens into the vault from the coin page — "vault your bag". Once in, they can only leave through trims above holder cost or holder redeems. Cut: 5% of trim profit, renounceable.</div>
+      <div className="nm">Then deposit your bag on the coin page — it can only leave via rule-bound trims or holder redeems. Cut 5%, renounceable.</div>
     </div></div>}
   </div>
 }
@@ -199,7 +199,67 @@ export function VaultDeposit({ v, owner, holdingUi, busy, onDeposit, needWallet,
         <div className="inp" style={{ marginTop: 6 }}><input value={tok} onChange={(e) => setTok(e.target.value)} inputMode="decimal" placeholder={holdingUi ? `up to ${holdingUi.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '0'} /><span>{v.symbol} → vault</span></div>
         <div className="row" style={{ marginTop: 6 }}><button className="btn sm" onClick={() => setTok(String(Math.floor(holdingUi)))} disabled={!holdingUi}>all my {v.symbol}</button><span className="sp" /><button className="btn pri" disabled={!!busy || (connected && !(+sol > 0 || +tok > 0))} onClick={() => (connected ? onDeposit(+sol || 0, +tok || 0) : needWallet())}>{busy || (!connected ? 'Connect wallet' : 'Deposit')}</button></div>
       </div>
-      <div className="note">{isOwner ? <><b>Vault your bag.</b> Tokens you deposit become vault supply: they can only leave via rule-bound trims above holder cost (capped 2% / trim, 5% / day, 10% of volume) or holder redeems. It's a public, inspectable "I can't dump on you".</> : <><b>Anyone can top up the chest.</b> More chest = bigger dip buys and a bigger desk bid. Tokens deposited by non-owners also become vault supply.</>} Funders: {Object.keys(v.funders || {}).length || 0}.</div>
+      <div className="nm">{isOwner ? 'Deposited tokens leave only via rule-bound trims or redeems — a public "I can\'t dump on you".' : 'More chest → bigger desk bid and dip buys.'} Funders: {Object.keys(v.funders || {}).length || 0}</div>
     </div>
   </>
+}
+
+/** Seller: shop a block with a max loss and a clock */
+export function SellBlock({ mint, symbol, holdingUi, priceSol, liqSol, owner, connected, busy, onClose, takeBid, onPoolSell, needWallet }: { mint: string; symbol: string; holdingUi: number; priceSol: number; liqSol: number; owner: string; connected: boolean; busy: string; onClose: () => void; takeBid: (id: string) => Promise<void>; onPoolSell: (frac: number) => Promise<void>; needWallet: () => void }) {
+  const [frac, setFrac] = useState(0.5); const [maxBps, setMaxBps] = useState(300); const [ttl, setTtl] = useState(60); const [rfq, setRfq] = useState<K.Rfq | null>(null); const [log, setLog] = useState<string[]>([]); const [err, setErr] = useState(''); const filling = React.useRef(false); const done = React.useRef(false)
+  const sizeSol = holdingUi * frac * priceSol; const impact = K.poolImpactBps(sizeSol, liqSol)
+  const add = (m: string) => setLog((l) => [m, ...l].slice(0, 8))
+  useEffect(() => {
+    if (!rfq || rfq.status !== 'open') return
+    const i = setInterval(async () => {
+      try {
+        const r = await K.rfqGet(rfq.id); setRfq(r)
+        if (r.matches.length && !filling.current) { filling.current = true; const id = r.matches[0]; try { add(`filling ${id.startsWith('v') ? 'vault' : 'bidder'} …`); await takeBid(id); add('filled ✓') } catch (e: any) { add('fill failed: ' + e.message) } finally { filling.current = false } }
+        if ((r.status !== 'open') && !done.current) { done.current = true
+          if (r.remainingSol > 0.01) { const imp = K.poolImpactBps(r.remainingSol, liqSol); if (imp <= r.maxBps) { add(`timer up · ${r.remainingSol.toFixed(2)} SOL left → pool (impact −${(imp / 100).toFixed(1)}% ≤ your max)`); const remFrac = Math.min(1, r.remainingSol / Math.max(1e-9, priceSol * holdingUi)); await onPoolSell(remFrac) } else add(`timer up · ${r.remainingSol.toFixed(2)} SOL unfilled — pool impact −${(imp / 100).toFixed(1)}% exceeds your max, cancelled`) }
+          else add('block fully sold ✓') }
+      } catch {}
+    }, 1200); return () => clearInterval(i)
+  }, [rfq?.id, rfq?.status])
+  const post = async () => { setErr(''); try { const r = await K.rfqCreate(mint, owner, +sizeSol.toFixed(3), maxBps, ttl * 1000); setRfq(r); add(r.matches.length ? `${r.matches.length} resting bid${r.matches.length > 1 ? 's' : ''} inside your max — filling now` : 'no resting bids inside your max · pinging bidders + vault'); if (r.counters.length) add(`${r.counters.length} counter${r.counters.length > 1 ? 's' : ''} received`) } catch (e: any) { setErr(e.message) } }
+  return <div className="modal" onClick={onClose}><div className="box" onClick={(e) => e.stopPropagation()}>
+    <div className="row"><h2>Sell a block · {symbol}</h2><span className="sp" /><span className="tag live">DESK</span></div>
+    {!rfq ? <>
+      <div className="presets">{[0.25, 0.5, 0.75, 1].map((f) => <button key={f} className={frac === f ? 'on' : ''} onClick={() => setFrac(f)}>{f * 100}%</button>)}</div>
+      <div className="kv"><span>Block</span><b className="num">{(holdingUi * frac).toLocaleString(undefined, { maximumFractionDigits: 0 })} {symbol} ≈ {S(sizeSol, 2)} SOL</b></div>
+      <div className="kv"><span>Dumping this into the pool would cost</span><b className="num dn">−{(impact / 100).toFixed(1)}%</b></div>
+      <div className="row"><span className="dim" style={{ fontSize: 12 }}>Max loss</span><input type="range" className="slider" min={50} max={1000} step={25} value={maxBps} onChange={(e) => setMaxBps(+e.target.value)} /><b className="num dn">−{(maxBps / 100).toFixed(2)}%</b></div>
+      <div className="row"><span className="dim" style={{ fontSize: 12 }}>Shop for</span><div className="seg">{[30, 60, 120].map((t) => <button key={t} className={ttl === t ? 'on' : ''} onClick={() => setTtl(t)}>{t}s</button>)}</div><span className="sp" /><span className="dim" style={{ fontSize: 11 }}>then → pool if impact ≤ max, else cancel</span></div>
+      {err && <div className="note" style={{ color: 'var(--dn)' }}>{err}</div>}
+      <div className="row"><button className="btn" onClick={onClose}>Cancel</button><span className="sp" /><button className="btn pri" disabled={!!busy || (connected && !(sizeSol > 0))} onClick={() => (connected ? post() : needWallet())}>{!connected ? 'Connect wallet' : `Shop block at ≤ −${(maxBps / 100).toFixed(1)}%`}</button></div>
+      <div className="nm">Resting bids inside your max fill now; everyone else and the vault get pinged to come up or counter.</div>
+    </> : <>
+      <div className="tiles" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
+        <div className="tile"><div className="l">Left to sell</div><div className="v num">{S(rfq.remainingSol, 2)} SOL</div><div className="s">of {S(rfq.sizeSol, 2)}</div></div>
+        <div className="tile"><div className="l">Filled</div><div className="v num up">{S(rfq.filledSol, 2)} SOL</div></div>
+        <div className="tile"><div className="l">{rfq.status === 'open' ? 'Clock' : 'Status'}</div><div className="v num">{rfq.status === 'open' ? rfq.secondsLeft + 's' : rfq.status}</div></div>
+      </div>
+      {rfq.counters.length > 0 && <div><div className="lbl">Counters — tap to accept</div>{rfq.counters.map((c) => <div className="kv" key={c.bidId}><span>{c.vault ? <span className="tag live">VAULT</span> : c.bidder} · {S(c.sol, 2)} SOL at <b className="dn">−{(c.discBps / 100).toFixed(2)}%</b></span><button className="btn sm pri" disabled={!!busy} onClick={() => takeBid(c.bidId).then(() => add('counter accepted ✓')).catch((e) => add('accept failed: ' + e.message))}>Accept</button></div>)}</div>}
+      <div className="feed" style={{ maxHeight: 160 }}>{log.map((l, i) => <div className="it" key={i}><span className="dim">{l}</span></div>)}</div>
+      <div className="row"><span className="sp" />{rfq.status === 'open' && <button className="btn" onClick={() => { K.rfqCancel(rfq.id, owner); setRfq({ ...rfq, status: 'cancelled' }); done.current = true }}>Stop</button>}<button className="btn" onClick={onClose}>Close</button></div>
+    </>}
+  </div></div>
+}
+
+/** Bidder: a live ping for a block someone wants to sell */
+export function RfqPing({ r, bidder, onRespond, onDismiss, busy }: { r: K.Rfq; bidder: K.BidderSession | null; onRespond: (id: string, discBps: number, sol: number) => Promise<void>; onDismiss: () => void; busy: string }) {
+  const [disc, setDisc] = useState(Math.max(300, r.maxBps)); const [left, setLeft] = useState(r.secondsLeft)
+  useEffect(() => { const i = setInterval(() => setLeft((s) => Math.max(0, s - 1)), 1000); return () => clearInterval(i) }, [])
+  if (left <= 0) return null
+  return <div className="toast" style={{ borderColor: 'var(--up)' }}>
+    <div className="t">Block for sale · {r.symbol} <span className="sp" /><span className="num dim">{left}s</span></div>
+    <div className="kv"><span>Size</span><b className="num">{S(r.remainingSol, 2)} SOL</b></div>
+    <div className="kv"><span>Seller takes up to</span><b className="num dn">−{(r.maxBps / 100).toFixed(2)}%</b></div>
+    <div className="row" style={{ marginTop: 8, gap: 6 }}>
+      <button className="btn sm pri" disabled={!!busy || !bidder?.connected()} onClick={() => onRespond(r.id, r.maxBps, r.remainingSol)}>Fill at −{(r.maxBps / 100).toFixed(1)}%</button>
+      <input className="num" style={{ width: 64, background: 'var(--s3)', border: '1px solid var(--line)', borderRadius: 6, padding: '4px 6px', color: 'var(--fg)' }} value={(disc / 100).toFixed(2)} onChange={(e) => setDisc(Math.round(+e.target.value * 100) || 300)} />
+      <button className="btn sm" disabled={!!busy || !bidder?.connected()} onClick={() => onRespond(r.id, disc, r.remainingSol)}>Counter</button>
+      <span className="sp" /><button className="btn sm ghost" onClick={onDismiss}>✕</button>
+    </div>
+  </div>
 }

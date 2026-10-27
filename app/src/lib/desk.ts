@@ -37,7 +37,7 @@ export function verifyFill(tx: Transaction, e: Expect): string | null {
   return null
 }
 
-export type BidderSession = { close: () => void; place: (mint: string, sol: number, discBps: number) => Promise<BookBid>; cancel: (id: string) => Promise<boolean>; connected: () => boolean }
+export type BidderSession = { close: () => void; place: (mint: string, sol: number, discBps: number) => Promise<BookBid>; cancel: (id: string) => Promise<boolean>; connected: () => boolean; respond: (rfqId: string, discBps: number, sol: number) => Promise<any> }
 /** Open a bidder session. `sign` co-signs fills (in-app wallet: silent; extension: prompts). `spot` returns current SOL price of a mint for the economic check. */
 export function openBidder(conn: Connection, pubkey: string, signMsg: (m: Uint8Array) => Promise<Uint8Array>, signTx: (t: Transaction) => Promise<Transaction>, spot: (mint: string) => Promise<number>, onEvent: (e: any) => void): BidderSession {
   let ws: WebSocket | null = null, closed = false, authed = false, timer: any, hb: any
@@ -49,9 +49,11 @@ export function openBidder(conn: Connection, pubkey: string, signMsg: (m: Uint8A
     ws.onmessage = async (m) => {
       const d = JSON.parse(m.data)
       if (d.type === 'authed') { authed = true; onEvent(d); hb = setInterval(() => send({ type: 'refresh' }), 20000); return }
+      if (d.type === 'rfq') { onEvent(d); return }
+      if (d.type === 'rfq_responded') { waiters.get('rfq')?.ok(d.rfq); waiters.delete('rfq'); onEvent(d); return }
       if (d.type === 'placed') { waiters.get('place')?.ok(d.bid); waiters.delete('place'); onEvent(d); return }
       if (d.type === 'cancelled') { waiters.get('cancel:' + d.id)?.ok(d.ok); waiters.delete('cancel:' + d.id); onEvent(d); return }
-      if (d.type === 'error') { const w = d.re === 'place' ? waiters.get('place') : null; if (w) { w.no(new Error(d.error)); waiters.delete('place') } onEvent(d); return }
+      if (d.type === 'error') { const w = d.re === 'place' ? waiters.get('place') : d.re === 'rfq_respond' ? waiters.get('rfq') : null; if (w) { w.no(new Error(d.error)); waiters.delete(d.re === 'place' ? 'place' : 'rfq') } onEvent(d); return }
       if (d.type === 'fill') {
         try {
           const tx = Transaction.from(Uint8Array.from(atob(d.tx), (c) => c.charCodeAt(0)))
@@ -72,6 +74,7 @@ export function openBidder(conn: Connection, pubkey: string, signMsg: (m: Uint8A
     connected: () => authed,
     place: (mint, sol, discBps) => new Promise((ok, no) => { if (!authed) return no(new Error('desk not connected')); waiters.set('place', { ok, no }); send({ type: 'place', mint, sol, discBps }); setTimeout(() => { if (waiters.has('place')) { waiters.delete('place'); no(new Error('timeout')) } }, 15000) }),
     cancel: (id) => new Promise((ok) => { waiters.set('cancel:' + id, { ok, no: ok }); send({ type: 'cancel', id }); setTimeout(() => ok(false), 8000) }),
+    respond: (rfqId, discBps, sol) => new Promise((ok, no) => { if (!authed) return no(new Error('desk not connected')); waiters.set('rfq', { ok, no }); send({ type: 'rfq_respond', rfqId, discBps, sol }); setTimeout(() => { if (waiters.has('rfq')) { waiters.delete('rfq'); no(new Error('timeout')) } }, 15000) }),
   }
 }
 
@@ -143,3 +146,11 @@ export async function depositToVault(conn: Connection, from: string, v: VaultPub
   onStatus?.('Sign deposit…'); const signed = await signTx(tx); const sig = await conn.sendRawTransaction(signed.serialize(), { maxRetries: 3 }); onStatus?.('Confirming…'); await confirmByPolling(conn, sig)
   onStatus?.('Recording…'); await new Promise((r) => setTimeout(r, 1500)); return { sig, vault: await vaultDeposit(v.id, from, sig) }
 }
+
+// ---- RFQ ----
+export type Rfq = { id: string; mint: string; symbol: string; seller: string; sizeSol: number; maxBps: number; createdAt: number; expiresAt: number; status: 'open' | 'done' | 'expired' | 'cancelled'; matches: string[]; counters: { bidId: string; bidder: string; discBps: number; sol: number; vault: boolean }[]; filledSol: number; priceSol: number; liqSol: number; remainingSol: number; secondsLeft: number }
+export const rfqCreate = (mint: string, seller: string, sizeSol: number, maxBps: number, ttlMs: number): Promise<Rfq> => j('/rfq', { mint, seller, sizeSol, maxBps, ttlMs })
+export const rfqGet = (id: string): Promise<Rfq> => j('/rfq/' + id)
+export const rfqCancel = (id: string, seller: string) => j('/rfq/cancel', { id, seller })
+/** constant-product chart impact of selling `sol` worth into a pool with `liqSol` reserve */
+export const poolImpactBps = (sol: number, liqSol: number) => liqSol > 0 ? Math.round((1 - 1 / (1 + sol / liqSol) ** 2) * 10000) : 10000

@@ -23,6 +23,10 @@ const server = createServer(async (req, res) => {
     if (p === '/redeem/quote' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, V.redeemQuote(b.mint, +b.tokens)) }
     if (p === '/redeem' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.redeem(b.mint, b.holder, +b.tokens, b.tx)) }
     if (p.startsWith('/book/')) return json(res, 200, await D.book(p.slice(6), u.searchParams.get('me') || undefined))
+    if (p === '/rfq' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await D.rfqCreate(b.mint, b.seller, +b.sizeSol, +b.maxBps, +b.ttlMs)) }
+    if (p.startsWith('/rfq/') && req.method === 'GET') return json(res, 200, D.rfqGet(p.slice(5)))
+    if (p === '/rfq/cancel' && req.method === 'POST') { const b = await readBody(req); D.rfqCancel(b.id, b.seller); return json(res, 200, { ok: true }) }
+    if (p === '/rfqs') return json(res, 200, D.rfqOpenFor(u.searchParams.get('mint') || undefined))
     if (p === '/quote' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await D.quote(b.bidId, b.seller)) }
     if (p === '/fill' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await D.fill(b.bidId, b.seller, b.tx)) }
     if (p === '/vaults') return json(res, 200, V.list())
@@ -50,18 +54,20 @@ wss.on('connection', (ws: WebSocket) => {
       if (m.type === 'auth') {
         const msg = `unnamed-desk:${m.pubkey}:${m.ts}`; if (Math.abs(Date.now() - m.ts) > 120000) throw new Error('stale auth')
         if (!nacl.sign.detached.verify(new TextEncoder().encode(msg), bs58.decode(m.sig), bs58.decode(m.pubkey))) throw new Error('bad signature')
-        who = m.pubkey; return send({ type: 'authed', pubkey: who })
+        who = m.pubkey; D.registerBidderSocket(ws); return send({ type: 'authed', pubkey: who, rfqs: D.rfqOpenFor() })
       }
       if (!who) throw new Error('auth first')
       if (m.type === 'place') return send({ type: 'placed', bid: await D.place(ws, who, m.mint, +m.sol, +m.discBps) })
       if (m.type === 'cancel') return send({ type: 'cancelled', id: m.id, ok: D.cancel(who, m.id) })
       if (m.type === 'refresh') return D.refresh(who)
+      if (m.type === 'rfq_respond') return send({ type: 'rfq_responded', rfq: await D.rfqRespond(ws, who, m.rfqId, +m.discBps, +m.sol) })
       if (m.type === 'filled') return D.settle(m.bidId, true, m.sig)
       if (m.type === 'reject') return D.settle(m.bidId, false, undefined, m.err)
     } catch (e: any) { send({ type: 'error', error: String(e.message || e), re: m?.type }) }
   })
   ws.on('close', () => D.dropSocket(ws))
 })
-setInterval(D.sweep, 10000)
+setInterval(D.sweep, 10000); setInterval(D.rfqSweep, 5000)
+D.setVaultResponder(V.respondRfq)
 V.load(); setInterval(() => V.tick().catch(() => {}), 5000)
 server.listen(PORT, () => console.log(`unnamed server on :${PORT} · treasury ${TREASURY}`))
