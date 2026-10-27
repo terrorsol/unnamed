@@ -94,9 +94,29 @@ export const signMsgWith = (kp: Keypair) => async (m: Uint8Array) => nacl.sign.d
 export const signLegacyWith = (kp: Keypair) => async (t: Transaction) => { t.partialSign(kp); return t }
 
 // ---- vault ----
-export type VaultPub = { id: string; pub: string; mint?: string; symbol?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; avgCost: number; tokens: number; chest: number; devPaid: number; createdAt: number; activity: { t: number; kind: string; sol?: number; tokens?: number; price?: number; sig?: string; msg?: string }[] }
-export const vaultCreate = (dev: string, stakeSol: number): Promise<VaultPub> => j('/vault/create', { dev, stakeSol })
-export const vaultArm = (id: string, mint: string, symbol: string): Promise<VaultPub> => j('/vault/arm', { id, mint, symbol })
+export type VaultPub = { id: string; pub: string; mint?: string; symbol?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; avgCost: number; tokens: number; chest: number; devPaid: number; createdAt: number; copyOf?: string; streamed: number; redeemed: number; supply: number; deskBid: number; name?: string; copies: { mint: string; symbol: string; pub: string }[]; activity: { t: number; kind: string; sol?: number; tokens?: number; price?: number; sig?: string; msg?: string }[] }
+export const vaultCreate = (dev: string, stakeSol: number, copyOf?: string): Promise<VaultPub> => j('/vault/create', { dev, stakeSol, copyOf })
+export const vaultArm = (id: string, mint: string, symbol: string, name = ''): Promise<VaultPub> => j('/vault/arm', { id, mint, symbol, name })
 export const vaultRenounce = (id: string, dev: string): Promise<VaultPub> => j('/vault/renounce', { id, dev })
 export const vaultByMint = (mint: string): Promise<VaultPub | null> => j('/vault/mint/' + mint)
 export const vaults = (): Promise<VaultPub[]> => j('/vaults')
+
+// ---- history / leaderboard / family / dev / redeem ----
+export type FillRec = { t: number; mint: string; symbol: string; seller: string; bidder: string; sol: number; discBps: number; tokens: number; sig: string; vault: boolean }
+export const fills = (mint?: string): Promise<FillRec[]> => j('/fills' + (mint ? '?mint=' + mint : ''))
+export const leaderboard = (): Promise<{ wallet: string; soldSol: number; boughtSol: number; fills: number; saved: number }[]> => j('/leaderboard')
+export type Family = { root: string; members: { mint: string; symbol: string; mcapUsd: number; vol1h: number; score: number; original: boolean; vault: boolean; leader?: boolean }[] }
+export const family = (mint: string): Promise<Family> => j('/family/' + mint)
+export const devVaults = (dev: string): Promise<VaultPub[]> => j('/dev/' + dev)
+export const redeemQuote = (mint: string, tokens: number): Promise<{ vaultId: string; vaultPub: string; chest: number; supply: number; share: number; sol: number; lamports: number }> => j('/redeem/quote', { mint, tokens })
+/** Burn-to-redeem: holder delivers tokens to the vault, vault pays SOL in the same tx (server co-signs with the vault key). */
+export async function redeem(conn: Connection, holder: string, mint: string, tokensUi: number, decimals: number, signTx: (t: Transaction) => Promise<Transaction>, onStatus?: (s: string) => void) {
+  onStatus?.('Quoting…'); const q = await redeemQuote(mint, tokensUi)
+  const hp = new PublicKey(holder), vp = new PublicKey(q.vaultPub), mp = new PublicKey(mint)
+  const vAta = getAssociatedTokenAddressSync(mp, vp, true), hAta = getAssociatedTokenAddressSync(mp, hp, true)
+  const tx = new Transaction(); tx.feePayer = hp; tx.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash
+  tx.add(createAssociatedTokenAccountIdempotentInstruction(hp, vAta, vp, mp), createTransferInstruction(hAta, vAta, hp, BigInt(Math.floor(tokensUi * 10 ** decimals))), SystemProgram.transfer({ fromPubkey: vp, toPubkey: hp, lamports: q.lamports }))
+  onStatus?.('Sign to redeem…'); const signed = await signTx(tx)
+  onStatus?.('Vault co-signing…'); const r = await j('/redeem', { mint, holder, tokens: tokensUi, tx: btoa(String.fromCharCode(...signed.serialize({ requireAllSignatures: false }))) })
+  return { sig: r.sig as string, sol: r.sol as number }
+}

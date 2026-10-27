@@ -67,3 +67,13 @@ export async function launch(ctx: Ctx, meta: P.CreateMeta, devBuySol: number): P
   const sig = await sendAndConfirm(conn, tx, sign, onStatus)
   return { sig, mint }
 }
+
+/** pump.fun creator-fee claim via PumpPortal (action collectCreatorFee) */
+export async function collectCreatorFee(ctx: Ctx, mint: string): Promise<string> {
+  const { conn, owner, sign, settings, onStatus } = ctx
+  onStatus?.('Building claim…')
+  const r = await fetch('https://pumpportal.fun/api/trade-local', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ publicKey: owner.toBase58(), action: 'collectCreatorFee', mint, priorityFee: settings.priorityFeeSol }) })
+  if (!r.ok) throw new Error('pumpportal: ' + (await r.text().catch(() => r.status)))
+  const tx = VersionedTransaction.deserialize(new Uint8Array(await r.arrayBuffer()))
+  return sendAndConfirm(conn, tx, sign, onStatus)
+}

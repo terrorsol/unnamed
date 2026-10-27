@@ -2,7 +2,8 @@ import React, { useCallback, useMemo, useState, useEffect } from 'react'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { Keypair, PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
 import * as K from './lib/desk'
-import { DeskPage, VaultPage } from './components/Desk'
+import { DeskPage, VaultPage, MinePage, LeaderboardPage } from './components/Desk'
+import { due, removeOrder, loadOrders } from './lib/orders'
 import { confirmByPolling } from './lib/rpc'
 import WalletPanel from './components/WalletPanel'
 import * as B from './lib/burner'
@@ -20,7 +21,7 @@ import { loadLedger, recordBuy, recordSell, recordCreate } from './lib/positions
 import { S, short } from './lib/fmt'
 import type { Coin } from './lib/dex'
 
-const NAV: [string, string][] = [['home', 'Home'], ['portfolio', 'Portfolio'], ['vault', 'Vault'], ['desk', 'Desk'], ['settings', 'Settings'], ['about', 'How it works']]
+const NAV: [string, string][] = [['home', 'Home'], ['portfolio', 'Portfolio'], ['desk', 'Desk'], ['vault', 'Vault'], ['mine', 'My launches'], ['leaderboard', 'Leaderboard'], ['settings', 'Settings'], ['about', 'How it works']]
 
 export default function App() {
   const { page, arg, go } = useRoute()
@@ -75,6 +76,29 @@ export default function App() {
     catch (e: any) { toast({ kind: 'err', title: 'Desk fill failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
   }
   const [vaultV, setVaultV] = useState(0)
+  const onRedeem = async (c: Coin, tokens: number, decimals: number) => {
+    if (!activeB58) return needWallet()
+    try { const { sig, sol } = await K.redeem(connection, activeB58, c.mint, tokens, decimals, signLegacy, setBusy); recordSell(ws.owner, c.mint, c.symbol, 0, sol, sig); setLedgerV((v) => v + 1); setVaultV((x) => x + 1); toast({ kind: 'ok', title: `Redeemed ${c.symbol} against the vault`, rows: [['Received', S(sol, 4) + ' SOL'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
+    catch (e: any) { toast({ kind: 'err', title: 'Redeem failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
+  }
+  const onClaim = async (mint: string) => {
+    const x = ctx(); if (!x) return needWallet()
+    try { const sig = await T.collectCreatorFee(x, mint); toast({ kind: 'ok', title: 'Creator fees claimed', rows: [['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
+    catch (e: any) { toast({ kind: 'err', title: 'Claim failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
+  }
+  // TP/SL engine: check armed orders against live prices while the tab is open
+  const [ordersV, setOrdersV] = useState(0); const firing = React.useRef(false); const tokRef = React.useRef(ws.tokens); tokRef.current = ws.tokens; const busyRef = React.useRef(busy); busyRef.current = busy; const sellRef = React.useRef<(c: Coin, f: number) => Promise<void>>(async () => {})
+  useEffect(() => {
+    if (!ws.owner) return
+    const i = setInterval(async () => {
+      if (firing.current || busyRef.current) return
+      const os = loadOrders(ws.owner); if (!os.length) return
+      const mints = [...new Set(os.map((o) => o.mint))]; const m = await D.tokensByMint(mints).catch(() => ({} as Record<string, Coin>))
+      for (const mint of mints) { const c = m[mint]; if (!c) continue
+        for (const o of due(ws.owner, mint, c.priceUsd)) { const h = tokRef.current.find((t) => t.mint === mint); removeOrder(ws.owner, o.id); setOrdersV((v) => v + 1); if (!h) continue
+          firing.current = true; toast({ kind: 'info', title: `${o.type === 'tp' ? 'Take profit' : 'Stop loss'} hit on ${o.symbol} — selling ${Math.round(o.frac * 100)}%` }); try { await sellRef.current(c, o.frac) } finally { firing.current = false } } }
+    }, 6000); return () => clearInterval(i)
+  }, [ws.owner])
   const renounce = async (v: K.VaultPub) => { try { await K.vaultRenounce(v.id, ws.owner); setVaultV((x) => x + 1); toast({ kind: 'ok', title: 'Cut renounced' }) } catch (e: any) { toast({ kind: 'err', title: 'Renounce failed', rows: [['Reason', e.message]] }) } }
   const onWithdraw = async (to: string, sol: number) => { if (!burner) return; const sig = await B.withdraw(connection, burner, to, sol); toast({ kind: 'ok', title: `Sent ${S(sol)} SOL`, rows: [['To', short(to, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
 
@@ -89,18 +113,18 @@ export default function App() {
     try { const before = ws.sol || 0; const sig = await T.sell(x, c.mint, frac, BigInt(h.raw), c.onCurve); const after = await connection.getBalance(x.owner).then((b) => b / 1e9).catch(() => before); recordSell(ws.owner, c.mint, c.symbol, frac, Math.max(0, after - before), sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Sold ${Math.round(frac * 100)}% ${c.symbol}`, rows: [['Received', '≈ ' + S(Math.max(0, after - before)) + ' SOL'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
     catch (e: any) { toast({ kind: 'err', title: 'Sell failed', rows: [['Reason', String(e?.message || e).slice(0, 120)]] }) } finally { setBusy('') }
   }
-  const onLaunch = async (meta: any, dev: number, stake: number) => {
+  const onLaunch = async (meta: any, dev: number, stake: number, copyOf?: string) => {
     const x = ctx(); if (!x) return needWallet()
     try {
       let vault: K.VaultPub | null = null
-      if (stake > 0) { setBusy('Creating vault…'); vault = await K.vaultCreate(ws.owner, stake).catch((e) => { toast({ kind: 'err', title: 'Vault server unreachable — launching without a vault', rows: [['Error', String(e.message)]] }); return null }) }
+      if (stake > 0) { setBusy('Creating vault…'); vault = await K.vaultCreate(ws.owner, stake, copyOf).catch((e) => { toast({ kind: 'err', title: 'Vault server unreachable — launching without a vault', rows: [['Error', String(e.message)]] }); return null }) }
       const { sig, mint } = await T.launch(x, meta, dev); recordCreate(ws.owner, mint, meta.symbol, dev, sig); setLedgerV((v) => v + 1); setLaunch(false)
       toast({ kind: 'ok', title: `${meta.symbol} is live on pump.fun`, rows: [['Mint', short(mint, 6)], ['Dev buy', S(dev) + ' SOL']], href: solscan(sig) }); go('coin/' + mint)
       if (vault) {
         try {
           setBusy('Funding vault…'); const t = new Transaction().add(SystemProgram.transfer({ fromPubkey: x.owner, toPubkey: new PublicKey(vault.pub), lamports: Math.floor(stake * 1e9) })); t.feePayer = x.owner; t.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
           const st = await signLegacy(t); const s2 = await connection.sendRawTransaction(st.serialize()); await confirmByPolling(connection, s2)
-          setBusy('Arming vault…'); const v = await K.vaultArm(vault.id, mint, meta.symbol); setVaultV((n) => n + 1)
+          setBusy('Arming vault…'); const v = await K.vaultArm(vault.id, mint, meta.symbol, meta.name); setVaultV((n) => n + 1)
           toast({ kind: 'ok', title: `Vault armed · ${v.pct}% supply target`, rows: [['Stake', S(stake) + ' SOL'], ['Vault', short(v.pub, 6)]], href: solscan(s2) })
         } catch (e: any) { toast({ kind: 'err', title: 'Vault funding failed — coin is live, vault is not', rows: [['Reason', String(e?.message || e).slice(0, 120)], ['Vault address', vault.pub]] }) }
       }
@@ -108,16 +132,19 @@ export default function App() {
     }
     catch (e: any) { toast({ kind: 'err', title: 'Launch failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
   }
+  sellRef.current = onSell
   const quick = (c: Coin) => { if (!connected) return needWallet(); onBuy(c, settings.quickBuy) }
   const toggleWatch = (m: string) => setSettings({ watch: settings.watch.includes(m) ? settings.watch.filter((x) => x !== m) : [...settings.watch, m] })
 
   const content = () => {
-    if (page === 'coin' && arg) { const h = ws.tokens.find((t) => t.mint === arg); return <CoinPage mint={arg} coin={byMint[arg]} solPrice={solPrice} holding={h} lot={ledger.lots[arg]} sol={ws.sol} connected={connected} busy={busy} onBuy={onBuy} onSell={onSell} needWallet={needWallet} quickSol={settings.quickBuy} watch={settings.watch} toggleWatch={toggleWatch} trades={fresh.trades} subscribe={fresh.subscribe} desk={{ owner: ws.owner, connected, bidder, deskUp, busy, takeBid, holdingUi: h?.amount || 0, solPrice }} deskTick={deskTick} vaultV={vaultV} onRenounce={renounce} /> }
+    if (page === 'coin' && arg) { const h = ws.tokens.find((t) => t.mint === arg); return <CoinPage mint={arg} coin={byMint[arg]} solPrice={solPrice} holding={h} lot={ledger.lots[arg]} sol={ws.sol} connected={connected} busy={busy} onBuy={onBuy} onSell={onSell} needWallet={needWallet} quickSol={settings.quickBuy} watch={settings.watch} toggleWatch={toggleWatch} trades={fresh.trades} subscribe={fresh.subscribe} desk={{ owner: ws.owner, connected, bidder, deskUp, busy, takeBid, holdingUi: h?.amount || 0, solPrice }} deskTick={deskTick} vaultV={vaultV} onRenounce={renounce} onRedeem={onRedeem} go={go} ordersV={ordersV} bumpOrders={() => setOrdersV((v) => v + 1)} /> }
     if (page === 'portfolio') return <Portfolio sol={ws.sol} tokens={ws.tokens} coins={byMint} lots={ledger.lots} fills={ledger.fills} solPrice={solPrice} go={go} owner={ws.owner} />
     if (page === 'settings') return <SettingsPage s={settings} set={setSettings} />
     if (page === 'about') return <About />
     if (page === 'vault') return <VaultPage go={go} solPrice={solPrice} />
     if (page === 'desk') return <DeskPage go={go} />
+    if (page === 'mine') return <MinePage owner={ws.owner} go={go} solPrice={solPrice} onRenounce={renounce} onClaim={onClaim} busy={busy} />
+    if (page === 'leaderboard') return <LeaderboardPage owner={ws.owner} />
     if (false) return <div className="prose"><h2>{page === 'vault' ? 'Vault' : 'Desk'} <span className="tag pre">PREVIEW</span></h2><p>{page === 'vault' ? 'Program-owned market maker funded by the dev\'s block-zero stake. Buys dips (≤40% of chest per crash), trims only above holder cost basis and 30-min VWAP, never withdraws. Ships on-chain in Beta v1 — the per-coin preview is on each coin page under Protocol.' : 'Escrowed block bids at −3–5%, 60s rest, all-or-none, min block 2% of pool reserve, open once a coin has graduated and holds $100K mc. Ships with the vault program; the gating is already computed live on each coin page.'}</p></div>
     return <Board coins={q.trim() ? results : coins} fresh={fresh.list} freshCoins={freshCoins} trades={fresh.trades} live={fresh.live} solPrice={solPrice} watch={settings.watch} go={go} quick={quick} quickSol={settings.quickBuy} err={err} />
   }
