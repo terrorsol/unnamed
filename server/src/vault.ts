@@ -195,7 +195,7 @@ export async function tick() {
       // standing vault bid on the desk: −5%, ≈35% of chest, only when the desk is open for this coin
       try {
         const mb = R.minBlockSol(m); const want = +Math.max(v.chest * (v.mode === 'mm' ? 0.6 : 0.35), mb).toFixed(3)
-        if (R.deskOpen(m) && want >= 0.2 && v.chest * 0.6 >= want) { if (Math.abs(want - v.deskBid) > 0.01) { await D.placeInternal(kp(v), 'VAULT', v.mint, want, 500, () => v.chest - 0.02); if (!v.deskBid) v.activity.unshift({ t: now, kind: 'bid', sol: want, msg: 'vault bid resting on desk at −5%' }); v.deskBid = want } }
+        if (R.deskOpen(m) && want >= 0.2 && v.chest * 0.6 >= want) { if (Math.abs(want - v.deskBid) > 0.01) { await D.placeInternal(kp(v), 'VAULT', v.mint, want, 400, () => v.chest - 0.02); if (!v.deskBid) v.activity.unshift({ t: now, kind: 'bid', sol: want, msg: 'vault bid resting on desk at −4%' }); v.deskBid = want } }
         else if (v.deskBid) { D.cancelInternal(v.pub, v.mint); v.deskBid = 0 }
       } catch {}
       if (v.activity.length > 200) v.activity.length = 200
