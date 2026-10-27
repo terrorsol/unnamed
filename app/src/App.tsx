@@ -203,6 +203,7 @@ export default function App() {
         <div className="foot">Non-custodial · mainnet-beta<br />Trades: pump.fun via PumpPortal, Jupiter<br />Data: DexScreener, pump.fun stream<br />Desk + vault: <span className={deskUp ? 'up' : 'dn'}>{deskUp ? 'online' : 'offline'}</span></div></nav>
       <main className="main">{content()}</main>
     </div>
+    <nav className="mnav">{([['home', 'Home', '◼'], ['desk', 'Desk', '⇄'], ['vault', 'Vault', '◆'], ['portfolio', 'Bag', '◎'], ['mine', 'Mine', '✦']] as [string, string, string][]).map(([k, l, i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={page === k ? 'on' : ''}><b>{i}</b>{l}</a>)}</nav>
     {wp && <WalletPanel onClose={() => setWp(false)} burner={burner} setBurner={setBurner} mode={mode} setMode={setMode} sol={ws.sol} onWithdraw={onWithdraw} />}
     {launch && <Launch onClose={() => setLaunch(false)} onLaunch={onLaunch} busy={busy} connected={connected} sol={ws.sol} needWallet={needWallet} />}
     <div className="toasts" style={{ bottom: 'auto', top: 64 }}>{pings.map((r) => <RfqPing key={r.id} r={r} bidder={bidder} onRespond={onRespond} onDismiss={() => setPings((l) => l.filter((x) => x.id !== r.id))} busy={busy} />)}</div>
