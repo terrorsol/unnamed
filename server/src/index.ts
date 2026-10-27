@@ -32,12 +32,13 @@ const server = createServer(async (req, res) => {
     if (p === '/vaults') return json(res, 200, V.list())
     if (p.startsWith('/vault/mint/')) return json(res, 200, V.byMint(p.slice(12)))
     if (p.startsWith('/vault/') && req.method === 'GET') return json(res, 200, V.get(p.slice(7)))
-    if (p === '/vault/create' && req.method === 'POST') { const b = await readBody(req); if (!(b.stakeSol > 0)) throw new Error('stake required'); return json(res, 200, V.create(b.dev, +b.stakeSol, b.copyOf)) }
+    if (p === '/vault/create' && req.method === 'POST') { const b = await readBody(req); if (!(b.stakeSol > 0)) throw new Error('stake required'); return json(res, 200, V.create(b.dev, +b.stakeSol, b.copyOf, b.mode === 'floor' ? 'floor' : 'mm', b.ceiling != null ? +b.ceiling : undefined)) }
     if (p === '/vault/arm' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.arm(b.id, b.mint, b.symbol || '', b.name || '')) }
     if (p.startsWith('/import/quote/')) return json(res, 200, await V.importQuote(p.slice(14)))
     if (p === '/import/create' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importCreate(b.owner, b.mint)) }
     if (p === '/import/activate' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importActivate(b.id, b.sig)) }
     if (p === '/vault/deposit' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.deposit(b.id, b.from, b.sig)) }
+    if (p === '/vault/mode' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, V.setMode(b.id, b.dev, b.mode, b.ceiling != null ? +b.ceiling : undefined)) }
     if (p === '/vault/renounce' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, V.renounce(b.id, b.dev)) }
     json(res, 404, { error: 'not found' })
   } catch (e: any) { json(res, 400, { error: String(e.message || e) }) }
@@ -69,5 +70,5 @@ wss.on('connection', (ws: WebSocket) => {
 })
 setInterval(D.sweep, 10000); setInterval(D.rfqSweep, 5000)
 D.setVaultResponder(V.respondRfq)
-V.load(); setInterval(() => V.tick().catch(() => {}), 5000)
+V.load(); V.startStream(); setInterval(() => V.tick().catch(() => {}), 5000)
 server.listen(PORT, () => console.log(`unnamed server on :${PORT} · treasury ${TREASURY}`))

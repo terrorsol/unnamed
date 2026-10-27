@@ -47,3 +47,14 @@ test('trim caps: per-trim, per-day, per-volume', () => {
   near(R.trimSize(1000, 0, 0.1, 0.001), 10)           // vol cap: 0.1*0.1/0.001 = 10
   near(R.trimSize(1000, 50, 1000, 0.001), 0)
 })
+test('mm capture curve', () => {
+  assert.equal(R.captureFrac(0.9, 1, 0.5, 500_000, 0.3, 0.5), 0)            // below vwap: never
+  assert.equal(R.captureFrac(1.01, 1, 1.0, 500_000, 0.3, 0.5), 0)           // not above cost+2%: never
+  const at = R.captureFrac(1.0001, 1, 0.5, 500_000, 0.3, 0.5); assert.ok(at > 0.09 && at < 0.11)
+  const s20 = R.captureFrac(1.2, 1, 0.5, 500_000, 0.3, 0.5); assert.ok(Math.abs(s20 - 0.18) < 0.01)
+  const s50 = R.captureFrac(1.5, 1, 0.5, 500_000, 0.3, 0.5); assert.ok(Math.abs(s50 - 0.30) < 0.01)
+  assert.ok(Math.abs(R.captureFrac(1.5, 1, 0.5, 50_000, 0.3, 0.5) - 0.15) < 0.01)   // early tier ×0.5
+  assert.ok(Math.abs(R.captureFrac(1.5, 1, 0.5, 5_000_000, 0.3, 0.5) - 0.225) < 0.01) // large ×0.75
+  assert.ok(R.captureFrac(1.5, 1, 0.5, 500_000, 0.2, 0.5) <= 0.2)             // dev ceiling
+  assert.equal(R.triggerRate(0), 0.4); assert.equal(R.triggerRate(10), 0.7); assert.ok(Math.abs(R.triggerRate(5) - 0.55) < 1e-9)
+})

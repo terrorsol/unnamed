@@ -54,3 +54,6 @@ See `server/README.md`. Desk = non-custodial block bids matched by our server, s
 
 ## Import a coin · activate a vault
 Any coin with a market: 15 SOL (10 → treasury, 5 → chest), one signature, verified on-chain by the server before arming. Owner can deposit tokens ("vault your bag"); anyone can top up the chest. Trims capped 2%/trim, 5%/day, 10% of 1h volume.
+
+## Market-maker mode
+Per-vault mode `mm` (default) or `floor`. MM counters buys when price is stretched over 30-min VWAP: capture = clamp(10% + stretch×40%, 0, 30%) × mcap tier (×0.5 <$100K, ×1 <$1M, ×0.75 above) × ±20% random, trigger rate 40–70% by buys/min, min buy 0.5 SOL, ≤15% of 1h volume, ≤10% of position/day, ≤5% per capture. Never on dips. Captured SOL → chest → 60% desk bid at −4%, 40% defense in three tranches (−20/−35/−50% from 15-min high). Dev ceiling 5–30%. Everything shows live on the coin page (capture now, stretch, trigger, tier) with a scorecard (captured, redeployed, bought off-chart, floor).

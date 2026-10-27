@@ -90,7 +90,7 @@ export async function fill(id: string, seller: string, txB64: string): Promise<{
     try {
       if (b.sol > b.internal.maxSol()) throw new Error('vault bid no longer affordable')
       tx.partialSign(b.internal.kp); const sig = await conn.sendRawTransaction(tx.serialize(), { maxRetries: 3 }); await confirm(sig)
-      b.status = 'filled'; bids.delete(id); recordFill({ t: Date.now(), mint: b.mint, symbol: b.symbol, seller, bidder: b.bidder, sol: b.sol, discBps: b.discBps, tokens: q.tokens, sig, vault: true }); rfqNoteFill(id, b.sol); return { sig }
+      b.status = 'filled'; bids.delete(id); recordFill({ t: Date.now(), mint: b.mint, symbol: b.symbol, seller, bidder: b.bidder, sol: b.sol, discBps: b.discBps, tokens: q.tokens, sig, vault: true }); rfqNoteFill(id, b.sol); onVaultFill?.(b.bidder, b.sol, q.tokens); return { sig }
     } catch (e) { b.status = 'open'; throw e }
   }
   return new Promise((resolve, reject) => {
@@ -114,6 +114,8 @@ const rfqs = new Map<string, Rfq>()
 const sockets = new Set<WebSocket>()
 export function registerBidderSocket(ws: WebSocket) { sockets.add(ws); ws.on('close', () => sockets.delete(ws)) }
 export const broadcast = (o: any, except?: WebSocket) => { const s = JSON.stringify(o); for (const w of sockets) if (w !== except && w.readyState === 1) w.send(s) }
+export let onVaultFill: ((bidder: string, sol: number, tokens: number) => void) | null = null
+export function setOnVaultFill(f: typeof onVaultFill) { onVaultFill = f }
 let vaultResponder: ((mint: string, sizeSol: number, maxBps: number, rfqId: string) => Promise<Bid | null>) | null = null
 export function setVaultResponder(f: typeof vaultResponder) { vaultResponder = f }
 const pubRfq = (r: Rfq) => ({ ...r, remainingSol: Math.max(0, r.sizeSol - r.filledSol - r.matches.reduce((a, id) => a + (bids.get(id)?.status === 'open' || bids.get(id)?.status === 'filling' ? bids.get(id)!.sol : 0), 0)), secondsLeft: Math.max(0, Math.ceil((r.expiresAt - Date.now()) / 1000)) })

@@ -3,12 +3,13 @@ import { vaultPct } from '../lib/protocol'
 import { S } from '../lib/fmt'
 import type { CreateMeta } from '../lib/pumpportal'
 import * as D from '../lib/dex'
+import { ModePicker } from './Desk'
 
-type Props = { onClose: () => void; onLaunch: (m: CreateMeta, devBuy: number, stake: number, copyOf?: string) => void; busy: string; connected: boolean; sol: number | null; needWallet: () => void }
+type Props = { onClose: () => void; onLaunch: (m: CreateMeta, devBuy: number, stake: number, copyOf?: string, mode?: 'floor' | 'mm', ceiling?: number) => void; busy: string; connected: boolean; sol: number | null; needWallet: () => void }
 export default function Launch(p: Props) {
   const [name, setName] = useState(''); const [symbol, setSymbol] = useState(''); const [desc, setDesc] = useState(''); const [file, setFile] = useState<File | undefined>()
   const [tw, setTw] = useState(''); const [tg, setTg] = useState(''); const [web, setWeb] = useState('')
-  const [dev, setDev] = useState(0.5); const [stake, setStake] = useState(1)
+  const [dev, setDev] = useState(0.5); const [stake, setStake] = useState(1); const [mode, setMode] = useState<'floor' | 'mm'>('mm'); const [ceiling, setCeiling] = useState(0.3)
   const [cq, setCq] = useState(''); const [cres, setCres] = useState<D.Coin[]>([]); const [copyOf, setCopyOf] = useState<D.Coin | null>(null)
   React.useEffect(() => { if (!cq.trim() || copyOf) { setCres([]); return } const t = setTimeout(() => D.search(cq).then((r) => setCres(r.slice(0, 5))).catch(() => {}), 300); return () => clearTimeout(t) }, [cq, copyOf])
   const ok = name.trim().length > 1 && symbol.trim().length > 0 && symbol.length <= 10 && !!file
@@ -33,10 +34,11 @@ export default function Launch(p: Props) {
     <div className="fld"><div className="lbl">Dev buy (block zero) — <b className="num">{S(dev, 2)} SOL</b></div><input type="range" className="slider" min={0} max={5} step={0.05} value={dev} onChange={(e) => setDev(+e.target.value)} /></div>
     <div className="note"><div className="row"><b>Vault stake</b><span className="tag live">LIVE · bot</span><span className="sp" /><b className="num">{S(stake, 2)} SOL → {S(vaultPct(stake), 1)}% supply</b></div>
       <input type="range" className="slider" min={0} max={5} step={0.05} value={stake} onChange={(e) => setStake(+e.target.value)} style={{ marginTop: 6 }} />
-      <div className="nm" style={{ marginTop: 4 }}>Half buys block-zero supply, half is the chest. Cut = vaulted %, renounceable. 0 = plain pump launch.</div></div>
+      <div className="nm" style={{ marginTop: 4 }}>Half buys block-zero supply, half is the chest. Cut = vaulted %, renounceable. 0 = plain pump launch.</div>
+      {stake > 0 && <div style={{ marginTop: 8 }}><ModePicker mode={mode} ceiling={ceiling} onChange={(m, c) => { setMode(m); setCeiling(c) }} /></div>}</div>
     <div className="kv"><span>Cost now</span><b className="num">{S(total, 2)} SOL (dev buy + vault stake + ~0.02 fees)</b></div>
     <div className="kv"><span>Wallet</span><b className="num">{p.sol == null ? '—' : S(p.sol) + ' SOL'}</b></div>
     <div className="row"><button className="btn" onClick={p.onClose}>Cancel</button><span className="sp" />
-      <button className="btn pri" disabled={!!p.busy || (p.connected && (!ok || (p.sol != null && total > p.sol)))} onClick={() => !p.connected ? p.needWallet() : p.onLaunch({ name: name.trim(), symbol: symbol.trim(), description: desc.trim(), file, twitter: tw || undefined, telegram: tg || undefined, website: web || undefined }, dev, stake, copyOf?.mint)}>{p.busy || (!p.connected ? 'Connect wallet' : 'Create coin')}</button></div>
+      <button className="btn pri" disabled={!!p.busy || (p.connected && (!ok || (p.sol != null && total > p.sol)))} onClick={() => !p.connected ? p.needWallet() : p.onLaunch({ name: name.trim(), symbol: symbol.trim(), description: desc.trim(), file, twitter: tw || undefined, telegram: tg || undefined, website: web || undefined }, dev, stake, copyOf?.mint, mode, ceiling)}>{p.busy || (!p.connected ? 'Connect wallet' : 'Create coin')}</button></div>
   </div></div>
 }

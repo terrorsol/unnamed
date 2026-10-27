@@ -17,23 +17,23 @@ const key = scryptSync(SECRET, 'unnamed-vault', 32)
 const enc = (u: Uint8Array) => { const iv = randomBytes(12); const c = createCipheriv('aes-256-gcm', key, iv); const ct = Buffer.concat([c.update(u), c.final()]); return Buffer.concat([iv, c.getAuthTag(), ct]).toString('base64') }
 const dec = (s: string) => { const b = Buffer.from(s, 'base64'); const d = createDecipheriv('aes-256-gcm', key, b.subarray(0, 12)); d.setAuthTag(b.subarray(12, 28)); return new Uint8Array(Buffer.concat([d.update(b.subarray(28)), d.final()])) }
 
-export type Act = { t: number; kind: 'stake' | 'seed' | 'buy' | 'trim' | 'cut' | 'note' | 'redeem' | 'stream' | 'bid'; sol?: number; tokens?: number; price?: number; sig?: string; msg?: string }
-export type Vault = { id: string; pub: string; sk: string; mint?: string; symbol?: string; name?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; createdAt: number; copyOf?: string; streamed: number; redeemed: number; supply: number; deskBid: number; imported?: boolean; feePaid?: number; trimmedToday: number; trimDay: number; depositedTokens: number; funders: Record<string, number>
+export type Act = { t: number; kind: 'stake' | 'seed' | 'buy' | 'trim' | 'cut' | 'note' | 'redeem' | 'stream' | 'bid' | 'capture'; sol?: number; tokens?: number; price?: number; sig?: string; msg?: string }
+export type Vault = { id: string; pub: string; sk: string; mint?: string; symbol?: string; name?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; createdAt: number; copyOf?: string; streamed: number; redeemed: number; supply: number; deskBid: number; imported?: boolean; feePaid?: number; trimmedToday: number; trimDay: number; depositedTokens: number; funders: Record<string, number>; mode: 'floor' | 'mm'; ceiling: number; lastLiq: number; lastLiqT: number; buyTimes: number[]; tranchesFired: number[]; score: { captured: number; captures: number; deskBought: number; deskFills: number; dipBought: number; dips: number; redeployed: number; floor0: number }; lastCapture: number
   avgCost: number; tokens: number; chest: number; spentEpisode: number; high15: { t: number; p: number }[]; samples: { t: number; p: number; v: number }[]; ema5: number | null; ema15: number | null; lastBuy: number; lastTrim: number; activity: Act[]; devPaid: number }
 let vaults: Record<string, Vault> = {}
 let SOLUSD = 0; setInterval(() => fetch(`${process.env.DEX_URL || 'https://api.dexscreener.com'}/tokens/v1/solana/So11111111111111111111111111111111111111112`).then((r) => r.json()).then((a: any[]) => { const x = a?.[0]?.priceUsd; if (x) SOLUSD = +x }).catch(() => {}), 30000)
 export function load() { if (existsSync(FILE)) vaults = JSON.parse(readFileSync(FILE, 'utf8')) }
 function save() { mkdirSync(DIR, { recursive: true }); writeFileSync(FILE, JSON.stringify(vaults)) }
 const kp = (v: Vault) => Keypair.fromSecretKey(dec(v.sk))
-const pub = (v: Vault) => ({ id: v.id, pub: v.pub, mint: v.mint, symbol: v.symbol, name: v.name, dev: v.dev, stakeSol: v.stakeSol, pct: v.pct, cut: v.cut, armed: v.armed, renounced: v.renounced, avgCost: v.avgCost, tokens: v.tokens, chest: v.chest, devPaid: v.devPaid, activity: v.activity.slice(0, 50), createdAt: v.createdAt, copyOf: v.copyOf, imported: !!v.imported, feePaid: v.feePaid || 0, depositedTokens: v.depositedTokens || 0, funders: v.funders || {}, streamed: v.streamed || 0, redeemed: v.redeemed || 0, supply: v.supply || 1e9, deskBid: v.deskBid || 0, copies: Object.values(vaults).filter((c) => c.copyOf === v.mint && c.armed).map((c) => ({ mint: c.mint, symbol: c.symbol, pub: c.pub })) })
+const pub = (v: Vault) => ({ id: v.id, pub: v.pub, mint: v.mint, symbol: v.symbol, name: v.name, dev: v.dev, stakeSol: v.stakeSol, pct: v.pct, cut: v.cut, armed: v.armed, renounced: v.renounced, avgCost: v.avgCost, tokens: v.tokens, chest: v.chest, devPaid: v.devPaid, activity: v.activity.slice(0, 50), createdAt: v.createdAt, copyOf: v.copyOf, imported: !!v.imported, mode: v.mode || 'floor', ceiling: v.ceiling ?? R.MM_MAX_CAPTURE, score: v.score || { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: 0 }, floor: v.supply ? v.chest / v.supply : 0, live: liveReadout(v), feePaid: v.feePaid || 0, depositedTokens: v.depositedTokens || 0, funders: v.funders || {}, streamed: v.streamed || 0, redeemed: v.redeemed || 0, supply: v.supply || 1e9, deskBid: v.deskBid || 0, copies: Object.values(vaults).filter((c) => c.copyOf === v.mint && c.armed).map((c) => ({ mint: c.mint, symbol: c.symbol, pub: c.pub })) })
 export const vaultPct = (s: number) => Math.min(10, (s / (s + 1)) * 13.3)
 
 /** Step 1 (before launch): make a vault address the dev will fund */
-export function create(dev: string, stakeSol: number, copyOf?: string) {
+export function create(dev: string, stakeSol: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = R.MM_MAX_CAPTURE) {
   const k = Keypair.generate(); const id = bs58.encode(randomBytes(8))
   const pct = +vaultPct(stakeSol).toFixed(2)
   vaults[id] = { id, pub: k.publicKey.toBase58(), sk: enc(k.secretKey), dev, stakeSol, pct, cut: pct, armed: false, renounced: false, createdAt: Date.now(), copyOf: copyOf || undefined, streamed: 0, redeemed: 0, supply: 1e9, deskBid: 0, trimmedToday: 0, trimDay: 0, depositedTokens: 0, funders: {}, avgCost: 0, tokens: 0, chest: 0, spentEpisode: 0, high15: [], samples: [], ema5: null, ema15: null, lastBuy: 0, lastTrim: 0, activity: [], devPaid: 0 }
-  save(); return pub(vaults[id])
+  vaults[id].mode = mode; vaults[id].ceiling = Math.min(R.MM_MAX_CAPTURE, Math.max(0.05, ceiling)); save(); return pub(vaults[id])
 }
 /** Step 2 (after the coin exists + dev sent the stake): bind mint, seed the position */
 export async function arm(id: string, mint: string, symbol: string, name = '') {
@@ -56,7 +56,7 @@ export async function importQuote(mint: string) {
 /** Step 1: reserve a vault for an existing coin (owner = whoever pays) */
 export async function importCreate(owner: string, mint: string) {
   const q = await importQuote(mint); const k = Keypair.generate(); const id = bs58.encode(randomBytes(8))
-  vaults[id] = { id, pub: k.publicKey.toBase58(), sk: enc(k.secretKey), mint, symbol: q.symbol, dev: owner, stakeSol: R.IMPORT_SEED_SOL, pct: 0, cut: 5, armed: false, renounced: false, createdAt: Date.now(), streamed: 0, redeemed: 0, supply: 1e9, deskBid: 0, imported: true, feePaid: 0, trimmedToday: 0, trimDay: 0, depositedTokens: 0, funders: {}, avgCost: 0, tokens: 0, chest: 0, spentEpisode: 0, high15: [], samples: [], ema5: null, ema15: null, lastBuy: 0, lastTrim: 0, activity: [], devPaid: 0 }
+  vaults[id] = { id, pub: k.publicKey.toBase58(), sk: enc(k.secretKey), mint, symbol: q.symbol, dev: owner, stakeSol: R.IMPORT_SEED_SOL, pct: 0, cut: 5, armed: false, renounced: false, createdAt: Date.now(), streamed: 0, redeemed: 0, supply: 1e9, deskBid: 0, imported: true, feePaid: 0, trimmedToday: 0, trimDay: 0, depositedTokens: 0, funders: {}, mode: 'mm', ceiling: R.MM_MAX_CAPTURE, lastLiq: 0, lastLiqT: 0, buyTimes: [], tranchesFired: [], score: { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: 0 }, lastCapture: 0, avgCost: 0, tokens: 0, chest: 0, spentEpisode: 0, high15: [], samples: [], ema5: null, ema15: null, lastBuy: 0, lastTrim: 0, activity: [], devPaid: 0 }
   save(); return { ...pub(vaults[id]), quote: q }
 }
 /** Step 2: after the fee tx (10 → treasury, 5 → vault) confirms, arm it. Verifies the tx on-chain. */
@@ -120,6 +120,33 @@ export async function redeem(mint: string, holder: string, tokensUi: number, txB
   return { sig, sol: q.sol }
 }
 
+function liveReadout(v: Vault) {
+  const p = v.samples.at(-1)?.p || 0; const vw = R.vwap(v.samples); const now = Date.now(); const bpm = v.buyTimes ? v.buyTimes.filter((t) => now - t < 60000).length : 0
+  const m = v.samples.length ? { mcapUsd: (v.supply || 1e9) * p * (SOLUSD || 150) } : { mcapUsd: 0 }
+  return { price: p, vwap30: vw, stretch: vw ? p / vw - 1 : 0, captureNow: v.mode === 'mm' ? R.captureFrac(p, vw, v.avgCost, m.mcapUsd, v.ceiling ?? R.MM_MAX_CAPTURE, 0.5) : 0, triggerRate: R.triggerRate(bpm), buysPerMin: bpm, tier: R.tierLabel(m.mcapUsd), tranchesFired: v.tranchesFired || [] }
+}
+export function setMode(id: string, dev: string, mode: 'floor' | 'mm', ceiling?: number) { const v = vaults[id]; if (!v || v.dev !== dev) throw new Error('not yours'); v.mode = mode; if (ceiling != null) v.ceiling = Math.min(R.MM_MAX_CAPTURE, Math.max(0.05, ceiling)); v.activity.unshift({ t: Date.now(), kind: 'note', msg: `mode → ${mode}${mode === 'mm' ? ` · capture ceiling ${Math.round((v.ceiling) * 100)}%` : ''}` }); save(); return pub(v) }
+/** A buy was observed (stream or inferred). MM mode may counter it. */
+export async function onBuy(v: Vault, solIn: number, m: any, p: number, now: number) {
+  if (v.mode !== 'mm' || solIn < R.MM_MIN_BUY_SOL || v.tokens <= 0) return
+  v.buyTimes = (v.buyTimes || []).filter((t) => now - t < 60000); v.buyTimes.push(now)
+  const bpm = v.buyTimes.length; if (Math.random() > R.triggerRate(bpm)) return
+  if (now - v.lastCapture < 4000) return
+  const frac = R.captureFrac(p, R.vwap(v.samples), v.avgCost, m.mcapUsd, v.ceiling ?? R.MM_MAX_CAPTURE); if (frac <= 0) return
+  const day = Math.floor(now / 86400000); if (day !== v.trimDay) { v.trimDay = day; v.trimmedToday = 0 }
+  const wantSol = solIn * frac; let tokens = wantSol / p
+  const vol1hSol = (m.vol1h || 0) / (SOLUSD || 150); tokens = Math.min(tokens, (vol1hSol * R.MM_VOL_CAP) / p, v.tokens * R.MM_DAY_CAP - v.trimmedToday, v.tokens * 0.05)
+  if (tokens * p < 0.05) return
+  const sellFrac = tokens / v.tokens; const before = v.chest; v.lastCapture = now
+  try {
+    const sig = await pumpTrade(kp(v), 'sell', v.mint!, `${Math.max(1, Math.round(sellFrac * 100))}%`, false)
+    await sync(v); const got = v.chest - before; v.trimmedToday += tokens
+    v.score.captured += got; v.score.captures++
+    v.activity.unshift({ t: now, kind: 'capture', sol: got, tokens, price: p, sig, msg: `countered a ${solIn.toFixed(2)} SOL buy · ${Math.round(frac * 100)}% · stretch +${Math.round((p / R.vwap(v.samples) - 1) * 100)}%` })
+    const profit = got - v.avgCost * tokens; const cut = v.cut > 0 ? Math.max(0, profit) * (v.cut / 100) : 0
+    if (cut > 0.001) { try { const tx = new Transaction().add(SystemProgram.transfer({ fromPubkey: kp(v).publicKey, toPubkey: new PublicKey(v.dev), lamports: Math.floor(cut * 1e9) })); const s2 = await sendAndConfirmTransaction(conn, tx, [kp(v)]); v.devPaid += cut; v.activity.unshift({ t: now, kind: 'cut', sol: cut, sig: s2, msg: `dev cut ${v.cut}% of capture profit` }) } catch {} }
+  } catch (e: any) { v.activity.unshift({ t: now, kind: 'note', msg: 'capture failed: ' + String(e.message).slice(0, 80) }) }
+}
 function trimAllowed(v: Vault, m: any, p: number, now: number) {
   const day = Math.floor(now / 86400000); if (day !== v.trimDay) { v.trimDay = day; v.trimmedToday = 0 }
   const vol1hSol = (m.vol1h || 0) / (SOLUSD || 150)
@@ -138,19 +165,24 @@ export async function tick() {
       v.high15.push({ t: now, p }); v.high15 = v.high15.filter((s) => now - s.t < 15 * 60_000)
       v.ema5 = R.ema(v.ema5, p, 5); v.ema15 = R.ema(v.ema15, p, 15)
       const high = Math.max(...v.high15.map((s) => s.p)); const dd = p / high - 1
-      if (dd > -0.03) v.spentEpisode = 0
-      // dip buy
-      const budget = R.dipBudget(v.chest, dd, v.spentEpisode)
-      if (budget >= 0.05 && now - v.lastBuy > 30_000) {
-        const spend = +Math.min(budget, v.chest * 0.15, v.chest - 0.02).toFixed(4)
+      if (dd > -0.03) { v.spentEpisode = 0; v.tranchesFired = [] }
+      if (!v.score) v.score = { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: v.supply ? v.chest / v.supply : 0 }
+      // infer net buy flow on graduated coins from the pool's SOL reserve delta (curve coins get exact buys from the stream)
+      if (!m.onCurve && m.liqSol) { if (v.lastLiq && now - v.lastLiqT < 20000) { const inflow = m.liqSol - v.lastLiq; if (inflow >= R.MM_MIN_BUY_SOL) await onBuy(v, inflow, m, p, now) } v.lastLiq = m.liqSol; v.lastLiqT = now }
+      // defense: three tranches at −20 / −35 / −50 from the 15-min high, each a third of the defense budget (40% of chest in mm, 40% in floor)
+      const budget = v.chest * R.VAULT_MAX_CRASH_SPEND
+      const level = R.DEFENSE_TRANCHES.findIndex((L, i) => dd <= L && !(v.tranchesFired || []).includes(i))
+      if (level >= 0 && now - v.lastBuy > 15000) {
+        const spend = +Math.min(budget / 3, v.chest - 0.02, Math.max(0, budget - v.spentEpisode)).toFixed(4)
         if (spend >= 0.05) {
           const before = v.tokens; const sig = await pumpTrade(kp(v), 'buy', v.mint, spend, true)
           await sync(v); const got = v.tokens - before; v.avgCost = (v.avgCost * before + spend) / Math.max(v.tokens, 1e-9)
-          v.spentEpisode += spend; v.lastBuy = now; v.activity.unshift({ t: now, kind: 'buy', sol: spend, tokens: got, price: p, sig, msg: `dip ${(dd * 100).toFixed(1)}%` })
+          v.spentEpisode += spend; v.lastBuy = now; (v.tranchesFired ||= []).push(level); v.score.dipBought += spend; v.score.dips++; v.score.redeployed += spend
+          v.activity.unshift({ t: now, kind: 'buy', sol: spend, tokens: got, price: p, sig, msg: `tranche ${level + 1} · ${(dd * 100).toFixed(0)}% from high` })
         }
       }
       // trim
-      else if (v.tokens > 0 && R.mayTrim(p, v.avgCost, R.vwap(v.samples), v.ema5!, v.ema15!) && now - v.lastTrim > R.VAULT_TRIM_COOLDOWN_MS && trimAllowed(v, m, p, now) > 0) {
+      else if (v.mode !== 'mm' && v.tokens > 0 && R.mayTrim(p, v.avgCost, R.vwap(v.samples), v.ema5!, v.ema15!) && now - v.lastTrim > R.VAULT_TRIM_COOLDOWN_MS && trimAllowed(v, m, p, now) > 0) {
         const frac = trimAllowed(v, m, p, now) / v.tokens; const before = v.chest
         const sig = await pumpTrade(kp(v), 'sell', v.mint, `${Math.round(frac * 100)}%`, false)
         const sold = v.tokens * frac; await sync(v); const got = v.chest - before; v.lastTrim = now; v.trimmedToday += sold
@@ -162,7 +194,7 @@ export async function tick() {
       }
       // standing vault bid on the desk: −5%, ≈35% of chest, only when the desk is open for this coin
       try {
-        const mb = R.minBlockSol(m); const want = +Math.max(v.chest * 0.35, mb).toFixed(3)
+        const mb = R.minBlockSol(m); const want = +Math.max(v.chest * (v.mode === 'mm' ? 0.6 : 0.35), mb).toFixed(3)
         if (R.deskOpen(m) && want >= 0.2 && v.chest * 0.6 >= want) { if (Math.abs(want - v.deskBid) > 0.01) { await D.placeInternal(kp(v), 'VAULT', v.mint, want, 500, () => v.chest - 0.02); if (!v.deskBid) v.activity.unshift({ t: now, kind: 'bid', sol: want, msg: 'vault bid resting on desk at −5%' }); v.deskBid = want } }
         else if (v.deskBid) { D.cancelInternal(v.pub, v.mint); v.deskBid = 0 }
       } catch {}
@@ -180,4 +212,18 @@ export async function respondRfq(mint: string, sizeSol: number, maxBps: number, 
   const b = await D.placeInternalRaw(kp(v), 'VAULT', mint, sol, 400, () => v.chest - 0.02, true); b.rfq = rfqId
   v.activity.unshift({ t: Date.now(), kind: 'bid', sol, msg: `answered block request at −4%` })
   return b
+}
+
+D.setOnVaultFill((pub, sol, tokens) => { const v = Object.values(vaults).find((x) => x.pub === pub); if (!v || !v.score) return; const before = v.tokens; v.avgCost = (v.avgCost * before + sol) / Math.max(before + tokens, 1e-9); v.score.deskBought += sol; v.score.deskFills++; v.score.redeployed += sol; v.deskBid = 0; v.activity.unshift({ t: Date.now(), kind: 'buy', sol, tokens, msg: 'desk fill · bought a block off-chart' }); sync(v).then(save).catch(() => {}) })
+// exact buys for curve coins via the pump.fun stream
+let pws: any = null
+export function startStream() {
+  const WS = (globalThis as any).WebSocket; if (!WS) return
+  const connect = () => {
+    try { pws = new WS('wss://pumpportal.fun/api/data') } catch { return }
+    pws.onopen = () => { const mints = Object.values(vaults).filter((v) => v.armed && v.mint).map((v) => v.mint!); if (mints.length) pws.send(JSON.stringify({ method: 'subscribeTokenTrade', keys: mints })) }
+    pws.onmessage = async (ev: any) => { try { const d = JSON.parse(ev.data); if (d.txType !== 'buy') return; const v = Object.values(vaults).find((x) => x.mint === d.mint && x.armed); if (!v || v.pub === d.traderPublicKey) return; const m = await market(v.mint!); if (!m) return; await onBuy(v, +d.solAmount || 0, m, m.priceSol, Date.now()); save() } catch {} }
+    pws.onclose = () => setTimeout(connect, 5000); pws.onerror = () => { try { pws.close() } catch {} }
+  }
+  connect(); setInterval(() => { try { if (pws?.readyState === 1) { const mints = Object.values(vaults).filter((v) => v.armed && v.mint).map((v) => v.mint!); if (mints.length) pws.send(JSON.stringify({ method: 'subscribeTokenTrade', keys: mints })) } } catch {} }, 60000)
 }

@@ -19,7 +19,7 @@ export async function tokenBalance(owner: string, mint: string) {
 }
 /** pump.fun / PumpSwap / Raydium trade signed by a server-held keypair (vault) */
 export async function pumpTrade(kp: Keypair, action: 'buy' | 'sell', mint: string, amount: number | string, denominatedInSol: boolean, slippage = 10, priorityFee = 0.0005) {
-  const r = await fetch('https://pumpportal.fun/api/trade-local', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+  const r = await fetch((process.env.PUMPPORTAL_URL || 'https://pumpportal.fun/api') + '/trade-local', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ publicKey: kp.publicKey.toBase58(), action, mint, amount, denominatedInSol: denominatedInSol ? 'true' : 'false', slippage, priorityFee, pool: 'auto' }) })
   if (!r.ok) throw new Error('pumpportal ' + r.status + ' ' + (await r.text().catch(() => '')))
   const tx = VersionedTransaction.deserialize(new Uint8Array(await r.arrayBuffer())); tx.sign([kp])
