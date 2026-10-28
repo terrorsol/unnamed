@@ -1,7 +1,7 @@
 // Market simulator for the vault. Constant-product pool, scripted + random order flow, fees, the vault's real rules.
 // Shared by the server backtest (test/sim.test.mjs) and the Simulate page. Deterministic for a given seed.
 export type Mode = 'none' | 'floor' | 'mm'
-export type Params = { poolSol: number; chestPct: number; mode: Mode; ceiling: number; hours: number; seed: number; swapFee: number; deskUse: number; pumpStrength: number; v2?: boolean; skew?: boolean; zstretch?: boolean; volDisc?: boolean; flow?: Flow[]; payout?: number; skim?: number }
+export type Params = { poolSol: number; chestPct: number; mode: Mode; ceiling: number; hours: number; seed: number; swapFee: number; deskUse: number; pumpStrength: number; v2?: boolean; skew?: boolean; zstretch?: boolean; volDisc?: boolean; flow?: Flow[]; payout?: number; skim?: number; imbGate?: boolean; wickFilter?: boolean; burst?: boolean; sellAdapt?: boolean }
 /** Recorded order flow (server tape or GeckoTerminal trades). When set, replaces the synthetic regime generator. */
 export type Flow = { t: number; side: 'buy' | 'sell'; sol: number }
 export type Result = { path: number[]; peak: number; maxDrawdown: number; final: number; vaultValue: number; vaultStart: number; chest: number; captured: number; captures: number; deskBought: number; deskFills: number; dips: number; dipBought: number; devPaid: number; floor: number; impactAvoided: number; volumeSol: number; trimmed: number; txs: number; feesPaid: number }
@@ -39,7 +39,7 @@ export function simulate(P: Params): Result {
   let chest = P.mode === 'none' ? 0 : P.poolSol * P.chestPct, vt = 0, avgCost = 0, captured = 0, captures = 0, deskBought = 0, deskFills = 0, dips = 0, dipBought = 0, devPaid = 0, impactAvoided = 0, trimmed = 0, txs = 0, feesPaid = 0, volumeSol = 0
   const vaultStart = chest
   if (P.mode !== 'none') { const seed = chest * 0.5; const b = buy(seed); vt = b.tokens; avgCost = seed / vt; chest -= seed; txs++; feesPaid += b.fee }
-  const samples: { t: number; p: number; v: number }[] = []; const high15: { t: number; p: number }[] = []; const buyTimes: number[] = []
+  const samples: { t: number; p: number; v: number; side?: 'b' | 's' }[] = []; let ddPrev = 0; const high15: { t: number; p: number }[] = []; const buyTimes: number[] = []
   let spentEpisode = 0, fired: number[] = [], lastCapture = -1e9, lastBuy = -1e9, trimmedToday = 0, lastTrim = -1e9
   let peak = p0, trough = p0, maxDD = 0
   const F = P.flow && P.flow.length ? [...P.flow].sort((a, b) => a.t - b.t) : null; const f0 = F ? F[0].t : 0; let fi = 0
@@ -58,18 +58,20 @@ export function simulate(P: Params): Result {
     if (F) { while (fi < F.length && F[fi].t - f0 <= t) { ev.push({ size: Math.max(0.001, F[fi].sol), isBuy: F[fi].side === 'buy' }); fi++ } }
     else if (r() < intensity) ev.push({ size: 0.2 + r() * r() * (S0 * 0.03), isBuy: r() < 0.5 + bias * 0.15 }) // 0.2 SOL .. 3% of starting reserve, skewed small
     for (const { size, isBuy } of ev) {
-      if (isBuy) { const b = buy(size); inflow += size; buyTimes.push(t); volumeSol += size; samples.push({ t, p: price(), v: size }) }
+      if (isBuy) { const b = buy(size); inflow += size; buyTimes.push(t); volumeSol += size; samples.push({ t, p: price(), v: size, side: 'b' }) }
       else {
         // a seller: with a vault bid resting at −4%, part of sell flow uses the desk when it beats chart impact
         const impact = 1 - 1 / (1 + size / S) ** 2
-        const bidSol = P.mode !== 'none' ? Math.max(0, Math.min(chest * (P.mode === 'mm' ? 0.6 : 0.35), chest - 0.02)) : 0
+        const s5 = samples.filter((x) => t - x.t < 300_000); const b5 = s5.filter((x) => x.side === 'b').reduce((a, x) => a + x.v, 0), sl5 = s5.filter((x) => x.side === 's').reduce((a, x) => a + x.v, 0)
+        const bidShare = P.sellAdapt ? (sl5 > b5 * 1.5 ? 0.8 : b5 > sl5 * 1.5 ? 0.35 : 0.6) : (P.mode === 'mm' ? 0.6 : 0.35)
+        const bidSol = P.mode !== 'none' ? Math.max(0, Math.min(chest * bidShare, chest - 0.02)) : 0
         const minBlock = Math.max(0.2, S * 0.02)
         if (bidSol >= minBlock && size >= minBlock && impact > ((P.volDisc ?? P.v2) ? deskDiscount(sigmaOf(samples)) : 0.04) && r() < P.deskUse) {
           const fillSol = Math.min(size, bidSol); const px = price() * (1 - ((P.volDisc ?? P.v2) ? deskDiscount(sigmaOf(samples)) : 0.04)); const tok = fillSol / px
           chest -= fillSol * 1.005; vt += tok; avgCost = (avgCost * (vt - tok) + fillSol) / vt; deskBought += fillSol; deskFills++; txs++
           impactAvoided += (1 - 1 / (1 + fillSol / S) ** 2); volumeSol += fillSol
-          const rest = size - fillSol; if (rest > 0.01) { const tokens = rest / price(); sell(tokens); volumeSol += rest; samples.push({ t, p: price(), v: rest }) }
-        } else { const tokens = size / price(); sell(tokens); volumeSol += size; samples.push({ t, p: price(), v: size }) }
+          const rest = size - fillSol; if (rest > 0.01) { const tokens = rest / price(); sell(tokens); volumeSol += rest; samples.push({ t, p: price(), v: rest, side: 's' }) }
+        } else { const tokens = size / price(); sell(tokens); volumeSol += size; samples.push({ t, p: price(), v: size, side: 's' }) }
       }
     }
     const p = price(); path.push(p / p0)
@@ -83,10 +85,14 @@ export function simulate(P: Params): Result {
     if (dd > -0.03) { spentEpisode = 0; fired = [] }
     const mcapUsd = supply * p * SOLUSD
     // capture (mm)
-    if (P.mode === 'mm' && inflow >= 0.5 && vt > 0 && t - lastCapture >= 4000 && r() < triggerRate(buyTimes.length)) {
+    const s5c = samples.filter((x) => t - x.t < 300_000); const b5c = s5c.filter((x) => x.side === 'b').reduce((a, x) => a + x.v, 0), sl5c = s5c.filter((x) => x.side === 's').reduce((a, x) => a + x.v, 0)
+    const oneSided = b5c >= sl5c * 1.5 // buyers dominate the last 5 min
+    const p5 = s5c.length ? s5c[0].p : p; const ret5 = p / p5 - 1
+    const ceilingNow = P.burst && ret5 > 0.4 && oneSided ? Math.min(0.5, P.ceiling + 0.15) : P.ceiling
+    if (P.mode === 'mm' && inflow >= 0.5 && vt > 0 && t - lastCapture >= 4000 && r() < triggerRate(buyTimes.length) && (!P.imbGate || oneSided)) {
       const sig = (P.zstretch ?? P.v2) ? sigmaOf(samples) : 0; const vaultedPct = (vt / supply) * 100; const target = (P.poolSol * P.chestPct * 0.5 / p0 / supply) * 100 || 5
       const useZ = P.zstretch ?? P.v2, useSkew = P.skew ?? P.v2
-      let f = useZ ? captureFracV2(p, vw, avgCost, mcapUsd, sig, useSkew ? vaultedPct : target, target, P.ceiling, r()) : captureFrac(p, vw, avgCost, mcapUsd, P.ceiling, r()) * (useSkew ? inventorySkew(vaultedPct, target).capture : 1)
+      let f = useZ ? captureFracV2(p, vw, avgCost, mcapUsd, sig, useSkew ? vaultedPct : target, target, ceilingNow, r()) : captureFrac(p, vw, avgCost, mcapUsd, ceilingNow, r()) * (useSkew ? inventorySkew(vaultedPct, target).capture : 1)
       if (f > 0) {
         const vol1hSol = volumeSol / Math.max(1, h) // rough 1h volume
         let tokens = Math.min((inflow * f) / p, (vol1hSol * 0.15) / p, vt * 0.10 - trimmedToday, vt * 0.05)
@@ -97,8 +103,9 @@ export function simulate(P: Params): Result {
     // floor-mode trims (above cost +5%, above vwap, uptrend proxy)
     if (P.mode === 'floor' && vt > 0 && p > avgCost * 1.05 && p > vw && t - lastTrim > 120_000 && r() < 0.5) { const tokens = Math.min(vt * 0.02, vt * 0.05 - trimmedToday); if (tokens > 0 && tokens * p >= 0.05) { const s = sell(tokens); vt -= tokens; chest += s.sol; feesPaid += s.fee; trimmed += s.sol; trimmedToday += tokens; lastTrim = t; txs++; const profit = s.sol - avgCost * tokens; const cut = Math.max(0, profit) * 0.0665; if (cut > 0.001) { chest -= cut; devPaid += cut } } }
     // defense tranches
-    const budget = chest * 0.4 * ((P.skew ?? P.v2) ? inventorySkew((vt / supply) * 100, (P.poolSol * P.chestPct * 0.5 / p0 / supply) * 100 || 5).defend : 1); const level = TRANCHES.findIndex((L, idx) => dd <= L && !fired.includes(idx))
+    const budget = chest * 0.4 * ((P.skew ?? P.v2) ? inventorySkew((vt / supply) * 100, (P.poolSol * P.chestPct * 0.5 / p0 / supply) * 100 || 5).defend : 1); const level = TRANCHES.findIndex((L, idx) => dd <= L && !fired.includes(idx) && (!P.wickFilter || ddPrev <= L))
     if (level >= 0 && t - lastBuy > 15000) { const spend = Math.min(budget / 3, chest - 0.02, Math.max(0, budget - spentEpisode)); if (spend >= 0.05) { const b = buy(spend); const got = b.tokens; avgCost = (avgCost * vt + spend) / (vt + got); vt += got; chest -= spend; spentEpisode += spend; lastBuy = t; fired.push(level); dips++; dipBought += spend; feesPaid += b.fee; txs++ } }
+    ddPrev = dd
     if (i % 17280 === 0) trimmedToday = 0 // daily reset
   }
   const pf = price()
