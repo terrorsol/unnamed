@@ -2,6 +2,7 @@ import type { Market } from './rules.ts'
 import { poolSpot } from './pool.ts'
 import * as LL from './launchlab.ts'
 const cache = new Map<string, { t: number; it: number; m: any }>()
+const volTrack = new Map<string, { t: number; liq: number }[]>()
 let solUsdV = 0, solUsdT = 0
 export async function solUsd() {
   if (Date.now() - solUsdT < 60000 && solUsdV) return solUsdV
@@ -16,7 +17,10 @@ export async function market(mint: string, maxAgeMs = 5000): Promise<(Market & {
   if (ll && !ll.migrated) {
     const fresh = c && Date.now() - c.it < 5000; const idx: any = fresh ? c.m : (await fromIndexer(mint).catch(() => null)) || c?.m || {}; const it = fresh ? c!.it : Date.now()
     const usd = await solUsd(); const mcapUsd = ll.priceSol * 1e9 * usd
-    const m = { ...idx, mcapUsd, imcap: mcapUsd, ipx: ll.priceSol, priceSol: ll.priceSol, liqSol: ll.liqSol, onCurve: true, symbol: idx.symbol || '', pair: ll.poolId, dexId: 'launchlab', vol1h: idx.vol1h || 0, t: Date.now(), exact: true, venue: 'launchlab', ours: LL.isOurs(ll), soldPct: ll.soldPct }
+    // own 1h volume from pool deltas (the indexer may not know the coin yet): sum of |Δ real SOL| over the last hour
+    const vt = volTrack.get(mint) || []; const last = vt.at(-1); if (!last || Math.abs(ll.liqSol - last.liq) >= 0.005) vt.push({ t: Date.now(), liq: ll.liqSol }); while (vt.length && Date.now() - vt[0].t > 3.6e6) vt.shift(); volTrack.set(mint, vt)
+    let ownVol = 0; for (let i = 1; i < vt.length; i++) ownVol += Math.abs(vt[i].liq - vt[i - 1].liq); ownVol *= usd
+    const m = { ...idx, mcapUsd, imcap: mcapUsd, ipx: ll.priceSol, priceSol: ll.priceSol, liqSol: ll.liqSol, onCurve: true, symbol: idx.symbol || '', pair: ll.poolId, dexId: 'launchlab', vol1h: Math.max(idx.vol1h || 0, ownVol), t: Date.now(), exact: true, venue: 'launchlab', ours: LL.isOurs(ll), soldPct: ll.soldPct }
     cache.set(mint, { t: m.t, it, m }); return m
   }
   // indexer fields (symbol, mcap, volume, pair) refresh at most every 5s; the PRICE is re-read from the pool itself whenever asked

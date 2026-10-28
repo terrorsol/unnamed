@@ -27,7 +27,7 @@ export default function Home(p: Props) {
   const mountedAt = useMemo(() => Date.now(), [])
   const tapeRows = useMemo(() => [
     ...fills.slice(0, 20).map((f) => ({ k: f.sig, t: f.t, mint: f.mint, symbol: f.symbol, sol: f.sol, px: (f.discBps < 0 ? '+' : '−') + (Math.abs(f.discBps) / 100).toFixed(1) + '%', what: f.vault ? 'vault bought' : 'desk fill', tone: f.discBps < 0 ? 'up' : 'dn' })),
-    ...tape.filter((a: any) => a.kind === 'buy' || a.kind === 'capture' || a.kind === 'redeem').slice(0, 20).map((a: any) => ({ k: a.sig || a.t, t: a.t, mint: a.mint, symbol: a.symbol, sol: a.sol || 0, px: a.kind === 'capture' ? 'sold' : a.kind === 'buy' ? 'dip' : 'redeem', what: a.kind === 'capture' ? 'into a pump' : a.kind === 'buy' ? 'bought the dip' : 'holder redeemed', tone: a.kind === 'capture' ? 'dn' : 'up' })),
+    ...tape.filter((a: any) => a.kind === 'buy' || a.kind === 'capture' || a.kind === 'redeem' || a.kind === 'tax').slice(0, 20).map((a: any) => ({ k: a.sig || a.t, t: a.t, mint: a.mint, symbol: a.symbol, sol: a.sol || 0, px: a.kind === 'capture' ? 'sold' : a.kind === 'buy' ? 'dip' : a.kind === 'tax' ? 'tax' : 'redeem', what: a.kind === 'capture' ? 'into a pump' : a.kind === 'buy' ? 'bought the dip' : a.kind === 'tax' ? 'tax → chest' : 'holder redeemed', tone: a.kind === 'capture' ? 'dn' : 'up' })),
   ].sort((a, b) => b.t - a.t).slice(0, 16), [fills, tape])
   return <>
     {(() => {

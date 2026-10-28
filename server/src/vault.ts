@@ -76,7 +76,8 @@ export async function importQuote(mint: string) {
 /** Step 1: reserve a vault for an existing coin (owner = whoever pays) */
 export async function importCreate(owner: string, mint: string) {
   const q = await importQuote(mint); const k = Keypair.generate(); const id = bs58.encode(randomBytes(8))
-  vaults[id] = { id, pub: k.publicKey.toBase58(), sk: enc(k.secretKey), mint, symbol: q.symbol, dev: owner, stakeSol: R.IMPORT_SEED_SOL, pct: 0, cut: 5, armed: false, renounced: false, createdAt: Date.now(), streamed: 0, redeemed: 0, supply: 1e9, deskBid: 0, imported: true, feePaid: 0, trimmedToday: 0, trimDay: 0, depositedTokens: 0, funders: {}, mode: 'mm', ceiling: R.MM_MAX_CAPTURE, lastLiq: 0, lastLiqT: 0, buyTimes: [], tranchesFired: [], score: { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: 0 }, lastCapture: 0, avgCost: 0, tokens: 0, chest: 0, spentEpisode: 0, high15: [], samples: [], ema5: null, ema15: null, lastBuy: 0, lastTrim: 0, activity: [], devPaid: 0 }
+  const venue: 'pump' | 'launchlab' = (await LL.pool(mint).catch(() => null)) ? 'launchlab' : 'pump'
+  vaults[id] = { id, venue, pub: k.publicKey.toBase58(), sk: enc(k.secretKey), mint, symbol: q.symbol, dev: owner, stakeSol: R.IMPORT_SEED_SOL, pct: 0, cut: 5, armed: false, renounced: false, createdAt: Date.now(), streamed: 0, redeemed: 0, supply: 1e9, deskBid: 0, imported: true, feePaid: 0, trimmedToday: 0, trimDay: 0, depositedTokens: 0, funders: {}, mode: 'mm', ceiling: R.MM_MAX_CAPTURE, lastLiq: 0, lastLiqT: 0, buyTimes: [], tranchesFired: [], score: { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: 0 }, lastCapture: 0, avgCost: 0, tokens: 0, chest: 0, spentEpisode: 0, high15: [], samples: [], ema5: null, ema15: null, lastBuy: 0, lastTrim: 0, activity: [], devPaid: 0 }
   save(); return { ...pub(vaults[id]), quote: q }
 }
 /** Step 2: after the fee tx (10 → treasury, 5 → vault) confirms, arm it. Verifies the tx on-chain. */
@@ -281,6 +282,8 @@ async function tickOne(v: Vault) {
       // graduated coins: exact per-swap buys from the pool websocket; reserve-delta only while the stream isn't attached
       if (!m.onCurve && m.pair && !watched.has(v.id)) { watched.set(v.id, watchPool(m.pair, async (sw) => { D.broadcast({ type: 'swap', mint: v.mint, symbol: v.symbol, ...sw }); tape(v.mint!, { t: sw.t, side: sw.side, sol: sw.sol, trader: sw.trader, sig: sw.sig }); if (sw.side !== 'buy' || sw.trader === v.pub) return; try { const mm = await market(v.mint!); if (mm) { await onBuy(v, sw.sol, mm, mm.priceSol, Date.now()); save() } } catch {} })) }
       // reserve-delta fallback when the pool websocket is not delivering (not connected, or no subscription yet)
+      // launchlab coins: every tick compares the pool's real SOL; a change is a swap (buy if up, sell if down) → tape + live ticker
+      if (m.venue === 'launchlab' && m.liqSol) { const d = m.liqSol - (v.lastLiq || m.liqSol); if (v.lastLiq && Math.abs(d) >= 0.01) { const sw = { t: now, side: d > 0 ? 'buy' as const : 'sell' as const, sol: Math.abs(d), trader: '' }; tape(v.mint!, sw); D.broadcast({ type: 'swap', mint: v.mint, symbol: v.symbol, ...sw }) } }
       // launchlab coins: no websocket yet — the pool read every tick (exact realB delta) is the buy detector
       const curveNoStream = m.onCurve && (!process.env.PUMPPORTAL_KEY || m.venue === 'launchlab')
       if (m.liqSol && ((!m.onCurve && (!watched.has(v.id) || !streamStats().connected)) || curveNoStream)) { if (v.lastLiq && now - v.lastLiqT < 20000) { const inflow = m.liqSol - v.lastLiq; if (inflow >= R.MM_MIN_BUY_SOL) await onBuy(v, inflow, m, p, now) } v.lastLiq = m.liqSol; v.lastLiqT = now }
