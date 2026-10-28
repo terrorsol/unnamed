@@ -1,1 +1,1 @@
-{"stats":{"n":2,"seq":2,"kinds":{"error":2}},"events":[{"t":1793208163443,"kind":"error","msg":"/vault/create: stake required","data":{"ip":"76.142.78.54"}},{"t":1793208264947,"kind":"error","msg":"/bundle: jito: {\"code\":-32001,\"message\":\"Method not available on your current plan\"}","data":{"ip":"76.142.78.54"}}]}
+{"stats":{"n":0,"seq":0,"kinds":{}},"events":[]}
