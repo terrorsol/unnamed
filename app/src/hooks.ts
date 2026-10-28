@@ -11,7 +11,7 @@ export function useRoute() {
   const [h, setH] = useState(location.hash || '#/')
   useEffect(() => { const f = () => setH(location.hash || '#/'); addEventListener('hashchange', f); return () => removeEventListener('hashchange', f) }, [])
   const parts = h.replace(/^#\/?/, '').split('/')
-  return { page: parts[0] || 'home', arg: parts[1] || '', go: (p: string) => { location.hash = '#/' + p } }
+  return { page: parts[0] || 'home', arg: parts[1] || '', arg2: parts[2] || '', go: (p: string) => { location.hash = '#/' + p } }
 }
 export function useSettings(): [Settings, (s: Partial<Settings>) => void] {
   const [s, set] = useState(loadSettings)

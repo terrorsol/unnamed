@@ -29,7 +29,7 @@ export default function Home(p: Props) {
     </div>
     {tab === 'ours' && <div className="lay">
       <div className="card"><table><thead><tr><th>Coin</th><th className="r">MC</th><th className="r">1h</th><th className="r">Chest</th><th className="r">Floor</th><th className="r">Captured</th><th className="r">Signal</th><th className="r"></th></tr></thead><tbody>
-        {!ours.length && <tr><td colSpan={8} className="empty">{p.deskUp ? <>Nothing vaulted yet. <a href="#/dev/import-a-coin" style={{ textDecoration: 'underline' }}>Import a coin</a> or launch one — the vault, desk and floor come with it.</> : 'Vault server offline — vaulted coins appear here when it\'s up.'}</td></tr>}
+        {!ours.length && <tr><td colSpan={8} className="empty">{p.deskUp ? <>Nothing vaulted yet. <a href="#/vault/import" style={{ textDecoration: 'underline' }}>Import a coin</a> or launch one — the vault, desk and floor come with it.</> : 'Vault server offline — vaulted coins appear here when it\'s up.'}</td></tr>}
         {ours.map(({ v, c, sg }) => <tr key={v.id} onClick={() => p.go('coin/' + v.mint)}>
           <td><div className="row"><Pfp c={c} mint={v.mint} /><div><div className="tk">{v.symbol} <span className={'tag ' + (v.mode === 'mm' ? 'live' : '')} style={{ marginLeft: 4 }}>{v.mode === 'mm' ? 'MM' : 'FLOOR'}</span> {p.watch.includes(v.mint!) && <span className="gold">★</span>}</div><div className="nm">{v.name || c?.name || ''} · <Addr a={v.mint!} /></div></div></div></td>
           <td className="r">{c ? <Mc v={c.mcap} /> : '—'}</td><td className="r">{c ? <Ch v={c.ch1h} /> : '—'}</td>

@@ -22,7 +22,9 @@ import { loadLedger, recordBuy, recordSell, recordCreate } from './lib/positions
 import { S, short } from './lib/fmt'
 import type { Coin } from './lib/dex'
 
-const NAV: [string, string][] = [['home', 'Home'], ['desk', 'Desk'], ['vault', 'Vault'], ['dev', 'Dev'], ['portfolio', 'Portfolio'], ['settings', 'Settings']]
+// three mains + bag; everything else lives under More
+const NAV: [string, string, string][] = [['home', 'Home', 'runners · our coins'], ['desk', 'Desk', 'blocks off-chart · any coin'], ['vault', 'Vault', 'holder-owned market maker'], ['portfolio', 'Bag', 'P&L']]
+const MORE: [string, string][] = [['vault/import', 'Import a coin'], ['dev', 'My launches'], ['desk/leaderboard', 'Leaderboard'], ['vault/simulate', 'Simulate'], ['settings', 'Settings'], ['dev/how-it-works', 'How it works'], ['about', 'About']]
 
 function Tabs({ tabs, sel, go }: { tabs: [string, React.ReactNode][]; sel: string; go: (t: string) => void }) {
   const slug = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-')
@@ -30,7 +32,7 @@ function Tabs({ tabs, sel, go }: { tabs: [string, React.ReactNode][]; sel: strin
   return <><div className="seg" style={{ marginBottom: 12 }}>{tabs.map(([t]) => <button key={t} className={cur[0] === t ? 'on' : ''} onClick={() => go(slug(t))}>{t}</button>)}</div>{cur[1]}</>
 }
 export default function App() {
-  const { page, arg, go } = useRoute()
+  const { page, arg, arg2, go } = useRoute()
   const [settings, setSettings] = useSettings()
   const { connection } = useConnection(); const wallet = useWallet()
   const solPrice = useSolPrice()
@@ -44,7 +46,7 @@ export default function App() {
   const activeB58 = mode === 'burner' ? (burner ? burner.publicKey.toBase58() : '') : (wallet.publicKey ? wallet.publicKey.toBase58() : '')
   const activeKey = useMemo(() => (activeB58 ? new PublicKey(activeB58) : null), [activeB58])
   const ws = useWalletState(activeKey, rk)
-  const [busy, setBusy] = useState(''); const [launch, setLaunch] = useState(false); const [q, setQ] = useState(''); const [results, setResults] = useState<Coin[]>([])
+  const [busy, setBusy] = useState(''); const [launch, setLaunch] = useState(false); const [more, setMore] = useState(false); const [q, setQ] = useState(''); const [results, setResults] = useState<Coin[]>([])
   const [ledgerV, setLedgerV] = useState(0)
   const ledger = useMemo(() => loadLedger(ws.owner), [ws.owner, ledgerV])
   const freshMints = useMemo(() => fresh.list.slice(0, 30).map((t) => t.mint), [fresh.list])
@@ -220,9 +222,10 @@ export default function App() {
     if (page === 'settings') return <SettingsPage s={settings} set={setSettings} />
     if (page === 'about') return <About />
     if (page === 'simulate') return <Simulate />
-    if (page === 'vault') return <Tabs tabs={[['Vaults', <VaultPage go={go} solPrice={solPrice} />], ['Simulate', <Simulate />]]} sel={arg} go={(t) => go('vault/' + t)} />
+    if (page === 'vault') return <Tabs tabs={[['Vaults', <VaultPage go={go} solPrice={solPrice} />], ['Import', <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={arg2 || ''} needWallet={needWallet} sol={ws.sol} />], ['Simulate', <Simulate />]]} sel={arg} go={(t) => go('vault/' + t)} />
     if (page === 'desk') return <Tabs tabs={[['Books', <DeskPage go={go} />], ['Leaderboard', <LeaderboardPage owner={ws.owner} />]]} sel={arg} go={(t) => go('desk/' + t)} />
-    if (page === 'dev' || page === 'mine' || page === 'import') return <Tabs tabs={[['My launches', <MinePage owner={ws.owner} go={go} solPrice={solPrice} onRenounce={renounce} onClaim={onClaim} busy={busy} />], ['Import a coin', <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={page === 'import' ? arg : ''} needWallet={needWallet} sol={ws.sol} />], ['How it works', <About />]]} sel={page === 'import' ? 'import-a-coin' : arg} go={(t) => go('dev/' + t)} />
+    if (page === 'import') return <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={arg || ''} needWallet={needWallet} sol={ws.sol} />
+    if (page === 'dev' || page === 'mine') return <Tabs tabs={[['My launches', <MinePage owner={ws.owner} go={go} solPrice={solPrice} onRenounce={renounce} onClaim={onClaim} busy={busy} />], ['How it works', <About />]]} sel={arg} go={(t) => go('dev/' + t)} />
     if (page === 'leaderboard') return <LeaderboardPage owner={ws.owner} />
     if (false) return <div className="prose"><h2>{page === 'vault' ? 'Vault' : 'Desk'} <span className="tag pre">PREVIEW</span></h2><p>{page === 'vault' ? 'Program-owned market maker funded by the dev\'s block-zero stake. Buys dips (≤40% of chest per crash), trims only above holder cost basis and 30-min VWAP, never withdraws. Ships on-chain in Beta v1 — the per-coin preview is on each coin page under Protocol.' : 'Escrowed block bids at −3–5%, 60s rest, all-or-none, min block 2% of pool reserve, open once a coin has graduated and holds $100K mc. Ships with the vault program; the gating is already computed live on each coin page.'}</p></div>
     return <Home coins={q.trim() ? results : coins} byMint={byMint} vaults={vaultList} solPrice={solPrice} go={go} quick={quick} quickSol={settings.quickBuy} deskUp={deskUp} onLaunch={() => setLaunch(true)} fresh={fresh.list} freshCoins={freshCoins} trades={fresh.trades} live={fresh.live} err={err} watch={settings.watch} />
@@ -237,11 +240,15 @@ export default function App() {
       <button className="btn pri" onClick={() => setLaunch(true)}>Launch</button>
     </div>
     <div className="body">
-      <nav className="side">{NAV.map(([k, l]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={page === k ? 'on' : ''}>{l}</a>)}
-        <div className="foot"><a href="#/dev/how-it-works" style={{ color: 'var(--fg3)' }}>How it works</a> · <a href="#/vault/simulate" style={{ color: 'var(--fg3)' }}>Simulate</a><br />Non-custodial · mainnet-beta<br />Desk + vault: <span className={deskUp ? 'up' : 'dn'}>{deskUp ? 'online' : 'offline'}</span></div></nav>
+      <nav className="side">{NAV.map(([k, l, d]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={page === k ? 'on' : ''}><span>{l}</span><span className="dim" style={{ fontSize: 10, marginLeft: 'auto', fontWeight: 400 }}>{d}</span></a>)}
+        <div className="cap">More</div>{MORE.map(([k, l]) => <a key={k} href={'#/' + k} className={(page + '/' + arg === k || page === k) ? 'on' : ''} style={{ padding: '5px 10px', fontSize: 12, fontWeight: 400 }}>{l}</a>)}
+        <div className="foot">Desk + vault: <span className={deskUp ? 'up' : 'dn'}>{deskUp ? 'online' : 'offline'}</span> · beta</div></nav>
       <main className="main">{content()}</main>
     </div>
-    <nav className="mnav">{([['home', 'Home', '◼'], ['desk', 'Desk', '⇄'], ['vault', 'Vault', '◆'], ['portfolio', 'Bag', '◎'], ['dev', 'Dev', '✦']] as [string, string, string][]).map(([k, l, i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={page === k ? 'on' : ''}><b>{i}</b>{l}</a>)}</nav>
+    <nav className="mnav">{([['home', 'Home', '◼'], ['desk', 'Desk', '⇄'], ['vault', 'Vault', '◆'], ['portfolio', 'Bag', '◎']] as [string, string, string][]).map(([k, l, i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={page === k ? 'on' : ''}><b>{i}</b>{l}</a>)}<a href="#" onClick={(e) => { e.preventDefault(); setMore(true) }} className={more ? 'on' : ''}><b>≡</b>More</a></nav>
+    {more && <div className="modal" onClick={() => setMore(false)}><div className="box" onClick={(e) => e.stopPropagation()} style={{ width: 360 }}><h2>More</h2><div className="panel" style={{ gap: 4 }}>
+      <button className="btn pri big" onClick={() => { setMore(false); setLaunch(true) }}>Launch a coin</button>
+      {MORE.map(([k, l]) => <a key={k} href={'#/' + k} className="btn" onClick={() => setMore(false)}>{l}</a>)}</div></div></div>}
     {gateQ && <div className="modal" onClick={() => gateQ.ok(false)}><div className="box" onClick={(e) => e.stopPropagation()} style={{ width: 420 }}>
       <h2>Price moved since you posted</h2>
       <div className="kv"><span>You posted at</span><b className="num">{Number(gateQ.q.anchorPrice).toPrecision(4)} SOL</b></div>
