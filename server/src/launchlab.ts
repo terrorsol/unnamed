@@ -60,7 +60,7 @@ export async function platform(): Promise<{ id: string; exists: boolean; feeRate
   const info = await conn.getAccountInfo(PLATFORM_ID).catch(() => null)
   if (!info) return { id: PLATFORM_ID.toBase58(), exists: false }
   const d: any = PlatformConfig.decode(info.data)
-  return { id: PLATFORM_ID.toBase58(), exists: true, feeRate: +d.feeRate.toString() / 100, creatorFeeRate: +d.creatorFeeRate.toString() / 100, feeWallet: d.platformClaimFeeWallet.toBase58(), nftWallet: d.platformLockNftWallet.toBase58(), name: Buffer.from(d.name).toString('utf8').replace(/\0+$/, '') }
+  return { id: PLATFORM_ID.toBase58(), exists: true, feeRate: +d.feeRate.toString() / 1e4, creatorFeeRate: +d.creatorFeeRate.toString() / 1e4, feeWallet: d.platformClaimFeeWallet.toBase58(), nftWallet: d.platformLockNftWallet.toBase58(), name: Buffer.from(d.name).toString('utf8').replace(/\0+$/, '') }
 }
 /** one-time: the admin's wallet signs this. Fee wallet / NFT wallet = our platform key. Fee rates in 1e-6 units (bps × 100). */
 export async function buildPlatformTx(admin: PublicKey): Promise<{ tx: string; platformId: string }> {
