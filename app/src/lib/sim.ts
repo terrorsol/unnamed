@@ -1,7 +1,7 @@
 // Market simulator for the vault. Constant-product pool, scripted + random order flow, fees, the vault's real rules.
 // Shared by the server backtest (test/sim.test.mjs) and the Simulate page. Deterministic for a given seed.
 export type Mode = 'none' | 'floor' | 'mm'
-export type Params = { poolSol: number; chestPct: number; mode: Mode; ceiling: number; hours: number; seed: number; swapFee: number; deskUse: number; pumpStrength: number; v2?: boolean; skew?: boolean; zstretch?: boolean; volDisc?: boolean; flow?: Flow[] }
+export type Params = { poolSol: number; chestPct: number; mode: Mode; ceiling: number; hours: number; seed: number; swapFee: number; deskUse: number; pumpStrength: number; v2?: boolean; skew?: boolean; zstretch?: boolean; volDisc?: boolean; flow?: Flow[]; payout?: number; skim?: number }
 /** Recorded order flow (server tape or GeckoTerminal trades). When set, replaces the synthetic regime generator. */
 export type Flow = { t: number; side: 'buy' | 'sell'; sol: number }
 export type Result = { path: number[]; peak: number; maxDrawdown: number; final: number; vaultValue: number; vaultStart: number; chest: number; captured: number; captures: number; deskBought: number; deskFills: number; dips: number; dipBought: number; devPaid: number; floor: number; impactAvoided: number; volumeSol: number; trimmed: number; txs: number; feesPaid: number }
@@ -91,7 +91,7 @@ export function simulate(P: Params): Result {
         const vol1hSol = volumeSol / Math.max(1, h) // rough 1h volume
         let tokens = Math.min((inflow * f) / p, (vol1hSol * 0.15) / p, vt * 0.10 - trimmedToday, vt * 0.05)
         if (tokens * p >= 0.05) { const s = sell(tokens); vt -= tokens; chest += s.sol; feesPaid += s.fee; captured += s.sol; captures++; txs++; trimmedToday += tokens; lastCapture = t
-          const profit = s.sol - avgCost * tokens; const cut = Math.max(0, profit) * 0.0665; if (cut > 0.001) { chest -= cut; devPaid += cut } }
+          const profit = s.sol - avgCost * tokens; const cut = Math.max(0, profit) * (P.payout ?? 0.0665) + s.sol * (P.skim ?? 0); if (cut > 0.001) { chest -= cut; devPaid += cut } }
       }
     }
     // floor-mode trims (above cost +5%, above vwap, uptrend proxy)
