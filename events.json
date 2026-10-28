@@ -1,1 +1,1 @@
-{"stats":{"n":0,"seq":0,"kinds":{}},"events":[]}
+{"stats":{"n":2,"seq":0,"kinds":{"vault":2}},"events":[{"t":1793210053224,"kind":"vault","msg":"TEST armed · chest 1.100 SOL","data":{"mint":"7aAZbX5PsauTJmbsxm7Ab2j9UTP5K5mTYm8qcd7BANK","id":"itkQy1XKM54"}},{"t":1793210053226,"kind":"vault","msg":"TEST auto-armed (coin on chain, arm never signed)","data":{"id":"itkQy1XKM54","mint":"7aAZbX5PsauTJmbsxm7Ab2j9UTP5K5mTYm8qcd7BANK"}}]}
