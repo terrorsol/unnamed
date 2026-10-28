@@ -1,4 +1,7 @@
-# Morning note (overnight 2026-10-28, part 2 — our launchpad)
+# Morning note (overnight 2026-10-28, part 2 — our launchpad) · updated 06:50
+
+Since your 06:08 message: launchlab pools are on the per-swap websocket (mainnet: a swap decoded in 6.6s of listening), permanent 1% transfer tax via token-2022 is built and the create simulates on mainnet (`PERM_TAX_BPS`, toggle in the modal, on by default), a flagged vamp's tax goes 100% to the original's chest, the vault posts a no-fee spot sell offer so switching into the original never touches the curve, the desk is open from block zero on our coins, our coins show name/image/price the second they launch, nav is vault · desk · portfolio, and the filler copy is gone. Preflight 33/33.
+
 
 Decision from 4am: **UNNAMED is a launchpad on Raydium LaunchLab, pump stays as a non-default option + import.** Built, tested and simulated on mainnet overnight:
 
