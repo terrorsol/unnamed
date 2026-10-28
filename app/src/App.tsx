@@ -73,15 +73,17 @@ export default function App() {
 
   useEffect(() => { if (!q.trim()) { setResults([]); return } const t = setTimeout(() => D.search(q).then(setResults).catch(() => {}), 350); return () => clearTimeout(t) }, [q])
 
+  // a wallet prompt the user closes (or phantom's "request blocked" screen) can leave the promise pending forever and wedge every button behind one busy flag: time it out
+  const prompt = <T,>(p: Promise<T>, what: string) => Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(what + ' not confirmed in the wallet (90s) — press the button again')), 90000))])
   const ctx = useCallback((): T.Ctx | null => {
     if (mode === 'burner') { if (!burner) return null; return { conn: connection, owner: burner.publicKey, sign: B.signWith(burner), settings, onStatus: setBusy } }
     if (!wallet.publicKey || !wallet.signTransaction) return null
-    return { conn: connection, owner: wallet.publicKey, sign: wallet.signTransaction as any, settings, onStatus: setBusy }
+    const st = wallet.signTransaction; return { conn: connection, owner: wallet.publicKey, sign: ((t: any) => prompt(st(t), 'transaction')) as any, settings, onStatus: setBusy }
   }, [mode, burner, wallet.publicKey, wallet.signTransaction, connection, settings])
   const needWallet = () => { setWp(true) }
   // --- signing helpers for legacy txs / messages (desk + vault) ---
-  const signLegacy = useCallback(async (t: Transaction) => { if (mode === 'burner') { if (!burner) throw new Error('wallet locked'); t.partialSign(burner); return t } if (!wallet.signTransaction) throw new Error('wallet cannot sign'); return wallet.signTransaction(t) }, [mode, burner, wallet.signTransaction])
-  const signMsg = useCallback(async (m: Uint8Array) => { if (mode === 'burner') { if (!burner) throw new Error('wallet locked'); return K.signMsgWith(burner)(m) } if (!wallet.signMessage) throw new Error('wallet cannot sign messages'); return wallet.signMessage(m) }, [mode, burner, wallet.signMessage])
+  const signLegacy = useCallback(async (t: Transaction) => { if (mode === 'burner') { if (!burner) throw new Error('wallet locked'); t.partialSign(burner); return t } if (!wallet.signTransaction) throw new Error('wallet cannot sign'); return prompt(wallet.signTransaction(t), 'transaction') }, [mode, burner, wallet.signTransaction])
+  const signMsg = useCallback(async (m: Uint8Array) => { if (mode === 'burner') { if (!burner) throw new Error('wallet locked'); return K.signMsgWith(burner)(m) } if (!wallet.signMessage) throw new Error('wallet cannot sign messages'); return prompt(wallet.signMessage(m), 'signature') }, [mode, burner, wallet.signMessage])
   const [bidder, setBidder] = useState<K.BidderSession | null>(null); const [deskTick, setDeskTick] = useState(0)
   const [pings, setPings] = useState<K.Rfq[]>([]); const [swaps, setSwaps] = useState<any[]>([])
   const allTrades = useMemo(() => [...swaps, ...fresh.trades].sort((a, b) => b.ts - a.ts).slice(0, 200), [swaps, fresh.trades])

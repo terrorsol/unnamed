@@ -239,6 +239,8 @@ export async function deposit(id: string, from: string, sig: string) {
   save(); return pub(v)
 }
 export function renounce(id: string, dev: string) { const v = vaults[id]; if (!v || v.dev !== dev) throw new Error('not yours'); v.cut = 0; v.renounced = true; v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'dev renounced cut' }); save(); return pub(v) }
+/** admin: drop a vault that never armed (its stake was returned by hand from the shared wallet); refuses armed vaults */
+export function retire(id: string) { const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('armed vaults cannot be retired'); const out = { id, chest: v.chest, mint: v.mint }; delete vaults[id]; save(); EV.log('vault', `retired unarmed vault ${id} (ledger ${out.chest} SOL)`, out); return out }
 export const get = (id: string) => vaults[id] ? pub(vaults[id]) : null
 export const byMint = (mint: string) => { const v = Object.values(vaults).find((x) => x.mint === mint); return v ? pub(v) : null }
 export const list = () => Object.values(vaults).filter((v) => v.armed).map(pub)
