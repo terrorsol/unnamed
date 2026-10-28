@@ -12,12 +12,12 @@ import { flipFee, FLIP_WINDOW_MIN } from '../lib/protocol'
 
 function pnlCard(symbol: string, pnlSol: number, pct: number, held: string, solPrice: number) {
   const c = document.createElement('canvas'); c.width = 1200; c.height = 630; const x = c.getContext('2d')!
-  x.fillStyle = '#0d0d0c'; x.fillRect(0, 0, 1200, 630); x.fillStyle = 'rgba(246,245,240,.07)'; x.fillRect(0, 0, 1200, 4)
-  x.fillStyle = '#f3f2ec'; x.font = '700 34px Geist, sans-serif'; x.fillText('UNNAMED', 72, 90); x.fillStyle = 'rgba(243,242,236,.44)'; x.font = '500 26px Geist, sans-serif'; x.fillText('vaulted memecoin terminal', 240, 90)
-  x.fillStyle = 'rgba(243,242,236,.66)'; x.font = '600 44px Geist, sans-serif'; x.fillText(symbol, 72, 220)
-  x.fillStyle = pnlSol >= 0 ? '#3ecf8e' : '#f0556b'; x.font = '700 150px Geist, sans-serif'; x.fillText((pct >= 0 ? '+' : '') + pct.toFixed(0) + '%', 72, 380)
-  x.fillStyle = '#f3f2ec'; x.font = '600 48px Geist, sans-serif'; x.fillText((pnlSol >= 0 ? '+' : '') + pnlSol.toFixed(2) + ' SOL  ·  $' + (Math.abs(pnlSol * solPrice)).toFixed(0), 72, 470)
-  x.fillStyle = 'rgba(243,242,236,.44)'; x.font = '500 28px Geist, sans-serif'; x.fillText(held + ' · held ' + new Date().toLocaleDateString(), 72, 560)
+  x.fillStyle = '#000000'; x.fillRect(0, 0, 1200, 630); x.fillStyle = 'rgba(255,255,255,.07)'; x.fillRect(0, 0, 1200, 4)
+  x.fillStyle = '#ffffff'; x.font = '700 34px Geist, sans-serif'; x.fillText('BANKER', 72, 90); x.fillStyle = 'rgba(255,255,255,.44)'; x.font = '500 26px Geist, sans-serif'; x.fillText('banker.cash · @bankerdotcash', 240, 90)
+  x.fillStyle = 'rgba(255,255,255,.66)'; x.font = '600 44px Geist, sans-serif'; x.fillText(symbol, 72, 220)
+  x.fillStyle = pnlSol >= 0 ? '#1aff5f' : '#ff4d5e'; x.font = '700 150px Geist, sans-serif'; x.fillText((pct >= 0 ? '+' : '') + pct.toFixed(0) + '%', 72, 380)
+  x.fillStyle = '#ffffff'; x.font = '600 48px Geist, sans-serif'; x.fillText((pnlSol >= 0 ? '+' : '') + pnlSol.toFixed(2) + ' SOL  ·  $' + (Math.abs(pnlSol * solPrice)).toFixed(0), 72, 470)
+  x.fillStyle = 'rgba(255,255,255,.44)'; x.font = '500 28px Geist, sans-serif'; x.fillText(held + ' · held ' + new Date().toLocaleDateString(), 72, 560)
   return c.toDataURL('image/png')
 }
 export function Portfolio({ sol, tokens, coins, lots, fills, solPrice, go, owner }: { sol: number | null; tokens: Holding[]; coins: Record<string, Coin>; lots: Record<string, Lot>; fills: Fill[]; solPrice: number; go: (p: string) => void; owner: string }) {

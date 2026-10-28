@@ -19,11 +19,11 @@ export default function Simulate() {
   useEffect(run, [])
   useEffect(() => {
     const c = cv.current; if (!c || !res) return; const ctx = c.getContext('2d')!; const W = c.width = c.clientWidth * 2, H = c.height = 220 * 2
-    ctx.fillStyle = '#0d0d0c'; ctx.fillRect(0, 0, W, H)
-    const paths = [[res.one.none.path, 'rgba(243,242,236,.35)'], [res.one.mm.path, '#3ecf8e']] as const
+    ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, W, H)
+    const paths = [[res.one.none.path, 'rgba(255,255,255,.35)'], [res.one.mm.path, '#1aff5f']] as const
     const all = paths.flatMap(([p]) => p); const mx = Math.max(...all), mn = Math.min(...all)
     for (const [p, col] of paths) { ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.beginPath(); p.forEach((v, i) => { const x = (i / (p.length - 1)) * W, y = H - ((Math.log(v) - Math.log(mn)) / (Math.log(mx) - Math.log(mn))) * (H - 20) - 10; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y) }); ctx.stroke() }
-    ctx.fillStyle = 'rgba(243,242,236,.5)'; ctx.font = '22px Geist'; ctx.fillText('no vault', 16, 34); ctx.fillStyle = '#3ecf8e'; ctx.fillText('market maker', 16, 64)
+    ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.font = '22px Geist'; ctx.fillText('no vault', 16, 34); ctx.fillStyle = '#1aff5f'; ctx.fillText('market maker', 16, 64)
   }, [res])
   const d = (a: number, b: number, pct = true) => { const v = pct ? (a / b - 1) * 100 : a - b; return <span className={v >= 0 ? 'up' : 'dn'}>{v >= 0 ? '+' : ''}{pct ? v.toFixed(0) + '%' : v.toFixed(2)}</span> }
   return <div style={{ maxWidth: 980 }}>

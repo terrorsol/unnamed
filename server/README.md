@@ -1,4 +1,4 @@
-# UNNAMED server — desk matcher + vault bot
+# BANKER server — desk matcher + vault bot
 
 Node 22, no build step. `npm start`.
 

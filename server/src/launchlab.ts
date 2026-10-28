@@ -72,7 +72,7 @@ export async function buildPlatformTx(admin: PublicKey): Promise<{ tx: string; p
     platformAdmin: admin, platformClaimFeeWallet: pk, platformLockNftWallet: pk, platformVestingWallet: pk, cpConfigId: refCfg.cpConfigId,
     migrateCpLockNftScale: { platformScale: new BN(1_000_000), creatorScale: new BN(0), burnScale: new BN(0) },
     transferFeeExtensionAuth: pk, creatorFeeRate: new BN(CREATOR_FEE_BPS * 100), feeRate: new BN(TAX_BPS * 100),
-    name: 'UNNAMED', web: process.env.PUBLIC_URL || 'https://terrorsol.github.io/unnamed/app/', img: '', txVersion: TxVersion.V0,
+    name: 'BANKER', web: process.env.PUBLIC_URL || 'https://banker.cash', img: 'https://terrorsol.github.io/unnamed/app/banker.png', txVersion: TxVersion.V0,
     computeBudgetConfig: { units: 200_000, microLamports: 50_000 },
   }))
   const tx = r.transaction as VersionedTransaction

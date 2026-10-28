@@ -1,4 +1,6 @@
-# UNNAMED · private beta
+# BANKER · private beta
+
+banker.cash · @bankerdotcash · the bank that never closes
 
 Real mainnet, small amounts. Three things: a launchpad where every trade feeds the coin's own market maker, an off-chart desk on any coin, and a vamp detector. App: https://terrorsol.github.io/unnamed/app/
 
@@ -8,7 +10,7 @@ Real mainnet, small amounts. Three things: a launchpad where every trade feeds t
 3. Home shows what's live: desks open, vaults running, the off-chart tape, runners and vamps.
 
 ## Things to try (in this order)
-- **Launch a coin** (≈1.6 SOL): Launch → name, ticker, image → leave *UNNAMED launchpad* selected → Create. Two signatures (vault funding, then the create). Your coin gets a vault that buys in the launch block; every buy and sell of it pays **2% into its chest** and 0.5% to you. Watch the Vault tab: `tax → chest` shows up within ~4 min of the first trades, then bids under price and dip buys.
+- **Launch a coin** (≈1.6 SOL): Launch → name, ticker, image → leave *BANKER launchpad* selected → Create. Two signatures (vault funding, then the create). Your coin gets a vault that buys in the launch block; every buy and sell of it pays **2% into its chest** and 0.5% to you. Watch the Vault tab: `tax → chest` shows up within ~4 min of the first trades, then bids under price and dip buys.
 - **Buy and sell your coin** from a second wallet. Trades route through the pool directly; the price on the coin page comes from the pool, not an indexer.
 - **Rest a bid**: Desk → pick a coin → bid 1–15% under → Place. Anyone holding that coin can sell into it, off-chart, no candle. Your SOL stays in your wallet until it fills.
 - **Post a sell offer**: on a coin you hold → Desk / OTC → *post a sell offer* up to 15% either side. Active bidders get pinged.

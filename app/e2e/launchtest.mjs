@@ -68,7 +68,7 @@ await pg.keyboard.press('Escape'); await pg.locator('.modal').click({ position: 
 
 // ---- launch ----
 await pg.locator('.top .btn', { hasText: 'Launch' }).click(); await pg.waitForTimeout(500)
-chk('launch modal: UNNAMED launchpad is the default', (await pg.locator('.venue button.on').innerText()).includes('UNNAMED'))
+chk('launch modal: UNNAMED launchpad is the default', (await pg.locator('.venue button.on').innerText()).includes('BANKER'))
 const tagTxt = await pg.locator('.modal .tag').allInnerTexts(); chk('launch modal: tax shown from the server ' + JSON.stringify(tagTxt), tagTxt.some((t) => /2.0% tax/i.test(t)))
 chk('launch modal: pump is the other option, not recommended', (await pg.locator('.venue button').nth(1).innerText()).includes('no tax'))
 await pg.locator('.modal input:not([type=checkbox])').nth(0).fill('Ours'); await pg.locator('.modal input:not([type=checkbox])').nth(1).fill('OURS')
@@ -87,7 +87,7 @@ const bundle = calls['/bundle']?.[0]?.txs || []
 chk('bundle = [create signed by dev, keeper-signed vault buy]', bundle.length === 2 && VersionedTransaction.deserialize(Buffer.from(bundle[0], 'base64')).signatures[0].some((x) => x) && VersionedTransaction.deserialize(Buffer.from(bundle[0], 'base64')).message.staticAccountKeys[0].toBase58() === addr && VersionedTransaction.deserialize(Buffer.from(bundle[1], 'base64')).message.staticAccountKeys[0].toBase58() === vaultKp.publicKey.toBase58())
 chk('vault armed after launch', calls['/vault/arm']?.[0]?.id === 'v1' && calls['/vault/arm'][0].mint === MINT)
 const toasts = [...seenToasts]; console.log('TOASTS', toasts.map((t) => t.replace(/\n/g, ' / ').slice(0, 90)).join(' || '))
-chk('success toast says live on UNNAMED · vault in block zero', toasts.some((t) => t.includes('live on UNNAMED') && t.includes('vault in block zero')))
+chk('success toast says live on UNNAMED · vault in block zero', toasts.some((t) => t.includes('live on BANKER') && t.includes('vault in block zero')))
 chk('navigated to the coin page', pg.url().includes('#/coin/' + MINT))
 await pg.waitForTimeout(2500); console.log('COINPAGE', (await pg.locator('.main').innerText().catch(() => '')).replace(/\n/g, ' / ').slice(0, 400))
 chk('coin page reads the pool as the exact source (price from /ll/pool, not the indexer)', (await pg.locator('.tile', { hasText: 'Price' }).innerText({ timeout: 3000 }).catch(() => '')).includes('$0.00000600'))

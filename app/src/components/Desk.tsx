@@ -316,7 +316,7 @@ export function ImportPage({ owner, connected, busy, onPay, onCrowd, onContribut
       </div>
       <div className="kv"><span>Import fee</span><b className="num">{q.feeSol} SOL</b></div>
       <div className="kv"><span>→ seeds the chest</span><b className="num up">{q.seedSol} SOL</b></div>
-      <div className="kv"><span>→ UNNAMED treasury</span><b className="num">{q.treasurySol} SOL</b></div>
+      <div className="kv"><span>→ BANKER treasury</span><b className="num">{q.treasurySol} SOL</b></div>
       <div className="seg" style={{ marginTop: 4 }}><button className={who === 'dev' ? 'on' : ''} onClick={() => setWho('dev')}>I pay it</button><button className={who === 'crowd' ? 'on' : ''} onClick={() => setWho('crowd')}>Community takeover</button></div>
       {who === 'dev' ? <>
         <div className="kv"><span>Owner (gets the cut, can renounce)</span><b className="num">{owner ? short(owner, 6) : '—'}</b></div>

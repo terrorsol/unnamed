@@ -18,7 +18,7 @@ export default function Launch(p: Props) {
   return <div className="modal" onClick={p.onClose}><div className="box" onClick={(e) => e.stopPropagation()}>
     <div className="row"><h2>Launch a coin</h2><span className="sp" /><span className="tag live">{venue === 'launchlab' ? `${((p.taxBps ?? 200) / 100).toFixed(1)}% tax → chest` : 'pump.fun'}</span></div>
     <div className="venue">
-      <button className={venue === 'launchlab' ? 'on' : ''} disabled={p.platformReady === false} onClick={() => setVenue('launchlab')}><b>UNNAMED launchpad{p.platformReady === false ? ' · not set up yet' : ''}</b><span>every buy and sell pays {((p.taxBps ?? 200) / 100).toFixed(1)}% into the coin's chest · vault in block zero · copies can't touch your pool</span></button>
+      <button className={venue === 'launchlab' ? 'on' : ''} disabled={p.platformReady === false} onClick={() => setVenue('launchlab')}><b>BANKER launchpad{p.platformReady === false ? ' · not set up yet' : ''}</b><span>every buy and sell pays {((p.taxBps ?? 200) / 100).toFixed(1)}% into the coin's chest · vault in block zero · copies can't touch your pool</span></button>
       <button className={venue === 'pump' ? 'on' : ''} onClick={() => setVenue('pump')}><b>pump.fun</b><span>bigger crowd, no tax, no vamp defense — the vault still works</span></button>
     </div>
     {venue === 'launchlab' && (p.permTaxBps ?? 100) > 0 && <label className="row" style={{ gap: 8, fontSize: 12, marginBottom: 8 }}><input type="checkbox" checked={permTax} onChange={(e) => setPermTax(e.target.checked)} /> permanent {((p.permTaxBps ?? 100) / 100).toFixed(1)}% tax on every transfer, forever, every venue (token-2022)</label>}

@@ -1,4 +1,4 @@
-# UNNAMED — beta (real money, mainnet)
+# BANKER — beta (real money, mainnet)
 
 Non-custodial Solana memecoin terminal + launchpad. Every button is a real transaction signed by the user's wallet.
 
@@ -41,7 +41,7 @@ src/lib/pumpportal.ts stream + trade/create tx builders
 src/lib/jupiter.ts    quote/swap
 src/lib/trade.ts      buy/sell/launch routing
 src/lib/rpc.ts        balances, send+confirm
-src/lib/protocol.ts   UNNAMED rules (tested)
+src/lib/protocol.ts   BANKER rules (tested)
 src/lib/positions.ts  local cost-basis ledger
 src/components/       Board, CoinPage, Launch, Pages (Portfolio/Settings/About), ui
 ```

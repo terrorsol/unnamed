@@ -1,4 +1,4 @@
-// UNNAMED protocol rules — the reference implementation the on-chain programs mirror.
+// BANKER protocol rules — the reference implementation the on-chain programs mirror.
 // Used today as a *preview* layer over real market data (not enforced on-chain yet).
 export const FLIP_WINDOW_MIN = 30
 export const FLIP_MAX_RATE = 0.08

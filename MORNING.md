@@ -3,10 +3,10 @@
 Since your 06:08 message: launchlab pools are on the per-swap websocket (mainnet: a swap decoded in 6.6s of listening), permanent 1% transfer tax via token-2022 is built and the create simulates on mainnet (`PERM_TAX_BPS`, toggle in the modal, on by default), a flagged vamp's tax goes 100% to the original's chest, the vault posts a no-fee spot sell offer so switching into the original never touches the curve, the desk is open from block zero on our coins, our coins show name/image/price the second they launch, nav is vault · desk · portfolio, and the filler copy is gone. Preflight 33/33.
 
 
-Decision from 4am: **UNNAMED is a launchpad on Raydium LaunchLab, pump stays as a non-default option + import.** Built, tested and simulated on mainnet overnight:
+Decision from 4am: **BANKER is a launchpad on Raydium LaunchLab, pump stays as a non-default option + import.** Built, tested and simulated on mainnet overnight:
 
 1. **Our launchpad.** Every coin launched here sits on a curve bound to OUR platform config. Every buy and sell pays a **2% tax** (`TAX_BPS`, max 5%) into a per-pool vault the server claims into that coin's chest every 2–4 min, plus **0.5% to the dev** on-chain (`CREATOR_FEE_BPS`). After graduation the LP lands in a fee-key NFT held by the platform wallet (LP fees forever; harvesting those into chests is the one piece left — first graduations are days away).
-2. **Launch flow.** Launch modal → "UNNAMED launchpad" is the default, pump is the other option marked no tax / no vamp defense. Server builds the create(+dev buy) with the official Raydium SDK, the wallet signs, the vault's block-zero buy is keeper-signed, both go out as one Jito bundle. Vault seeds on arm if the bundle doesn't land. Mainnet preflight: platform-config create simulates OK, launch create simulates OK (191K CU), SDK buy on a live LaunchLab pool simulates OK, fee claim shape OK, pool decode matches.
+2. **Launch flow.** Launch modal → "BANKER launchpad" is the default, pump is the other option marked no tax / no vamp defense. Server builds the create(+dev buy) with the official Raydium SDK, the wallet signs, the vault's block-zero buy is keeper-signed, both go out as one Jito bundle. Vault seeds on arm if the bundle doesn't land. Mainnet preflight: platform-config create simulates OK, launch create simulates OK (191K CU), SDK buy on a live LaunchLab pool simulates OK, fee claim shape OK, pool decode matches.
 3. **Trading on our coins** goes through SDK-built txs (no PumpPortal, no 0.5%), exact price straight from the pool, coin page works before any indexer has the coin.
 4. **Vamps feeding runners.** Declared copies always streamed half the dev cut; now (a) the MM capture path streams too (was a bug), and (b) a vaulted coin the detector flags as a copy (score ≥0.8, original vaulted) becomes a copy automatically. On our launchpad a copy can't touch the original's pool at all.
 5. **Keeper** caps survive restarts. Tax claims are paid for by the coin's own vault (keeper co-signs), so the platform wallet never needs funding.
@@ -36,7 +36,7 @@ App → Settings → Server → paste the Render URL → Test → Save. (Until t
 App → Settings → Launchpad → *Set up launchpad*. Sign. `/ll/platform` on the server shows `chain.exists: true`.
 
 ## 2c. First launch on our launchpad (5 min, ≈1.6 SOL)
-Launch → name/ticker/image → leave UNNAMED launchpad selected → dev buy 0.5, stake 1 → Create. You sign twice (vault funding, then the create). Toast says *live on UNNAMED · vault in block zero*. Coin page shows the pool price. Buy 0.1 from a second wallet → within ~4 min the vault's activity shows `tax → chest`.
+Launch → name/ticker/image → leave BANKER launchpad selected → dev buy 0.5, stake 1 → Create. You sign twice (vault funding, then the create). Toast says *live on BANKER · vault in block zero*. Coin page shows the pool price. Buy 0.1 from a second wallet → within ~4 min the vault's activity shows `tax → chest`.
 
 ## 3. First vault on a pump coin, real money (10 min)
 1. Vault → Import → paste a pump coin you hold a little of (graduated, ≥ $100K mcap is easiest) → *I pay it* → sign the 1 SOL tx. The coin shows **VAULTED**; the Vault tab shows chest, floor, last move.

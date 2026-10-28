@@ -121,4 +121,4 @@ export const DESK_ONLY = process.env.DESK_ONLY === '1'
 if (!DESK_ONLY) { V.load(); V.startStream(); setInterval(() => V.tick().catch(() => {}), 5000); setInterval(() => V.crowdSweep().catch(() => {}), 60000) }
 else console.log('desk-only mode: vault/import routes disabled')
 if (process.env.VAMPS !== '0') VM.start()
-server.listen(PORT, () => console.log(`unnamed server on :${PORT} · treasury ${TREASURY}`))
+server.listen(PORT, () => console.log(`banker server on :${PORT} · treasury ${TREASURY}`))
