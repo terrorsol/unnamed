@@ -39,6 +39,8 @@ export function candles(mint: string, tf = 60, limit = 300) {
 /** last 10 minutes of swaps on a mint, in memory (seller-concentration check) */
 export const recent = (mint: string) => recentTape.get(mint) || []
 export function tape(mint: string, e: { t: number; side: 'buy' | 'sell'; sol: number; trader?: string; sig?: string }) {
+  // the 2% platform fee lands in ONE launchlab vault for all our coins; per-coin credit comes from the volume we observe here
+  { const v = Object.values(vaults).find((x) => x.mint === mint && x.armed && x.venue === 'launchlab'); if (v && e.sol > 0) v.taxAccrued = +((v.taxAccrued || 0) + e.sol * LL.TAX_BPS / 1e4).toFixed(9) }
   const r = recentTape.get(mint) || []; r.push({ t: e.t, side: e.side, sol: e.sol, trader: e.trader }); recentTape.set(mint, r.filter((x) => e.t - x.t < 600_000))
   const vl = volLog.get(mint) || []; vl.push({ t: e.t, sol: e.sol, side: e.side }); if (vl.length > 50000) vl.splice(0, 10000); volLog.set(mint, vl)
   try { const d = DIR + '/tape'; if (!existsSync(d)) mkdirSync(d, { recursive: true }); const f = `${d}/${mint}.jsonl`; if (existsSync(f) && statSync(f).size > 20e6) return; appendFileSync(f, JSON.stringify(e) + '\n') } catch {}
@@ -49,7 +51,7 @@ const enc = (u: Uint8Array) => { const iv = randomBytes(12); const c = createCip
 const dec = (s: string) => { const b = Buffer.from(s, 'base64'); const d = createDecipheriv('aes-256-gcm', key, b.subarray(0, 12)); d.setAuthTag(b.subarray(12, 28)); return new Uint8Array(Buffer.concat([d.update(b.subarray(28)), d.final()])) }
 
 export type Act = { t: number; kind: 'stake' | 'seed' | 'buy' | 'trim' | 'cut' | 'note' | 'redeem' | 'stream' | 'bid' | 'capture'; sol?: number; tokens?: number; price?: number; sig?: string; msg?: string }
-export type Vault = { nextAutoArmAt?: number; shared?: boolean; ledgerDirty?: boolean; mmSpent?: number; mmGot?: number; mmTok?: number; stoppedAt?: number; stopNoted?: boolean; epHigh?: number; epStart?: number; cooldownUntil?: number; dayKey?: number; dayDefense?: number; dayChest0?: number; deskPauseUntil?: number; lastDeskFill?: { t: number; p: number } | null; vaultBuySol?: number; lastPushed?: number; vampFlag?: boolean; askRefreshAt?: number; uri?: string; image?: string; permTax?: number; nextPermAt?: number; venue?: 'pump' | 'launchlab'; taxClaimed?: number; nextClaimAt?: number; nextHarvestAt?: number; vampChecked?: number; holders?: any; ddPrev?: number; nextCaptureAt?: number; levelJit?: number; bidRefreshAt?: number; nextTickAt?: number; paper?: boolean; crowd?: { goalSol: number; raised: number; contributors: Record<string, number>; expiresAt: number; refunded?: boolean }; id: string; pub: string; sk: string; mint?: string; symbol?: string; name?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; createdAt: number; copyOf?: string; streamed: number; redeemed: number; supply: number; deskBid: number; imported?: boolean; feePaid?: number; trimmedToday: number; trimDay: number; depositedTokens: number; funders: Record<string, number>; mode: 'floor' | 'mm'; ceiling: number; lastLiq: number; lastLiqT: number; buyTimes: number[]; tranchesFired: number[]; score: { captured: number; captures: number; deskBought: number; deskFills: number; dipBought: number; dips: number; redeployed: number; floor0: number }; lastCapture: number
+export type Vault = { taxAccrued?: number; nextAutoArmAt?: number; shared?: boolean; ledgerDirty?: boolean; mmSpent?: number; mmGot?: number; mmTok?: number; stoppedAt?: number; stopNoted?: boolean; epHigh?: number; epStart?: number; cooldownUntil?: number; dayKey?: number; dayDefense?: number; dayChest0?: number; deskPauseUntil?: number; lastDeskFill?: { t: number; p: number } | null; vaultBuySol?: number; lastPushed?: number; vampFlag?: boolean; askRefreshAt?: number; uri?: string; image?: string; permTax?: number; nextPermAt?: number; venue?: 'pump' | 'launchlab'; taxClaimed?: number; nextClaimAt?: number; nextHarvestAt?: number; vampChecked?: number; holders?: any; ddPrev?: number; nextCaptureAt?: number; levelJit?: number; bidRefreshAt?: number; nextTickAt?: number; paper?: boolean; crowd?: { goalSol: number; raised: number; contributors: Record<string, number>; expiresAt: number; refunded?: boolean }; id: string; pub: string; sk: string; mint?: string; symbol?: string; name?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; createdAt: number; copyOf?: string; streamed: number; redeemed: number; supply: number; deskBid: number; imported?: boolean; feePaid?: number; trimmedToday: number; trimDay: number; depositedTokens: number; funders: Record<string, number>; mode: 'floor' | 'mm'; ceiling: number; lastLiq: number; lastLiqT: number; buyTimes: number[]; tranchesFired: number[]; score: { captured: number; captures: number; deskBought: number; deskFills: number; dipBought: number; dips: number; redeployed: number; floor0: number }; lastCapture: number
   avgCost: number; tokens: number; chest: number; spentEpisode: number; high15: { t: number; p: number }[]; samples: { t: number; p: number; v: number }[]; ema5: number | null; ema15: number | null; lastBuy: number; lastTrim: number; activity: Act[]; devPaid: number }
 let vaults: Record<string, Vault> = {}
 const watched = new Map<string, () => void>()
@@ -260,11 +262,14 @@ export async function deposit(id: string, from: string, sig: string) {
 export function renounce(id: string, dev: string) { const v = vaults[id]; if (!v || v.dev !== dev) throw new Error('not yours'); v.cut = 0; v.renounced = true; v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'dev renounced cut' }); save(); return pub(v) }
 /** A launch that never armed (bundle dropped, arm never signed, coin abandoned): the dev takes the stake back. Signed by the dev; only before arm; pays to the wallet that funded it. */
 export async function refund(id: string, auth?: { msg?: string; sig?: string }) {
-  const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('an armed vault never pays out its chest — that is the point of it')
+  const v = vaults[id]; if (!v) throw new Error('no such vault')
+  // an armed vault never pays out its chest — unless it never did anything: no tokens, no fills, no tax. Then the dev can still take the stake back and the vault is dropped.
+  const untouched = v.tokens <= 0 && !(v.score && (v.score.captures || v.score.dips || v.score.deskFills)) && !(v.taxClaimed || 0) && !v.activity.some((a) => a.kind === 'buy' || a.kind === 'capture' || a.kind === 'redeem')
+  if (v.armed && !untouched) throw new Error('an armed vault that has traded never pays out its chest — that is the point of it')
   devAuth(v, 'refund', v.mint || 'none', auth)
   const sol = +Math.max(0, (v.shared ? v.chest : await balanceSol(v.pub)) - 0.001).toFixed(6); if (sol < 0.001) throw new Error('nothing to refund')
   const sig = await payFrom(v, v.dev, Math.floor(sol * 1e9), 'refund')
-  v.activity.unshift({ t: Date.now(), kind: 'note', sol, sig, msg: `stake refunded to ${v.dev.slice(0, 4)}… (vault never armed)` }); if (v.shared) v.chest = 0
+  v.activity.unshift({ t: Date.now(), kind: 'note', sol, sig, msg: `stake refunded to ${v.dev.slice(0, 4)}… (vault never traded)` }); if (v.shared) v.chest = 0; if (v.armed) { v.armed = false; if (v.deskBid) { try { D.cancelInternal(v.pub, v.mint!) } catch {} v.deskBid = 0 } }
   EV.log('vault', `${v.symbol || id} refunded ${sol} SOL to the dev (never armed)`, { id, sig }); save(); return { sig, sol }
 }
 /** admin: drop a vault that never armed (its stake was returned by hand from the shared wallet); refuses armed vaults */
@@ -512,7 +517,7 @@ export async function buildLaunch(b: { dev: string; name: string; symbol: string
     const v = vaults[b.vaultId]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('already armed')
     v.venue = 'launchlab'
     const bal = v.shared ? v.chest : await balanceSol(v.pub); if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL${v.shared ? ' — call /vault/fund with the stake tx first' : ''}`)
-    vaultSpend = +Math.min(+(b.vaultBuySol || v.vaultBuySol || v.stakeSol * 0.5), bal - 0.05).toFixed(4)
+    vaultSpend = +Math.min(+(b.vaultBuySol ?? v.vaultBuySol ?? v.stakeSol * 0.5), bal - 0.05).toFixed(4)   // 0 = tax-funded: no block-zero buy at all
     if (vaultSpend >= 0.05) {
       const tx = await LL.buildTrade(kp(v).publicKey, 'buy', built.mint, vaultSpend, { poolState: built.afterDev, fromCreate: true, slippageBps: 3000, tipLamports: Math.floor(+(process.env.TIP_SOL || 0.001) * 1e9), permTaxBps: built.permTax })
       KEEP.sign({ id: v.id, chest: bal, sk: kp(v) }, tx, 'launch', vaultSpend)
@@ -523,25 +528,34 @@ export async function buildLaunch(b: { dev: string; name: string; symbol: string
   return { venue: 'launchlab', mint: built.mint, poolId: built.poolId, txs: built.txs, vaultTx, vaultSpend, vaultTokens, devTokens: built.devTokens, permTax: built.permTax, tax: LL.status() }
 }
 /** the tax: claim this coin's accrued platform fee from its pool to the platform wallet, then forward it to the chest. Runs from the tick, every ~2–4 min per vault. */
-export async function claimTax(v: Vault): Promise<number> {
-  if (PAPER || v.venue !== 'launchlab' || !v.mint || !LL.PLATFORM_ID) return 0
-  const pending = await LL.pendingFee(v.mint); if (pending < 0.005) return 0
-  const pk = LL.platformKeypair()
-  const tx = await LL.buildClaim(v.mint, LL.PLATFORM_ID, kp(v).publicKey); tx.sign([pk]); KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'payout', 0)
-  const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 }); await confirm(sig)
-  // the claim should unwrap to SOL; if it left WSOL behind, close that account into the wallet first
-  try { const { getAssociatedTokenAddressSync: ata, createCloseAccountInstruction: closeIx } = await import('@solana/spl-token'); const w = ata(new PK('So11111111111111111111111111111111111111112'), pk.publicKey); const bal = await conn.getTokenAccountBalance(w).catch(() => null); if (bal && +bal.value.amount > 0) { const u = new TX().add(closeIx(w, pk.publicKey, pk.publicKey)); u.feePayer = pk.publicKey; u.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash; u.sign(pk); await confirm(await conn.sendRawTransaction(u.serialize(), { maxRetries: 3 })) } } catch {}
-  const have = await balanceSol(pk.publicKey.toBase58()); const send = Math.min(pending, Math.max(0, have - 0.003)); if (send < 0.001) throw new Error('claimed fee not in the platform wallet yet')
-  // vamps feed the runner: a coin the detector flagged as a copy sends ALL of its tax to the original's chest; a declared copy sends half
-  const orig = v.copyOf ? Object.values(vaults).find((x) => x.mint === v.copyOf && x.armed) : null
-  const toOrig = orig ? (v.vampFlag ? send : send / 2) : 0; const toSelf = send - toOrig
-  const fwd = new TX(); if (toSelf > 0.0005) fwd.add(SP.transfer({ fromPubkey: pk.publicKey, toPubkey: new PK(v.pub), lamports: Math.floor(toSelf * 1e9) })); if (toOrig > 0.0005) fwd.add(SP.transfer({ fromPubkey: pk.publicKey, toPubkey: new PK(orig!.pub), lamports: Math.floor(toOrig * 1e9) }))
-  fwd.feePayer = pk.publicKey; fwd.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash; fwd.sign(pk)
-  const sig2 = await conn.sendRawTransaction(fwd.serialize(), { maxRetries: 3 }); await confirm(sig2)
-  v.taxClaimed = (v.taxClaimed || 0) + toSelf; if (v.shared) v.chest = +(v.chest + toSelf).toFixed(9); v.activity.unshift({ t: Date.now(), kind: 'tax', sol: toSelf, sig: sig2, msg: toOrig ? `tax → ${v.vampFlag ? 'all' : 'half'} to original ${orig!.symbol} (${toOrig.toFixed(4)} SOL), ${toSelf.toFixed(4)} SOL here` : `tax → chest · ${send.toFixed(4)} SOL` })
-  if (orig && toOrig) { orig.taxClaimed = (orig.taxClaimed || 0) + toOrig; if (orig.shared) orig.chest = +(orig.chest + toOrig).toFixed(9); orig.streamed = (orig.streamed || 0); orig.activity.unshift({ t: Date.now(), kind: 'tax', sol: toOrig, sig: sig2, msg: `tax from ${v.vampFlag ? 'vamp' : 'copy'} ${v.symbol} → chest · ${toOrig.toFixed(4)} SOL` }); orig.chest += toOrig }
-  await sync(v); save(); return pending
+let claiming = false; let nextClaimAt = 0
+/** Every few minutes: claim the platform fee vault (all pools at once) into the platform wallet and credit each coin's chest by its share of
+ *  observed taxed volume. Vamp routing on top: a flagged copy's share goes to the original, a declared copy's half. Runs from the tick loop. */
+export async function claimPlatformFees(force = false): Promise<number> {
+  if (PAPER || claiming || !LL.PLATFORM_ID) return 0; if (!force && Date.now() < nextClaimAt) return 0
+  claiming = true; nextClaimAt = Date.now() + 180_000 + Math.random() * 60_000
+  try {
+    const pending = await LL.platformVaultSol(); if (pending < 0.005) return 0
+    const pk = LL.platformKeypair(); const pkB58 = pk.publicKey.toBase58()
+    const tx = await LL.buildClaimVault(); const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 }); await confirm(sig)
+    const got = Math.max(0, await txDelta(sig, pkB58).catch(() => pending)); if (got < 0.0005) return 0
+    const ours = Object.values(vaults).filter((v) => v.armed && v.venue === 'launchlab' && !v.paper); const total = ours.reduce((a, v) => a + (v.taxAccrued || 0), 0)
+    const credits: { v: Vault; sol: number; why: string }[] = []
+    for (const v of ours) { const share = total > 0 ? got * (v.taxAccrued || 0) / total : 0; v.taxAccrued = 0; if (share < 0.0001) continue
+      const orig = v.copyOf ? ours.find((x) => x.mint === v.copyOf) : null; const toOrig = orig ? (v.vampFlag ? share : share / 2) : 0
+      if (share - toOrig > 0) credits.push({ v, sol: share - toOrig, why: toOrig ? `tax → chest (${v.vampFlag ? 'all' : 'half'} of it to original ${orig!.symbol})` : 'tax → chest' })
+      if (orig && toOrig > 0) credits.push({ v: orig, sol: toOrig, why: `tax from ${v.vampFlag ? 'flagged copy' : 'copy'} ${v.symbol}` }) }
+    // the platform wallet IS the shared vault wallet: crediting a shared chest is a ledger move. A per-key vault gets a real transfer.
+    const fwd = new TX(); let fwdAny = false
+    for (const c of credits) { if (c.v.shared && c.v.pub === pkB58) { c.v.chest = +(c.v.chest + c.sol).toFixed(9) } else { fwd.add(SP.transfer({ fromPubkey: pk.publicKey, toPubkey: new PK(c.v.pub), lamports: Math.floor(c.sol * 1e9) })); fwdAny = true } }
+    let sig2 = sig; if (fwdAny) { fwd.feePayer = pk.publicKey; fwd.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash; fwd.sign(pk); sig2 = await conn.sendRawTransaction(fwd.serialize(), { maxRetries: 3 }); await confirm(sig2); for (const c of credits) if (!(c.v.shared && c.v.pub === pkB58)) await book(c.v, sig2, c.sol) }
+    for (const c of credits) { c.v.taxClaimed = (c.v.taxClaimed || 0) + c.sol; c.v.activity.unshift({ t: Date.now(), kind: 'tax', sol: c.sol, sig: sig2, msg: c.why }) }
+    const credited = credits.reduce((a, c) => a + c.sol, 0); EV.log('vault', `platform fees claimed ${got.toFixed(4)} SOL → ${credits.length} chest(s) ${credited.toFixed(4)} SOL${got - credited > 0.0005 ? ` (${(got - credited).toFixed(4)} unattributed → treasury)` : ''}`, { sig })
+    save(); return got
+  } catch (e: any) { EV.log('error', 'platform fee claim: ' + String(e.message || e).slice(0, 140)); return 0 } finally { claiming = false }
 }
+/** kept for callers: per-coin claim is now the platform-wide one */
+export async function claimTax(_v: Vault): Promise<number> { return claimPlatformFees() }
 /** permanent tax: withheld transfer fees (tokens) → platform wallet → sold on the pool → SOL to the chest. Every ~20 min. */
 export async function harvestPermTax(v: Vault): Promise<number> {
   if (PAPER || !v.permTax || !v.mint) return 0

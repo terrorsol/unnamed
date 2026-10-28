@@ -165,6 +165,24 @@ export async function buildClaim(mint: string, platformId: PublicKey | null = PL
   const r: any = await withOwner(pk, (r) => r.launchpad.claimPlatformFee({ programId: PROGRAM, platformId, platformClaimFeeWallet: pk, poolId, mintB: WSOL, vaultB, feePayer, txVersion: TxVersion.V0, computeBudgetConfig: { units: 200_000, microLamports: 50_000 } }))
   return r.transaction as VersionedTransaction
 }
+/** LaunchLab (2025+) pays the platform fee at trade time into ONE vault per platform+quote mint (not into pool.platformFee):
+ *  claim_platform_fee_from_vault moves the whole vault to the platform's claim wallet. Per-coin attribution is ours (tax accrued from observed volume). */
+export const platformVault = () => getPdaPlatformVault(PROGRAM, PLATFORM_ID!, WSOL).publicKey
+/** SOL waiting in the platform fee vault (all pools) */
+export async function platformVaultSol(): Promise<number> { try { const b = await conn.getTokenAccountBalance(platformVault()); return +(b.value.uiAmount || 0) } catch { return 0 } }
+/** one tx: claim the platform vault → claim wallet's WSOL ATA → close ATA (unwrap to SOL). Signed by the platform key. */
+export async function buildClaimVault(): Promise<VersionedTransaction> {
+  const { claimPlatformFeeFromVault, getPdaPlatformFeeVaultAuth } = await import('@raydium-io/raydium-sdk-v2')
+  const { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, createCloseAccountInstruction, TOKEN_PROGRAM_ID } = await import('@solana/spl-token')
+  const { TransactionMessage, ComputeBudgetProgram } = await import('@solana/web3.js')
+  const pk = platformKeypair(); const ata = getAssociatedTokenAddressSync(WSOL, pk.publicKey)
+  const ixs = [ComputeBudgetProgram.setComputeUnitLimit({ units: 120_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
+    createAssociatedTokenAccountIdempotentInstruction(pk.publicKey, ata, pk.publicKey, WSOL),
+    claimPlatformFeeFromVault(PROGRAM, PLATFORM_ID!, pk.publicKey, getPdaPlatformFeeVaultAuth(PROGRAM).publicKey, platformVault(), ata, WSOL, TOKEN_PROGRAM_ID),
+    createCloseAccountInstruction(ata, pk.publicKey, pk.publicKey)]
+  const msg = new TransactionMessage({ payerKey: pk.publicKey, recentBlockhash: (await conn.getLatestBlockhash('confirmed')).blockhash, instructions: ixs }).compileToV0Message()
+  const tx = new VersionedTransaction(msg); tx.sign([pk]); return tx
+}
 /** unclaimed platform fee sitting in the pool (lamports) */
 export async function pendingFee(mint: string): Promise<number> { const p = await pool(mint, 0); return p ? Number(p.platformFee) / 1e9 : 0 }
 export const status = () => ({ venue: 'launchlab', permTaxBps: PERM_TAX_BPS, program: PROGRAM.toBase58(), platformId: PLATFORM_ID?.toBase58() || null, admin: PLATFORM_ADMIN?.toBase58() || null, selfAdmin: SELF_ADMIN, feeWallet: platformKeypair().publicKey.toBase58(), taxBps: TAX_BPS, creatorFeeBps: CREATOR_FEE_BPS, rpc: RPC.replace(/api-key=.*/, 'api-key=…') })
