@@ -62,14 +62,14 @@ export function inspectBuy(tx: VersionedTransaction, payer: string, mint: string
 /** Decode the dev side of a create(+buy) tx: the mint it creates and the dev buy, if any. */
 export function inspectCreate(tx: VersionedTransaction, mint: string, tokenDecimals = 6) {
   const msg = tx.message; const keys = msg.staticAccountKeys.map((k) => k.toBase58())
-  let created = false, buy: { tokens: number; maxSolCost: number } | null = null, tip = 0
+  let created = false, buy: { tokens: number; maxSolCost: number } | null = null, tip = 0; const seen: string[] = []
   for (const ix of msg.compiledInstructions) {
-    const prog = keys[ix.programIdIndex]; const data = Buffer.from(ix.data)
+    const prog = keys[ix.programIdIndex]; const data = Buffer.from(ix.data); seen.push(`${(prog || 'alt?').slice(0, 6)}:${data.subarray(0, 8).toString('hex')}:${ix.accountKeyIndexes.length}`)
     if (prog === PUMP_PROGRAM.toBase58()) {
       if (DISC_CREATE.equals(data.subarray(0, 8))) { if (keys[ix.accountKeyIndexes[0]] !== mint) throw new Error('create is for a different mint'); created = true }
       else if (DISC_BUY.equals(data.subarray(0, 8))) buy = { tokens: Number(data.readBigUInt64LE(8)) / 10 ** tokenDecimals, maxSolCost: Number(data.readBigUInt64LE(16)) / 1e9 }
     } else if (prog === SystemProgram.programId.toBase58() && data.readUInt32LE(0) === 2 && JITO_TIPS.includes(keys[ix.accountKeyIndexes[1]])) tip += Number(data.readBigUInt64LE(4)) / 1e9
   }
-  if (!created) throw new Error('no create instruction')
-  return { created, buy, tipSol: tip, signers: msg.header.numRequiredSignatures }
+  if (!created) throw new Error(`no create instruction · v${String(msg.version)} alts=${msg.addressTableLookups?.length || 0} ixs=${seen.join(' ')}`)
+  return { created, buy, tipSol: tip, signers: msg.header.numRequiredSignatures, seen }
 }

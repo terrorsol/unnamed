@@ -34,7 +34,7 @@ export function load() { if (existsSync(FILE)) vaults = JSON.parse(readFileSync(
 function save() { mkdirSync(DIR, { recursive: true }); writeFileSync(FILE, JSON.stringify(vaults)) }
 const kp = (v: Vault) => Keypair.fromSecretKey(dec(v.sk))
 const pub = (v: Vault) => ({ id: v.id, pub: v.pub, paper: !!v.paper, crowd: v.crowd ? { goalSol: v.crowd.goalSol, raised: +v.crowd.raised.toFixed(3), backers: Object.keys(v.crowd.contributors).length, expiresAt: v.crowd.expiresAt, refunded: !!v.crowd.refunded } : undefined, mint: v.mint, symbol: v.symbol, name: v.name, dev: v.dev, stakeSol: v.stakeSol, pct: v.pct, cut: v.cut, armed: v.armed, renounced: v.renounced, avgCost: v.avgCost, tokens: v.tokens, chest: v.chest, devPaid: v.devPaid, activity: v.activity.slice(0, 50), createdAt: v.createdAt, copyOf: v.copyOf, imported: !!v.imported, mode: v.mode || 'floor', ceiling: v.ceiling ?? R.MM_MAX_CAPTURE, score: v.score || { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: 0 }, floor: v.supply ? v.chest / v.supply : 0, live: liveReadout(v), holders: v.holders || null, feePaid: v.feePaid || 0, depositedTokens: v.depositedTokens || 0, funders: v.funders || {}, streamed: v.streamed || 0, redeemed: v.redeemed || 0, supply: v.supply || 1e9, deskBid: v.deskBid || 0, copies: Object.values(vaults).filter((c) => c.copyOf === v.mint && c.armed).map((c) => ({ mint: c.mint, symbol: c.symbol, pub: c.pub })) })
-export const vaultPct = (s: number) => Math.min(10, (s / (s + 1)) * 13.3)
+export const vaultPct = (s: number) => Math.min(10, L.blockZero(0, s * 0.5).vaultPct) // real curve: half the stake buys block-zero supply
 
 /** Step 1 (before launch): make a vault address the dev will fund */
 /** Beta cap: vault keys are hot on this server, so no single chest may hold more than this until the on-chain program lands. 0 = no cap. */
@@ -54,8 +54,13 @@ export async function arm(id: string, mint: string, symbol: string, name = '') {
   v.mint = mint; v.symbol = symbol; v.name = name; v.armed = true; v.chest = bal; try { const sup = await conn.getTokenSupply(new PublicKey(mint)); v.supply = +(sup.value.uiAmount || 1e9) } catch {} v.activity.unshift({ t: Date.now(), kind: 'stake', sol: bal, msg: 'dev stake received' })
   // seed: spend half the stake on supply at launch, keep half as chest for dips (skipped when the vault already bought in the block-zero bundle)
   const seed = +(bal * 0.5).toFixed(4)
-  if (v.activity.some((a) => (a.msg || '').startsWith('signed block-zero'))) { await sync(v); v.avgCost = v.tokens ? (v.stakeSol * 0.5) / v.tokens : 0; v.activity.unshift({ t: Date.now(), kind: 'seed', sol: v.stakeSol * 0.5, tokens: v.tokens, msg: 'block-zero vault supply (bundled)' }); save(); return pub(v) }
-  try { const sig = await pumpTrade(kp(v), 'buy', mint, seed, true, 15); await sync(v); v.avgCost = seed / Math.max(v.tokens, 1e-9); v.activity.unshift({ t: Date.now(), kind: 'seed', sol: seed, tokens: v.tokens, sig, msg: 'block-zero vault supply' }) }
+  if (v.activity.some((a) => (a.msg || '').startsWith('signed block-zero'))) {
+    await sync(v)
+    // the bundle can be signed and still not land (Jito drops it, tip too low). Tokens on the vault wallet are the only proof.
+    if (v.tokens > 0) { v.avgCost = (v.stakeSol * 0.5) / v.tokens; v.activity.unshift({ t: Date.now(), kind: 'seed', sol: v.stakeSol * 0.5, tokens: v.tokens, msg: 'block-zero vault supply (bundled)' }); save(); return pub(v) }
+    v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'bundle did not land — seeding now' })
+  }
+  try { const sig = await pumpTrade(kp(v), 'buy', mint, seed, true, 15, undefined, (tx) => KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'trade', seed)); await sync(v); v.avgCost = seed / Math.max(v.tokens, 1e-9); v.activity.unshift({ t: Date.now(), kind: 'seed', sol: seed, tokens: v.tokens, sig, msg: 'block-zero vault supply' }) }
   catch (e: any) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'seed failed: ' + e.message }) }
   save(); return pub(v)
 }
