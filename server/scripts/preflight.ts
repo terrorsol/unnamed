@@ -69,6 +69,19 @@ await step('dexscreener: curve + amm coin fields we use', async () => {
   return `curve dexId=${c?.dexId} liq.quote=${c?.liquidity?.quote} mcap=${c?.marketCap} · amm dexId=${a?.dexId} pair=${a?.pairAddress?.slice(0, 6)} vol.h1=${a?.volume?.h1}`
 })
 
+// ---------- exact pool price vs indexer ----------
+await step('pool price: curve reserves vs dexscreener', async () => {
+  const { curveSpot } = await import('../src/pool.ts'); const sp = await curveSpot(ctx.curveMint!)
+  if (!sp) throw new Error('curve account not decoded'); const r = await fetch(`${DEX}/tokens/v1/solana/${ctx.curveMint}`); const p: any = (await r.json())[0]; const ipx = +p.priceNative
+  const dev = Math.abs(sp.priceSol / ipx - 1); if (dev > 0.05) throw new Error(`curve ${sp.priceSol.toPrecision(4)} vs indexer ${ipx.toPrecision(4)} (${(dev * 100).toFixed(1)}% off)`)
+  return `curve ${sp.priceSol.toPrecision(4)} SOL · indexer ${ipx.toPrecision(4)} · ${(dev * 100).toFixed(2)}% apart · vSOL ${sp.liqSol.toFixed(1)} · complete=${sp.complete}`
+})
+await step('pool price: pumpswap vaults vs dexscreener', async () => {
+  const { pumpswapSpot } = await import('../src/pool.ts'); const sp = await pumpswapSpot(ctx.ammPool!, ctx.ammMint!)
+  if (!sp) throw new Error('pool vaults not found'); const r = await fetch(`${DEX}/tokens/v1/solana/${ctx.ammMint}`); const p: any = (await r.json())[0]; const ipx = +p.priceNative
+  const dev = Math.abs(sp.priceSol / ipx - 1); if (dev > 0.05) throw new Error(`pool ${sp.priceSol.toPrecision(4)} vs indexer ${ipx.toPrecision(4)} (${(dev * 100).toFixed(1)}% off)`)
+  return `pool ${sp.priceSol.toPrecision(4)} SOL · indexer ${ipx.toPrecision(4)} · ${(dev * 100).toFixed(2)}% apart · ${sp.liqSol.toFixed(1)} SOL in pool`
+})
 // ---------- token program on real mints ----------
 await step('token program: curve + amm mints', async () => {
   const [c, a] = await Promise.all([conn.getAccountInfo(new PublicKey(ctx.curveMint!)), conn.getAccountInfo(new PublicKey(ctx.ammMint!))])
