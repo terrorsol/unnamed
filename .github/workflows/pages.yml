@@ -31,13 +31,14 @@ jobs:
         working-directory: app
         env:
           VITE_SERVER_URL: ${{ vars.SERVER_URL }}
-        run: npm run build -- --base=/unnamed/app/
-      - name: Assemble site
+        run: npm run build -- --base=/
+      - name: Assemble site (app.banker.cash)
         run: |
           mkdir -p site/app
-          cp -r app/dist/* site/app/
-          # root → the real app. the old simulated demo is no longer published anywhere.
-          printf '<!doctype html><meta charset=utf-8><meta http-equiv=refresh content="0;url=/unnamed/app/"><title>UNNAMED</title><a href="/unnamed/app/">open UNNAMED</a>' > site/index.html
+          cp -r app/dist/* site/
+          # old links (…/unnamed/app/#/?key=…) land on /app/ after github's custom-domain redirect: bounce to the root, keeping the hash
+          printf '<!doctype html><meta charset=utf-8><title>BANKER</title><script>location.replace("/" + location.hash)</script><a href="/">open BANKER</a>' > site/app/index.html
+          echo app.banker.cash > site/CNAME
           touch site/.nojekyll
       - name: Publish
         uses: peaceiris/actions-gh-pages@v4

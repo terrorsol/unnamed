@@ -19,7 +19,7 @@
 
 1. **Fund the platform wallet (0.02 SOL) and do one real launch on mainnet** — 1 hour. Proves tax claim, LP harvest, bundle landing, Phantom partial-sign. Everything is simulated; nothing replaces one real coin.
 2. **Deploy the server on Render** (`render.yaml`, one click, set VAULT_SECRET / HELIUS RPC / PINATA_JWT) — 30 min. Today the desk runs off the CI tunnel, which drops.
-3. **Point the app at banker.cash/app or keep terrorsol.github.io/unnamed/app** — decide, 10 min. The landing owns the root.
+3. **Point the app at banker.cash/app or keep app.banker.cash** — decide, 10 min. The landing owns the root.
 4. **First tester cohort (5–10 wallets, 1 SOL each)** — 1 day of watching: launches, desk fills, vault moves, report bugs.
 6. Vesting-based free vault supply (LaunchLab `totalLockedAmount`, unlocks after graduation) — 1 day, needs the custom-curve params verified on mainnet. Nice-to-have; tax-funded already removes the friction.
 7. TP/SL orders, mobile polish on the Pro desk — 1 day.

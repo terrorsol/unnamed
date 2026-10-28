@@ -2,7 +2,7 @@
 
 banker.cash · @bankerdotcash · the bank that never closes
 
-Real mainnet, small amounts. Three things: a launchpad where every trade feeds the coin's own market maker, an off-chart desk on any coin, and a vamp detector. App: https://terrorsol.github.io/unnamed/app/ · waitlist: https://banker.cash
+Real mainnet, small amounts. Three things: a launchpad where every trade feeds the coin's own market maker, an off-chart desk on any coin, and a vamp detector. App: https://app.banker.cash/ · waitlist: https://banker.cash
 
 ## Setup (2 min)
 0. You got a key like `BANK-XXXX-XXXX`. Open https://banker.cash → *have a key?* → paste it, or open the app directly. The key binds to the first wallet you sign with; it won't work for anyone else after that.
