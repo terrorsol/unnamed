@@ -3,16 +3,16 @@ import { compare, type Result } from '../lib/sim'
 import { S } from '../lib/fmt'
 
 export default function Simulate() {
-  const [pool, setPool] = useState(100); const [chest, setChest] = useState(0.15); const [ceiling, setCeiling] = useState(0.3); const [pump, setPump] = useState(1.0); const [desk, setDesk] = useState(0.5); const [seeds, setSeeds] = useState(12)
+  const [pool, setPool] = useState(100); const [chest, setChest] = useState(0.15); const [ceiling, setCeiling] = useState(0.3); const [pump, setPump] = useState(1.0); const [desk, setDesk] = useState(0.5); const [seeds, setSeeds] = useState(12); const [tax, setTax] = useState(true)
   const [res, setRes] = useState<{ none: Result; floor: Result; mm: Result; one: { none: Result; mm: Result } } | null>(null); const [busy, setBusy] = useState(false); const [adv, setAdv] = useState(false); const [showTable, setShowTable] = useState(false)
   const cv = useRef<HTMLCanvasElement>(null)
   const run = () => {
     setBusy(true)
     setTimeout(() => {
       const acc: any = { none: [], floor: [], mm: [] }
-      for (let seed = 1; seed <= seeds; seed++) { const c = compare({ poolSol: pool, chestPct: chest, ceiling, hours: 6, seed, swapFee: 0.015, deskUse: desk, pumpStrength: pump }); (['none', 'floor', 'mm'] as const).forEach((k) => acc[k].push(c[k])) }
+      for (let seed = 1; seed <= seeds; seed++) { const c = compare({ poolSol: pool, chestPct: chest, ceiling, hours: 6, seed, swapFee: 0.015, deskUse: desk, pumpStrength: pump, taxBps: tax ? 200 : 0 }); (['none', 'floor', 'mm'] as const).forEach((k) => acc[k].push(c[k])) }
       const avg = (arr: Result[]): Result => { const o: any = {}; for (const k of Object.keys(arr[0]) as (keyof Result)[]) { if (k === 'path') continue; o[k] = arr.reduce((a, x) => a + (x[k] as number), 0) / arr.length } o.path = arr[0].path; return o }
-      const one = compare({ poolSol: pool, chestPct: chest, ceiling, hours: 6, seed: 1, swapFee: 0.015, deskUse: desk, pumpStrength: pump })
+      const one = compare({ poolSol: pool, chestPct: chest, ceiling, hours: 6, seed: 1, swapFee: 0.015, deskUse: desk, pumpStrength: pump, taxBps: tax ? 200 : 0 })
       setRes({ none: avg(acc.none), floor: avg(acc.floor), mm: avg(acc.mm), one: { none: one.none, mm: one.mm } }); setBusy(false)
     }, 20)
   }
@@ -34,6 +34,7 @@ export default function Simulate() {
         {adv && <div><div className="lbl">Pool reserve · {pool} SOL (≈ ${(pool * 160 * 2 / 1000).toFixed(0)}K liq)</div><input type="range" className="slider" min={20} max={500} step={10} value={pool} onChange={(e) => setPool(+e.target.value)} /></div>}
         <div><div className="lbl">Chest size · {Math.round(chest * 100)}% of the pool ({S(pool * chest, 1)} SOL)</div><input type="range" className="slider" min={0.05} max={0.5} step={0.05} value={chest} onChange={(e) => setChest(+e.target.value)} /></div>
         {adv && <div><div className="lbl">Capture ceiling · {Math.round(ceiling * 100)}%</div><input type="range" className="slider" min={0.05} max={0.3} step={0.05} value={ceiling} onChange={(e) => setCeiling(+e.target.value)} /></div>}
+        <div><div className="lbl">Launched here · {tax ? '2% of every trade → chest' : 'pump launch, no tax'}</div><label className="row" style={{ gap: 8, fontSize: 12, height: 30 }}><input type="checkbox" checked={tax} onChange={(e) => setTax(e.target.checked)} /> our launchpad (tax feeds the market maker)</label></div>
         <div><div className="lbl">How wild the coin is · {pump < 0.8 ? 'calm' : pump < 1.2 ? 'normal' : 'degen'} ({pump.toFixed(1)}×)</div><input type="range" className="slider" min={0.4} max={1.6} step={0.1} value={pump} onChange={(e) => setPump(+e.target.value)} /></div>
         {adv && <div><div className="lbl">Sellers who use the desk · {Math.round(desk * 100)}%</div><input type="range" className="slider" min={0} max={1} step={0.1} value={desk} onChange={(e) => setDesk(+e.target.value)} /></div>}
         {adv && <div><div className="lbl">Seeds · {seeds}</div><input type="range" className="slider" min={4} max={40} step={4} value={seeds} onChange={(e) => setSeeds(+e.target.value)} /></div>}
@@ -54,6 +55,7 @@ export default function Simulate() {
         <tr><td className="dim">Captured from stretched buys</td><td className="r dim">—</td><td className="r dim">—</td><td className="r num">{S(res.mm.captured, 2)} SOL · {res.mm.captures.toFixed(0)}×</td><td className="r dim">{(res.mm.captured / Math.max(1e-9, res.mm.volumeSol) * 100).toFixed(1)}% of volume</td></tr>
         <tr><td className="dim">Sellers absorbed off-chart (desk)</td><td className="r dim">—</td><td className="r num">{S(res.floor.deskBought, 2)} SOL</td><td className="r num">{S(res.mm.deskBought, 2)} SOL</td><td className="r dim">{res.mm.deskFills.toFixed(0)} fills · ~{(res.mm.impactAvoided * 100).toFixed(0)}% chart damage avoided</td></tr>
         <tr><td className="dim">Dip tranches bought</td><td className="r dim">—</td><td className="r num">{S(res.floor.dipBought, 2)} SOL · {res.floor.dips.toFixed(0)}×</td><td className="r num">{S(res.mm.dipBought, 2)} SOL · {res.mm.dips.toFixed(0)}×</td><td className="r dim"></td></tr>
+        <tr><td className="dim">Tax collected into the chest</td><td className="r dim">—</td><td className="r num">{S(res.floor.taxIn || 0, 2)} SOL</td><td className="r num">{S(res.mm.taxIn || 0, 2)} SOL</td><td className="r dim">—</td></tr>
         <tr><td className="dim">Chest at end</td><td className="r dim">—</td><td className="r num">{S(res.floor.chest, 2)} SOL</td><td className="r num">{S(res.mm.chest, 2)} SOL</td><td className="r dim">redeem floor ${(res.mm.chest / 1e9 * 160).toExponential(1)}/token</td></tr>
         <tr><td className="dim">On-chain: txs · swap fees</td><td className="r dim">—</td><td className="r num">{res.floor.txs.toFixed(0)} · {S(res.floor.feesPaid, 2)} SOL</td><td className="r num">{res.mm.txs.toFixed(0)} · {S(res.mm.feesPaid, 2)} SOL</td><td className="r dim">{(res.mm.txs / 6).toFixed(1)} tx/hr</td></tr>
         <tr><td className="dim">Dev cut paid</td><td className="r dim">—</td><td className="r num">{S(res.floor.devPaid, 3)}</td><td className="r num">{S(res.mm.devPaid, 3)}</td><td className="r dim">only from profit</td></tr>

@@ -1,10 +1,10 @@
 // Market simulator for the vault. Constant-product pool, scripted + random order flow, fees, the vault's real rules.
 // Shared by the server backtest (test/sim.test.mjs) and the Simulate page. Deterministic for a given seed.
 export type Mode = 'none' | 'floor' | 'mm'
-export type Params = { poolSol: number; chestPct: number; mode: Mode; ceiling: number; hours: number; seed: number; swapFee: number; deskUse: number; pumpStrength: number; v2?: boolean; skew?: boolean; zstretch?: boolean; volDisc?: boolean; flow?: Flow[]; payout?: number; skim?: number; imbGate?: boolean; wickFilter?: boolean; burst?: boolean; sellAdapt?: boolean }
+export type Params = { poolSol: number; chestPct: number; mode: Mode; ceiling: number; hours: number; seed: number; swapFee: number; deskUse: number; pumpStrength: number; v2?: boolean; skew?: boolean; zstretch?: boolean; volDisc?: boolean; flow?: Flow[]; payout?: number; skim?: number; imbGate?: boolean; wickFilter?: boolean; burst?: boolean; sellAdapt?: boolean; taxBps?: number }
 /** Recorded order flow (server tape or GeckoTerminal trades). When set, replaces the synthetic regime generator. */
 export type Flow = { t: number; side: 'buy' | 'sell'; sol: number }
-export type Result = { path: number[]; peak: number; maxDrawdown: number; final: number; vaultValue: number; vaultStart: number; chest: number; captured: number; captures: number; deskBought: number; deskFills: number; dips: number; dipBought: number; devPaid: number; floor: number; impactAvoided: number; volumeSol: number; trimmed: number; txs: number; feesPaid: number }
+export type Result = { taxIn: number; path: number[]; peak: number; maxDrawdown: number; final: number; vaultValue: number; vaultStart: number; chest: number; captured: number; captures: number; deskBought: number; deskFills: number; dips: number; dipBought: number; devPaid: number; floor: number; impactAvoided: number; volumeSol: number; trimmed: number; txs: number; feesPaid: number }
 
 export function captureFrac(price: number, vwap30: number, avgCost: number, mcapUsd: number, ceiling: number, rnd: number) {
   if (!vwap30 || price <= vwap30 || price <= avgCost * 1.02) return 0
@@ -33,9 +33,12 @@ export function simulate(P: Params): Result {
   let S = P.poolSol, T = supply * 0.4; const price = () => S / T
   const p0 = price(); const path: number[] = []
   const S0 = S
-  const buy = (sol: number) => { const fee = sol * P.swapFee; const inS = sol - fee; const dT = T - (S * T) / (S + inS); S += inS; T -= dT; return { tokens: dT, fee } }
-  const sell = (tokens: number) => { tokens = Math.min(tokens, T) ; let dS = S - (S * T) / (T + tokens); if (dS > S * 0.5) { dS = S * 0.5; tokens = T } const fee = dS * P.swapFee; S -= dS; T += tokens; return { sol: dS - fee, fee } }
+  // launchpad tax: a slice of every trade's SOL goes to the chest (our LaunchLab platform fee). Taken on top of the swap fee, so it is not part of the pool.
+  const taxed = (sol: number) => { const t = P.mode !== 'none' && P.taxBps ? sol * P.taxBps / 1e4 : 0; if (t) { chest += t; taxIn += t } return t }
+  const buy = (sol: number) => { const tax = taxed(sol); const fee = (sol - tax) * P.swapFee; const inS = sol - tax - fee; const dT = T - (S * T) / (S + inS); S += inS; T -= dT; return { tokens: dT, fee: fee + tax } }
+  const sell = (tokens: number) => { tokens = Math.min(tokens, T) ; let dS = S - (S * T) / (T + tokens); if (dS > S * 0.5) { dS = S * 0.5; tokens = T } const fee = dS * P.swapFee; const tax = taxed(dS); S -= dS; T += tokens; return { sol: dS - fee - tax, fee: fee + tax } }
   // vault
+  let taxIn = 0
   let chest = P.mode === 'none' ? 0 : P.poolSol * P.chestPct, vt = 0, avgCost = 0, captured = 0, captures = 0, deskBought = 0, deskFills = 0, dips = 0, dipBought = 0, devPaid = 0, impactAvoided = 0, trimmed = 0, txs = 0, feesPaid = 0, volumeSol = 0
   const vaultStart = chest
   if (P.mode !== 'none') { const seed = chest * 0.5; const b = buy(seed); vt = b.tokens; avgCost = seed / vt; chest -= seed; txs++; feesPaid += b.fee }
@@ -109,7 +112,7 @@ export function simulate(P: Params): Result {
     if (i % 17280 === 0) trimmedToday = 0 // daily reset
   }
   const pf = price()
-  return { path, peak: peak / p0, maxDrawdown: maxDD, final: pf / p0, vaultValue: chest + vt * pf, vaultStart, chest, captured, captures, deskBought, deskFills, dips, dipBought, devPaid, floor: chest / supply, impactAvoided, volumeSol, trimmed, txs, feesPaid }
+  return { taxIn, path, peak: peak / p0, maxDrawdown: maxDD, final: pf / p0, vaultValue: chest + vt * pf, vaultStart, chest, captured, captures, deskBought, deskFills, dips, dipBought, devPaid, floor: chest / supply, impactAvoided, volumeSol, trimmed, txs, feesPaid }
 }
 /** Run the same flow with and without the vault; the delta is what the vault did. */
 export function compare(base: Omit<Params, 'mode'>) {
