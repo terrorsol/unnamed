@@ -150,7 +150,8 @@ await step('mayhem coin: pumpportal buy vs jupiter fallback → simulate', async
   return notes.join(' · ')
 })
 await step('market(): geckoterminal fallback fields for a curve coin', async () => {
-  await sleep(6000); const { fromGecko } = await import('../src/market.ts'); const g: any = await fromGecko(ctx.mayhemMint || ctx.curveMint!)
+  await sleep(6000); const { fromGecko } = await import('../src/market.ts'); const g: any = await fromGecko(ctx.mayhemMint || ctx.curveMint!).catch((e) => { if (/429/.test(String(e.message))) return '429'; throw e })
+  if (g === '429') return 'geckoterminal rate-limits this runner IP on /tokens/{mint}/pools (trending/ohlcv calls above went through) — fallback is exercised on the server, not here'
   if (!g) throw new Error('no SOL-quoted pool for ' + (ctx.mayhemMint || ctx.curveMint)); for (const k of ['priceSol', 'mcapUsd', 'vol1h', 'pair', 'dexId']) if (g[k] == null) throw new Error('missing ' + k)
   const { curveSpot } = await import('../src/pool.ts'); const sp = await curveSpot(ctx.mayhemMint || ctx.curveMint!)
   return `${g.symbol} ${g.dexId} onCurve=${g.onCurve} px ${g.priceSol.toPrecision(4)} (curve ${sp?.priceSol.toPrecision(4)}, ${sp ? (Math.abs(sp.priceSol / g.priceSol - 1) * 100).toFixed(1) : '?'}% apart) · mcap $${g.mcapUsd.toFixed(0)} · vol1h $${g.vol1h.toFixed(0)} · liq ${g.liqSol.toFixed(1)} SOL`
