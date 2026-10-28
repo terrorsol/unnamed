@@ -162,7 +162,9 @@ await step('launch bundle: [create+dev buy, vault buy] → decode + math check',
   if (!r.ok) throw new Error(`HTTP ${r.status} ${(await r.text()).slice(0, 160)}`)
   const enc: string[] = await r.json(); if (enc.length !== 2) throw new Error('expected 2 txs, got ' + enc.length)
   const [t0, t1] = enc.map((e) => VersionedTransaction.deserialize(bs58.decode(e)))
-  const c = L.inspectCreate(t0, mint); const b = L.inspectBuy(t1, PAYER.toBase58(), mint)
+  { const { writeFileSync, mkdirSync } = await import('node:fs'); mkdirSync('reports', { recursive: true }); writeFileSync('reports/launch-bundle.json', JSON.stringify({ mint, devSol, vaultSol, payer: PAYER.toBase58(), txs: enc }, null, 1)) }
+  const k0 = await L.resolveKeys(t0, conn), k1 = await L.resolveKeys(t1, conn)
+  const c = L.inspectCreate(t0, mint, 6, k0); const b = L.inspectBuy(t1, PAYER.toBase58(), mint, 6, k1)
   const z = L.blockZero(devSol, vaultSol)
   const devDev = c.buy ? (c.buy.tokens - z.devTokens) / z.devTokens * 100 : NaN, vaultDev = (b.tokens - z.vaultTokens) / z.vaultTokens * 100
   // implied fee from PumpPortal's own quote on the fresh curve: tokens = vTok − k/(vSol + sol·(1−fee))

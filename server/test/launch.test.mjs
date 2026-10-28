@@ -27,24 +27,33 @@ test('block-zero math: dev then vault on the fresh curve', () => {
 test('inspectBuy accepts the PumpPortal shape and reports the real max SOL out', () => {
   const t = tx([ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }), ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }), buyIx(30e6, 1.1), SystemProgram.transfer({ fromPubkey: vault.publicKey, toPubkey: new PublicKey(JITO_TIPS[0]), lamports: 1e6 })])
   const b = inspectBuy(t, vault.publicKey.toBase58(), mint.toBase58())
-  assert.equal(b.tokens, 30e6); assert.equal(b.maxSolCost, 1.1); assert.equal(b.tipSol, 0.001); assert.ok(Math.abs(b.solOut - 1.101) < 1e-9)
+  assert.equal(b.tokens, 30e6); assert.equal(b.maxSolCost, 1.1); assert.equal(b.tipSol, 0.001); assert.ok(Math.abs(b.solOut - (1.1 * 1.005 + 0.001)) < 1e-9); assert.equal(b.via, 'pump')
   assert.deepEqual(b.ixs, ['compute', 'compute', 'buy', 'tip'])
 })
 
 test('inspectBuy refuses: wrong mint, other wallet credited, SOL to a stranger, second signer, unknown program, a create', () => {
   const me = vault.publicKey.toBase58(), m = mint.toBase58()
-  assert.throws(() => inspectBuy(tx([buyIx(1e6, 0.1, vault.publicKey, dummy())]), me, m), /different mint/)
+  assert.throws(() => inspectBuy(tx([buyIx(1e6, 0.1, vault.publicKey, dummy())]), me, m), /reference the mint/)
   assert.throws(() => inspectBuy(tx([buyIx(1e6, 0.1, dummy())]), me, m), /signer|different wallet/)
   assert.throws(() => inspectBuy(tx([buyIx(1e6, 0.1), SystemProgram.transfer({ fromPubkey: vault.publicKey, toPubkey: dummy(), lamports: 5e8 })]), me, m), /non-tip/)
   assert.throws(() => inspectBuy(tx([buyIx(1e6, 0.1), new TransactionInstruction({ programId: dummy(), keys: [], data: Buffer.alloc(1) })]), me, m), /unexpected program/)
-  assert.throws(() => inspectBuy(tx([new TransactionInstruction({ programId: PUMP_PROGRAM, keys: [{ pubkey: mint, isSigner: false, isWritable: true }], data: Buffer.from([24, 30, 200, 40, 5, 28, 7, 119]) })]), me, m), /create|no pump buy/)
+  assert.throws(() => inspectBuy(tx([new TransactionInstruction({ programId: PUMP_PROGRAM, keys: [{ pubkey: mint, isSigner: false, isWritable: true }], data: Buffer.from([24, 30, 200, 40, 5, 28, 7, 119]) })]), me, m), /create/)
+  assert.throws(() => inspectBuy(tx([new TransactionInstruction({ programId: PUMP_PROGRAM, keys: [{ pubkey: mint, isSigner: false, isWritable: true }], data: Buffer.from('d6904cec5f8b31b4', 'hex') })]), me, m), /create/)
   assert.throws(() => inspectBuy(tx([ComputeBudgetProgram.setComputeUnitLimit({ units: 1 })]), me, m), /no pump buy/)
   const other = Keypair.generate(); assert.throws(() => inspectBuy(tx([buyIx(1e6, 0.1, other.publicKey)], other.publicKey), me, m), /fee payer/)
+})
+
+test('inspectBuy accepts the PumpPortal wrapper buy (their program, same data layout)', async () => {
+  const { PUMPPORTAL_PROGRAM } = await import('../src/launch.ts')
+  const keys = [dummy(), new PublicKey(PUMP_PROGRAM), mint, dummy(), vault.publicKey, dummy()].map((k) => ({ pubkey: k, isSigner: k.equals(vault.publicKey), isWritable: true }))
+  const ix = new TransactionInstruction({ programId: new PublicKey(PUMPPORTAL_PROGRAM), keys, data: Buffer.concat([Buffer.from('66323d1201daebea', 'hex'), u64(5e6 * 1e6), u64(0.25e9)]) })
+  const b = inspectBuy(tx([ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1 }), ix]), vault.publicKey.toBase58(), mint.toBase58())
+  assert.equal(b.via, 'pumpportal'); assert.equal(b.tokens, 5e6); assert.equal(b.maxSolCost, 0.25)
 })
 
 test('inspectCreate finds the create + dev buy', () => {
   const create = new TransactionInstruction({ programId: PUMP_PROGRAM, keys: [{ pubkey: mint, isSigner: true, isWritable: true }, { pubkey: vault.publicKey, isSigner: true, isWritable: true }], data: Buffer.concat([Buffer.from([24, 30, 200, 40, 5, 28, 7, 119]), Buffer.alloc(4)]) })
   const c = inspectCreate(tx([create, buyIx(34e6, 1.05)]), mint.toBase58())
-  assert.equal(c.created, true); assert.equal(c.buy.tokens, 34e6); assert.equal(c.signers, 2)
+  assert.equal(c.created, 'create'); assert.equal(c.buy.tokens, 34e6); assert.equal(c.signers, 2)
   assert.throws(() => inspectCreate(tx([buyIx(1e6, 0.1)]), mint.toBase58()), /no create/)
 })

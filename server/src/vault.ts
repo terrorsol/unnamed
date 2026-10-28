@@ -347,7 +347,8 @@ export async function signBundleTx(id: string, mint: string, txB64: string, maxS
   const spend = Math.min(maxSol, bal * 0.5); if (spend < 0.05) throw new Error('nothing to spend')
   const tx = VersionedTransaction.deserialize(Buffer.from(txB64, 'base64'))
   // decode the buy itself: the client chose the numbers PumpPortal built from, so the cap is enforced on what the tx can actually take
-  const b = L.inspectBuy(tx, v.pub, mint)
+  const dec = await decimals(mint).catch(() => 6)
+  const b = L.inspectBuy(tx, v.pub, mint, dec, await L.resolveKeys(tx, conn))
   if (b.solOut > spend * 1.2 + 0.01) throw new Error(`block-zero buy can cost ${b.solOut.toFixed(3)} SOL, policy allows ${spend.toFixed(3)}`)
   KEEP.sign({ id: v.id, chest: v.stakeSol, sk: kp(v) }, tx, 'trade', b.solOut)
   v.mint = mint; v.activity.unshift({ t: Date.now(), kind: 'note', msg: `signed block-zero buy · up to ${b.maxSolCost.toFixed(3)} SOL for ${(b.tokens / 1e6).toFixed(1)}M tokens` }); save()
