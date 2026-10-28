@@ -18,7 +18,7 @@ import { Toasts } from './components/ui'
 import { toast } from './lib/store'
 import * as T from './lib/trade'
 import * as D from './lib/dex'
-import { solscan } from './lib/rpc'
+import { lastLanding, solscan } from './lib/rpc'
 import { loadLedger, recordBuy, recordSell, recordCreate } from './lib/positions'
 import { S, short } from './lib/fmt'
 import type { Coin } from './lib/dex'
@@ -102,6 +102,7 @@ export default function App() {
   }
   const [gateQ, setGateQ] = useState<{ q: any; ok: (v: boolean) => void } | null>(null)
   const gate = (q: any) => new Promise<boolean>((ok) => { if (!q.needsConfirm) return ok(true); setGateQ({ q, ok: (v) => { setGateQ(null); ok(v) } }) })
+  const landing = () => lastLanding.ms ? `${(lastLanding.ms / 1000).toFixed(1)}s via ${lastLanding.via || 'rpc'}` : '—'
   const takeAsk = async (id: string, sol?: number) => {
     if (!activeB58) return needWallet()
     try { const { sig, quote } = await K.takeAsk(connection, activeB58, id, signLegacy, setBusy, { sol, cuPriceMicro: Math.floor(Math.min(settings.priorityFeeSol, 0.0002) * 1e9 * 1e6 / 80_000) }); const paid = Number(BigInt(quote.sellerLamports) + BigInt(quote.fee)) / 1e9; recordBuy(ws.owner, quote.mint, quote.ask.symbol, paid, sig); setLedgerV((v) => v + 1); confetti(); toast({ kind: 'ok', title: `Bought a block off-chart`, rows: [['Paid', S(paid) + ' SOL'], ['Price', (quote.ask.discBps < 0 ? '+' : '−') + (Math.abs(quote.ask.discBps) / 100).toFixed(1) + '% vs market'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
@@ -191,13 +192,13 @@ export default function App() {
 
   const onBuy = async (c: Coin, sol: number) => {
     const x = ctx(); if (!x) return needWallet()
-    try { const sig = await T.buy(x, c.mint, sol, c.onCurve); recordBuy(ws.owner, c.mint, c.symbol, sol, sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Bought ${c.symbol}`, rows: [['Spent', S(sol) + ' SOL'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
+    try { const sig = await T.buy({ ...x, depthSol: c.depthSol }, c.mint, sol, c.onCurve); recordBuy(ws.owner, c.mint, c.symbol, sol, sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Bought ${c.symbol}`, rows: [['Landed', landing()], ['Spent', S(sol) + ' SOL'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
     catch (e: any) { toast({ kind: 'err', title: 'Buy failed', rows: [['Reason', String(e?.message || e).slice(0, 120)]] }) } finally { setBusy('') }
   }
   const onSell = async (c: Coin, frac: number) => {
     const x = ctx(); if (!x) return needWallet()
     const h = ws.tokens.find((t) => t.mint === c.mint); if (!h) return
-    try { const before = ws.sol || 0; const sig = await T.sell(x, c.mint, frac, BigInt(h.raw), c.onCurve); const after = await connection.getBalance(x.owner).then((b) => b / 1e9).catch(() => before); recordSell(ws.owner, c.mint, c.symbol, frac, Math.max(0, after - before), sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Sold ${Math.round(frac * 100)}% ${c.symbol}`, rows: [['Received', '≈ ' + S(Math.max(0, after - before)) + ' SOL'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
+    try { const before = ws.sol || 0; const sig = await T.sell({ ...x, depthSol: c.depthSol }, c.mint, frac, BigInt(h.raw), c.onCurve, (h.amount * (c.raw?.priceNative ? +c.raw.priceNative : 0)) * frac); const after = await connection.getBalance(x.owner).then((b) => b / 1e9).catch(() => before); recordSell(ws.owner, c.mint, c.symbol, frac, Math.max(0, after - before), sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Sold ${Math.round(frac * 100)}% ${c.symbol}`, rows: [['Landed', landing()], ['Received', '≈ ' + S(Math.max(0, after - before)) + ' SOL'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
     catch (e: any) { toast({ kind: 'err', title: 'Sell failed', rows: [['Reason', String(e?.message || e).slice(0, 120)]] }) } finally { setBusy('') }
   }
   const onLaunch = async (meta: any, dev: number, stake: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = 0.3) => {

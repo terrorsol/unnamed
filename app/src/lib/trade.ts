@@ -7,16 +7,18 @@ import { MIN_TIP_LAMPORTS } from './fast'
 import bs58 from 'bs58'
 import { SOL_MINT, LAMPORTS } from './fmt'
 import type { Settings } from './store'
+import { dynSlippageBps } from './slip'
+export { dynSlippageBps }
 import { SERVER } from './desk'
 
 export type Signer = (t: VersionedTransaction) => Promise<VersionedTransaction>
-export type Ctx = { conn: Connection; owner: PublicKey; sign: Signer; settings: Settings; onStatus?: (s: string) => void }
+export type Ctx = { conn: Connection; owner: PublicKey; sign: Signer; settings: Settings; onStatus?: (s: string) => void; depthSol?: number }
 
 /** Sender tip when MEV protection is on: the tip buys priority routing (validators + SWQOS), the CU price is still set by priorityFee. */
 function fast(ctx: Ctx): Fast | undefined { return ctx.settings.mev ? { rpc: ctx.settings.rpc, payer: ctx.owner, tipLamports: Math.max(MIN_TIP_LAMPORTS, Math.floor(ctx.settings.jitoTipSol * LAMPORTS)) } : undefined }
 async function fee(ctx: Ctx) { return ctx.settings.autoFee ? priorityFee(ctx.conn, ctx.settings.priorityFeeSol) : ctx.settings.priorityFeeSol }
 export async function buy(ctx: Ctx, mint: string, sol: number, onCurve: boolean): Promise<string> {
-  const { conn, owner, sign, onStatus } = ctx; const settings = { ...ctx.settings, priorityFeeSol: await fee(ctx) }
+  const { conn, owner, sign, onStatus } = ctx; const settings = { ...ctx.settings, priorityFeeSol: await fee(ctx), slippageBps: dynSlippageBps(sol, ctx.depthSol, ctx.settings.slippageBps) }
   const pk = owner.toBase58()
   const slipPct = settings.slippageBps / 100
   if (onCurve) {
@@ -39,8 +41,8 @@ export async function buy(ctx: Ctx, mint: string, sol: number, onCurve: boolean)
 }
 
 /** frac 0..1 of current holding; rawAmount = integer token units held */
-export async function sell(ctx: Ctx, mint: string, frac: number, rawAmount: bigint, onCurve: boolean): Promise<string> {
-  const { conn, owner, sign, onStatus } = ctx; const settings = { ...ctx.settings, priorityFeeSol: await fee(ctx) }
+export async function sell(ctx: Ctx, mint: string, frac: number, rawAmount: bigint, onCurve: boolean, sizeSol?: number): Promise<string> {
+  const { conn, owner, sign, onStatus } = ctx; const settings = { ...ctx.settings, priorityFeeSol: await fee(ctx), slippageBps: dynSlippageBps(sizeSol || 0, ctx.depthSol, ctx.settings.slippageBps) }
   const pk = owner.toBase58()
   const slipPct = settings.slippageBps / 100
   const pct = Math.round(frac * 100)

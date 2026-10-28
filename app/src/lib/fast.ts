@@ -30,11 +30,13 @@ export async function addTip(conn: Connection, tx: VersionedTransaction, payer: 
 }
 
 /** Fire the signed tx at Sender and the RPC at once; the signature is the same either way. Falls back silently if Sender is unreachable. */
+export const lastFastVia = { via: '' as '' | 'sender' | 'rpc' }
 export async function sendFast(conn: Connection, raw: Uint8Array, rpc: string): Promise<string> {
   const b64 = btoa(String.fromCharCode(...raw))
+  lastFastVia.via = ''
   const viaSender = fetch(senderUrl(rpc), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'sendTransaction', params: [b64, { encoding: 'base64', skipPreflight: true, maxRetries: 0 }] }) })
     .then(async (r) => { const d = await r.json(); if (d.error) throw new Error(d.error.message || 'sender'); return d.result as string })
   const viaRpc = conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 })
   // first success wins; if both fail, surface the RPC error (it is the more descriptive one)
-  return new Promise<string>((res, rej) => { let fails = 0, rpcErr: any; const bad = (e: any, isRpc: boolean) => { if (isRpc) rpcErr = e; if (++fails === 2) rej(rpcErr || e) }; viaSender.then(res, (e) => bad(e, false)); viaRpc.then(res, (e) => bad(e, true)) })
+  return new Promise<string>((res, rej) => { let fails = 0, rpcErr: any; const bad = (e: any, isRpc: boolean) => { if (isRpc) rpcErr = e; if (++fails === 2) rej(rpcErr || e) }; viaSender.then((v) => { lastFastVia.via = 'sender'; res(v) }, (e) => bad(e, false)); viaRpc.then((v) => { if (!lastFastVia.via) lastFastVia.via = 'rpc'; res(v) }, (e) => bad(e, true)) })
 }

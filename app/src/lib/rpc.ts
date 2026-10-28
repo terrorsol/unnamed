@@ -1,6 +1,8 @@
 import { Connection, PublicKey, VersionedTransaction } from '@solana/web3.js'
-import { addTip, sendFast } from './fast'
+import { addTip, sendFast, lastFastVia } from './fast'
 export type Fast = { rpc: string; payer: PublicKey; tipLamports: number }
+/** Last landing: how long from send to confirmed and which path won. Read by the trade toasts. */
+export const lastLanding = { ms: 0, via: '' as '' | 'sender' | 'rpc', sig: '' }
 export const TOKEN_PROGRAM = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
 export const TOKEN_2022 = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb')
 export type Holding = { mint: string; amount: number; decimals: number; raw: string }
@@ -29,11 +31,11 @@ export async function sendAndConfirm(conn: Connection, tx: VersionedTransaction,
   onStatus?.('Waiting for your signature…')
   const signed = await signTx(tx)
   onStatus?.('Sending…')
-  const raw = signed.serialize()
+  const raw = signed.serialize(); const t0 = performance.now()
   const sig = fast ? await sendFast(conn, raw, fast.rpc) : await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0, preflightCommitment: 'confirmed' })
   // re-broadcast a few times while confirming — the cheap way to beat dropped txs without a Jito bundle
   const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 2000); setTimeout(() => clearInterval(rb), 20000)
-  try { onStatus?.('Confirming…'); await confirmByPolling(conn, sig); return sig } finally { clearInterval(rb) }
+  try { onStatus?.('Confirming…'); await confirmByPolling(conn, sig); lastLanding.ms = Math.round(performance.now() - t0); lastLanding.via = fast ? (lastFastVia.via || 'sender') : 'rpc'; lastLanding.sig = sig; return sig } finally { clearInterval(rb) }
 }
 /** Poll signature status (no websocket dependency). Throws on on-chain error or ~60s timeout. */
 export async function confirmByPolling(conn: Connection, sig: string, timeoutMs = 60000) {

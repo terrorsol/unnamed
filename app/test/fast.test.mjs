@@ -38,3 +38,11 @@ test('addTip handles legacy txs and a zero tip is a no-op', async () => {
   assert.equal(out.message.version, 'legacy'); assert.equal(out.message.compiledInstructions.length, 3)
   assert.equal(await addTip(conn, tx, payer.publicKey, 0), tx)
 })
+
+test('dynamic slippage scales with size vs depth and never exceeds the user max', async () => {
+  const { dynSlippageBps } = await import('../src/lib/slip.ts')
+  assert.equal(dynSlippageBps(0.1, 60, 1000), 133)   // 0.1 SOL into 60 SOL ≈ 0.33% impact → 1.3% slip
+  assert.equal(dynSlippageBps(5, 60, 1000), 1000)    // 5 SOL into 60 SOL ≈ 15% impact → capped at the user's 10%
+  assert.equal(dynSlippageBps(0.5, 300, 1000), 133)  // tiny vs deep → floor + headroom
+  assert.equal(dynSlippageBps(1, undefined, 1000), 1000) // unknown depth → user max
+})
