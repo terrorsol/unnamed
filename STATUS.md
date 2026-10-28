@@ -13,23 +13,24 @@
 - Speed: parallel server discovery with session cache, single vendor chunk, lazy pages, exact price over websocket.
 - Private beta gate: invite keys (`npm run invites -- 10 "wave 1"` on the server), bound to the first wallet that signs, 30-day sessions; every write route and the bidder socket require one while `GATE=1`; reads stay open. Gate screen in the app, "have a key?" on banker.cash. 15-check e2e.
 - Brand: BANKER everywhere, black/white/green, bank mark; investor deck (`BANKER-deck.pdf`, source in `deck/`); waitlist landing live on banker.cash (repo `terrorsol/google`, gh-pages); `/waitlist` endpoint on the server.
-- Tests: server 31/31, app 20/20, e2e launch 21 · app 22 · import 16 · mm 10 · desk 50 (desk has two checks being updated for the 25% bid); mainnet preflight in CI 31/33 → fixes pushed for the two.
+- Live: server on Render (`unnamed-server.onrender.com`, helius, gate on, 2 SOL chest cap, 1 SOL import tier), app at `app.banker.cash`, landing at `banker.cash`. One brand wallet `BANKY…` is every vault (top holder on every coin) with per-vault chest ledgers booked from tx deltas; launched mints end in `…BANK` from a pre-ground pool; launch metadata self-hosted. Drawdown stop on the mm leg. Paper vault runs on CI against live coins (`paper.yml`).
+- Tests: server 32/32, app 20/20, e2e launch 21 · app 22 · import 16 · mm 10 · desk 50 (desk has two checks being updated for the 25% bid); mainnet preflight in CI 31/33 → fixes pushed for the two.
 
 ## Left, in order (tight)
 
-1. **Fund the platform wallet (0.02 SOL) and do one real launch on mainnet** — 1 hour. Proves tax claim, LP harvest, bundle landing, Phantom partial-sign. Everything is simulated; nothing replaces one real coin.
-2. **Deploy the server on Render** (`render.yaml`, one click, set VAULT_SECRET / HELIUS RPC / PINATA_JWT) — 30 min. Today the desk runs off the CI tunnel, which drops.
-3. **Point the app at banker.cash/app or keep app.banker.cash** — decide, 10 min. The landing owns the root.
-4. **First tester cohort (5–10 wallets, 1 SOL each)** — 1 day of watching: launches, desk fills, vault moves, report bugs.
-6. Vesting-based free vault supply (LaunchLab `totalLockedAmount`, unlocks after graduation) — 1 day, needs the custom-curve params verified on mainnet. Nice-to-have; tax-funded already removes the friction.
-7. TP/SL orders, mobile polish on the Pro desk — 1 day.
-8. v2: sell-only tax via a token-2022 **transfer hook** (rules live in the token, run on every dex: tax sells to the chest, refuse transfers to flagged vamps, launch caps) — ~300 lines, 1–2 weeks + a small audit. LaunchLab only allows the transfer-fee extension, so hooks mean launching on Meteora DBC (what hookedpad.com does) or our own curve. Non-custodial chests remain the bigger program, after beta volume.
+1. **Fund `BANKYubgHd48UQt2VFtEytyE8QyeBHhiuptC3tHmfVPH` with 0.1 SOL** (platform config rent + fees) — you, 1 min. Nothing on-chain works before this.
+2. **Paper vault on a live coin** (`paper.yml`, running) — 2 h of real prices, zero SOL. Read the decisions, fix anything odd.
+3. **Real import, 1 SOL chest** on a live coin — 1 h of watching fills, dip buys, the ledger vs the wallet (`/admin/wallet`).
+4. **One real launch** with a 0.5 SOL chest, you + 2 testers trade it — proves create, bundle, tax → chest, accumulation, `…BANK` mint. 30 min.
+5. Mint pool topped up from your PC (`npm run mints -- grind 50 push https://unnamed-server.onrender.com <ADMIN_KEY>`), Pinata JWT when you want IPFS permanence — 10 min.
+6. Vesting-based free vault supply, TP/SL, Pro-desk mobile polish — 1 day each.
+7. v2: token-2022 transfer hook (sell-only tax, vamp refusal) on Meteora DBC or our own curve — 1–2 weeks + audit.
 
 ## Cheapest way to be live for beta
 
 | item | cost |
 |---|---|
-| Render Starter for the server (+ 1 GB disk for DATA_DIR) | ~$8/mo |
+| Render Starter for the server (+ 1 GB disk for DATA_DIR) — live | ~$7.25/mo |
 | Helius Developer RPC (websockets + sender) | $49/mo (free tier works for 5 testers) |
 | Pinata (launch metadata) | free |
 | GitHub Pages (app + landing) | free |
