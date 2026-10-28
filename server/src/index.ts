@@ -33,7 +33,8 @@ const server = createServer(async (req, res) => {
   const u = new URL(req.url!, 'http://x'); const p = u.pathname; IPFS.learnBase(req as any)
     // private beta gate: every write route needs a session from a redeemed invite key (GATE=1). Reads stay open so the terminal is visible without one.
     const sessionWallet = INV.session(String(req.headers['x-banker-session'] || u.searchParams.get('session') || '')); (req as any).sessionWallet = sessionWallet
-    if (INV.GATE && req.method === 'POST' && !['/invite/redeem', '/invite/session', '/waitlist', '/ipfs'].includes(p) && !sessionWallet) return json(res, 401, { error: 'invite key required', gate: true })
+    const isAdmin = p.startsWith('/admin/') && !!process.env.ADMIN_KEY && u.searchParams.get('key') === process.env.ADMIN_KEY
+    if (INV.GATE && req.method === 'POST' && !isAdmin && !['/invite/redeem', '/invite/session', '/waitlist', '/ipfs'].includes(p) && !sessionWallet) return json(res, 401, { error: 'invite key required', gate: true })
   if (req.method === 'OPTIONS') return json(res, 204, {})
   const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim()
   if (limited(ip, req.method === 'POST')) return json(res, 429, { error: 'slow down' })
