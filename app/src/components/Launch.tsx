@@ -26,7 +26,7 @@ export default function Launch(p: Props) {
       <div className="fld"><div className="lbl">Ticker</div><input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} placeholder="GLASS" maxLength={10} /></div>
     </div>
     <div className="fld"><div className="lbl">Image</div><input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0])} /></div>
-    <button className="btn ghost" style={{ alignSelf: 'flex-start', height: 28, padding: 0 }} onClick={() => setAdv(!adv)}>{adv ? '− Hide advanced' : '+ Advanced (description, socials, copy-of, dev buy, mode)'}</button>
+    <button className="btn ghost" style={{ alignSelf: 'flex-start', height: 28, padding: 0 }} onClick={() => setAdv(!adv)}>{adv ? '− Hide advanced' : '+ Advanced · socials, dev buy, copy-of'}</button>
     {adv && <>
     <div className="fld"><div className="lbl">Description</div><textarea value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="What is it" maxLength={500} /></div>
     <div className="two" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
@@ -42,7 +42,7 @@ export default function Launch(p: Props) {
     </>}
     <div className="note"><div className="row"><b>Vault stake</b><span className="sp" /><b className="num">{S(stake, 2)} SOL → {S(vaultPct(stake, dev), 1)}% supply</b></div>
       <input type="range" className="slider" min={0} max={5} step={0.05} value={stake} onChange={(e) => setStake(+e.target.value)} style={{ marginTop: 6 }} />
-      <div className="nm" style={{ marginTop: 4 }}>Half buys block-zero supply, half is the chest. Cut = vaulted %, renounceable. 0 = plain pump launch.</div>
+      <div className="nm" style={{ marginTop: 4 }}>Half buys supply in the launch block, half is the chest. Your cut = vaulted %, renounceable. 0 = no vault.</div>
       {stake > 0 && adv && <div style={{ marginTop: 8 }}><ModePicker mode={mode} ceiling={ceiling} onChange={(m, c) => { setMode(m); setCeiling(c) }} compact /></div>}{stake > 0 && !adv && <div className="nm">Market maker · capture ceiling {Math.round(ceiling * 100)}%</div>}</div>
     <div className="kv"><span>Cost now</span><b className="num">{S(total, 2)} SOL (dev buy + vault stake + ~{venue === 'launchlab' ? '0.1 pool rent' : '0.02 fees'})</b></div>
     <div className="kv"><span>Wallet</span><b className="num">{p.sol == null ? '—' : S(p.sol) + ' SOL'}</b></div>

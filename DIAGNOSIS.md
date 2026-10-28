@@ -58,6 +58,16 @@ Plus the parts every terminal needs: 1-click wallet, fast board, signals, TP/SL,
 - **Mayhem / Token-2022 curve coins (mainnet, 08:00 UTC)**: all of the top-10 live pump curve coins were Token-2022 ("mayhem mode"). PumpPortal's builder produces a buy that fails simulation with pump error 6063 on every one of them; Jupiter routes the same buy fine (181K CU). Both the vault (`chain.ts pumpTrade`) and the app (`trade.ts buy/sell`) now dry-run the PumpPortal tx and switch to Jupiter when the chain says it would fail — no fee burned, no stuck vault. DexScreener's price for mayhem coins is unreliable (30% off, once 1000× off); the exact curve decode (`vSol/vTok`, creator at offset 49, len 166) is what the vault and desk use.
 - UI: every live number cell ticks (green/red flash on change) via `Mc`/`Ch`/`Live`; new tape and feed rows slide in; the coin page "Rules" tab lost its PREVIEW rows (early-flip fee, wallet cap, stake pricing — all v2 program things) and now states what is enforced today.
 
+## Overnight 2026-10-28, part 2 — the launchpad (04:20–06:00 CT)
+Decision: UNNAMED is a launchpad on **Raydium LaunchLab**; pump stays as a non-default option and the import path. Why: a buy/sell tax is impossible on pump; LaunchLab's platform config gives a per-trade platform fee (≤5%, ours 2% → that coin's chest), a creator fee (≤0.5% → dev), pumpportal/jupiter/indexer support, and a real (smaller) crowd via bonk-style frontends. Meteora DBC was rejected as a third code path with no crowd.
+- `server/src/launchlab.ts`: platform config (admin = owner wallet, fee + NFT wallet = a server key derived from `VAULT_SECRET`, LP 100% to the platform fee-key NFT), `buildLaunch` (official SDK, mint keypair co-signs server side, dev signs in the wallet), vault block-zero buy built against the post-dev-buy pool state with `fromCreate`, Jito tip on it, exact pool decode (`virtualB+realB / virtualA−realA`, same 30 SOL × 1.073e9 curve as pump but fees come OFF the SOL in), SDK buy/sell for vault and app, per-pool tax claim paid for by the coin's own vault, post-graduation LP-fee harvest via the lock NFT (experimental).
+- Mainnet preflight (30/30): platform-config create simulates OK; launch create simulates OK (191K CU); SDK buy on a live LaunchLab pool simulates OK; claim shape OK (`NoAssetsToCollect` on a pool with nothing pending = right instruction); live pool decode matches.
+- `market()` reads our pools first (exact, before any indexer), with own 1h volume from pool deltas so the desk gate works on fresh launches; swaps from pool deltas feed the tape and ticker; migrated pools fall back to the amm path.
+- **Security hole closed**: anyone could read a vault id off `/vaults` and make a funded, unarmed vault buy THEIR coin at block zero (or arm it on a wrong mint). Every launch-side signature (`/ll/launch/build`, `/vault/bundle-sign`, `/vault/arm`) now needs a dev wallet signature over `unnamed:<action>:<vaultId>:<mint>:<minute>` (10-min window). API-level e2e runs with `DEV_AUTH=0`.
+- Vamps feeding runners: one `payCut` path for captures and trims (captures previously skipped the copy stream); detector-flagged vamps (score ≥0.8, original vaulted) become copies automatically.
+- Keeper ledger persists; launch retry reuses the funded vault; coin page reads our pool before the indexer; Settings has the one-signature platform setup; docs/BETA rewritten.
+- Not done: LP harvest verified on-chain (needs a graduated pool of ours), a per-swap websocket for LaunchLab pools (5s pool read instead), Token-2022 transfer-fee launches (a tax that survives graduation on every venue — possible on LaunchLab, skipped for wallet/bot friction).
+
 ## Status after this pass (v1 scope)
 | Area | State |
 |---|---|
@@ -67,7 +77,7 @@ Plus the parts every terminal needs: 1-click wallet, fast board, signals, TP/SL,
 | Smart sell → desk when it beats the chart | live |
 | Desk: resting bids, RFQ (max loss + clock, pings, counters), vault bid, leaderboard, fills | live (server) |
 | Vault: MM mode (capture, tranches, redeploy), floor mode, redeem, deposits, import, copies | live (server, custodial) |
-| Block-zero launch: create + dev buy + vault buy in one Jito bundle | shape + math verified against PumpPortal's real builds in CI; server signs on the real cost; needs one funded try |
+| Launchpad (Raydium LaunchLab, our platform config, 2% tax → chest, 0.5% → dev) · block-zero bundle · pump as option | built, e2e 18, mainnet preflight; needs the admin signature + one funded launch |
 | Graduated-coin buys: pool websocket, per-swap, same slot | built, needs Helius WS try |
 | Signals (runner/rug/bundle/crash/dead with reasons) | live, tested on synthetic shapes |
 | Own chart with vault/desk/your markers + floor | live |
