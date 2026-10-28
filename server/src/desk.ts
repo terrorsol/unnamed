@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import type { WebSocket } from 'ws'
 import * as R from './rules.ts'
 import { market } from './market.ts'
-import { balanceSol, decimals, TREASURY } from './chain.ts'
+import { balanceSol, decimals, TREASURY, tokenBalance } from './chain.ts'
 import { verifyFill } from './verify.ts'
 
 export type Bid = { id: string; mint: string; symbol: string; bidder: string; sol: number; discBps: number; placedAt: number; refreshedAt: number; status: 'open' | 'filling' | 'filled' | 'cancelled'; ws: WebSocket | null; fills: number; rfq?: string; expiresAt?: number; awaySince?: number; internal?: { kp: Keypair; label: string; maxSol: () => number } }
@@ -84,6 +84,7 @@ export async function book(mint: string, me?: string) {
   const list = [...bids.values()].filter((b) => b.mint === mint && b.status === 'open').sort((a, b) => a.discBps - b.discBps || b.sol - a.sol)
   return { open: m ? R.deskOpen(m) : false, why: m ? R.deskWhy(m) : 'no market', minBlock: m ? R.minBlockSol(m) : null, market: m, bids: list.map((b) => pubBid(b, me)), rules: { discMin: R.DISC_MIN_BPS, discMax: R.DISC_MAX_BPS, restMs: R.REST_MS, feeBps: R.CROSS_FEE_BPS, gateUsd: R.GATE_MCAP_USD } }
 }
+export const myBids = (me: string) => [...bids.values()].filter((b) => b.bidder === me && b.status === 'open').map((b) => pubBid(b, me))
 export function books() {
   const by: Record<string, { mint: string; symbol: string; bids: number; sol: number; bestDisc: number }> = {}
   for (const b of bids.values()) { if (b.status !== 'open') continue; const e = (by[b.mint] ||= { mint: b.mint, symbol: b.symbol, bids: 0, sol: 0, bestDisc: 9999 }); e.bids++; e.sol += b.sol; e.bestDisc = Math.min(e.bestDisc, b.discBps) }
@@ -108,13 +109,19 @@ export async function quote(id: string, seller: string, sol?: number) {
 export async function fill(id: string, seller: string, txB64: string, sol?: number): Promise<{ sig: string }> {
   const b = bids.get(id); if (!b || b.status !== 'open') throw new Error('bid not open')
   if (!b.internal && (!b.ws || b.ws.readyState !== 1)) throw new Error('bidder is away — try again in a moment')
-  const q = await quote(id, seller, sol)
-  const tx = Transaction.from(Buffer.from(txB64, 'base64'))
-  const sellerSig = tx.signatures.find((s) => s.publicKey.toBase58() === seller); if (!sellerSig?.signature) throw new Error('tx not signed by seller')
-  const why = verifyFill(tx, { mint: b.mint, seller, bidder: b.bidder, treasury: TREASURY, base: BigInt(q.base), sellerLamports: BigInt(q.sellerLamports), fee: BigInt(q.fee), tokenProgram: q.tokenProgram, decimals: q.decimals })
-  if (why) throw new Error('fill rejected: ' + why)
-  if ((await balanceSol(b.bidder)) < q.takeSol + 0.005) { bids.delete(id); throw new Error('bidder balance dropped — bid removed') }
+  // claim the bid first so two sellers can't both quote the same block; released on any failure below
   b.status = 'filling'
+  let q: Awaited<ReturnType<typeof quote>>
+  try {
+    b.status = 'open'; q = await quote(id, seller, sol); b.status = 'filling'
+    // fail fast if the seller doesn't actually hold the block (the chain would reject it after the bidder co-signed)
+    const held = await tokenBalance(seller, b.mint); if (held.raw < BigInt(q.base)) throw new Error(`you hold ${held.ui.toLocaleString()} ${b.symbol}, this fill needs ${q.tokens.toLocaleString()}`)
+  } catch (e) { b.status = 'open'; throw e }
+  const tx = Transaction.from(Buffer.from(txB64, 'base64'))
+  const sellerSig = tx.signatures.find((s) => s.publicKey.toBase58() === seller); if (!sellerSig?.signature) { b.status = 'open'; throw new Error('tx not signed by seller') }
+  const why = verifyFill(tx, { mint: b.mint, seller, bidder: b.bidder, treasury: TREASURY, base: BigInt(q.base), sellerLamports: BigInt(q.sellerLamports), fee: BigInt(q.fee), tokenProgram: q.tokenProgram, decimals: q.decimals })
+  if (why) { b.status = 'open'; throw new Error('fill rejected: ' + why) }
+  if ((await balanceSol(b.bidder)) < q.takeSol + 0.005) { bids.delete(id); throw new Error('bidder balance dropped — bid removed') }
   if (b.internal) {
     try {
       if (b.sol > b.internal.maxSol()) throw new Error('vault bid no longer affordable')

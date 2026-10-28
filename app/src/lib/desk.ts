@@ -22,6 +22,7 @@ async function j(path: string, body?: any) {
 export const getBook = (mint: string, me?: string): Promise<Book> => j(`/book/${mint}${me ? '?me=' + me : ''}`)
 export const getBooks = (): Promise<{ mint: string; symbol: string; bids: number; sol: number; bestDisc: number }[]> => j('/books')
 export const health = () => j('/health')
+export const myBids = (me: string): Promise<BookBid[]> => j('/mybids?me=' + me)
 
 /** Structural check of a fill tx — same rules as the server's verify.ts, run independently by the bidder */
 export function verifyFill(tx: Transaction, e: Expect): string | null {

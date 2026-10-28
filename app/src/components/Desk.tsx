@@ -52,7 +52,9 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
 }
 
 /** Standalone Desk page: every book with resting bids */
-export function DeskPage({ go, coins = [] }: { go: (p: string) => void; coins?: import('../lib/dex').Coin[] }) {
+export function DeskPage({ go, coins = [], owner = '', bidder = null }: { go: (p: string) => void; coins?: import('../lib/dex').Coin[]; owner?: string; bidder?: K.BidderSession | null }) {
+  const [mine, setMine] = useState<K.BookBid[]>([])
+  useEffect(() => { if (!owner) { setMine([]); return } const f = () => K.myBids(owner).then(setMine).catch(() => {}); f(); const i = setInterval(f, 6000); return () => clearInterval(i) }, [owner])
   const [list, setList] = useState<Awaited<ReturnType<typeof K.getBooks>> | null>(null); const [err, setErr] = useState('')
   useEffect(() => { const f = () => K.getBooks().then((l) => { setList(l); setErr('') }).catch((e) => setErr(String(e.message || e))); f(); const i = setInterval(f, 8000); return () => clearInterval(i) }, [])
   const [open, setOpen] = useState(''); const [fl, setFl] = useState<K.FillRec[]>([])
@@ -68,6 +70,9 @@ export function DeskPage({ go, coins = [] }: { go: (p: string) => void; coins?: 
       return elig.length > 0 && <div className="card" style={{ marginBottom: 14 }}><h3>Desks open now <span className="nm">live coins that meet the rules · tap to trade a block</span></h3><table><thead><tr><th>Coin</th><th className="r">Mcap</th><th className="r">Vol 1h</th><th className="r">Bids</th></tr></thead><tbody>
         {elig.map((c) => <tr key={c.mint} onClick={() => go('coin/' + c.mint + '/desk')}><td className="tk">{c.symbol} {c.onCurve && <span className="tag" style={{ marginLeft: 4 }}>CURVE</span>}</td><td className="r num">{F(c.mcap)}</td><td className="r num">{F(c.vol1h)}</td><td className="r num">{bidsBy[c.mint] ? `${bidsBy[c.mint].bids} · ${S(bidsBy[c.mint].sol, 1)} SOL` : <span className="dim">—</span>}</td></tr>)}
       </tbody></table></div> })()}
+    {mine.length > 0 && <div className="card" style={{ marginBottom: 14 }}><h3>Your bids <span className="nm">{mine.length} open · {S(mine.reduce((a, b) => a + b.sol, 0), 2)} SOL committed</span></h3><table><thead><tr><th>Coin</th><th className="r">Size</th><th className="r">Price</th><th className="r">State</th><th className="r"></th></tr></thead><tbody>
+      {mine.map((b) => <tr key={b.id}><td className="tk" style={{ cursor: 'pointer' }} onClick={() => go('coin/' + b.mint + '/desk')}>{b.symbol}</td><td className="r num">{S(b.sol, 2)} SOL</td><td className="r num"><span className={b.discBps < 0 ? 'up' : 'dn'}>{b.discBps < 0 ? '+' : '−'}{(Math.abs(b.discBps) / 100).toFixed(1)}%</span></td><td className="r dim">{b.block ? 'block buy' : b.restable ? 'fillable' : 'resting'}</td><td className="r"><button className="btn sm" onClick={async () => { await bidder?.cancel(b.id); setMine((l) => l.filter((x) => x.id !== b.id)) }}>Cancel</button></td></tr>)}
+    </tbody></table></div>}
     <div className="tiles" style={{ marginBottom: 14, gridTemplateColumns: 'repeat(3,1fr)' }}>
       <div className="tile"><div className="l">Books with bids</div><div className="v num">{list ? list.length : '—'}</div></div>
       <div className="tile"><div className="l">SOL bid</div><div className="v num">{list ? S(list.reduce((a, b) => a + b.sol, 0), 2) : '—'}</div></div>

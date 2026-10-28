@@ -224,7 +224,7 @@ export default function App() {
     if (page === 'about') return <About />
     if (page === 'simulate') return <Simulate />
     if (page === 'vault') return <Tabs tabs={[['Vaults', <VaultPage go={go} solPrice={solPrice} />], ['Import', <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={arg2 || ''} needWallet={needWallet} sol={ws.sol} />], ['Simulate', <Simulate />]]} sel={arg} go={(t) => go('vault/' + t)} />
-    if (page === 'desk') return <Tabs tabs={[['Books', <DeskPage go={go} coins={coins} />], ['Leaderboard', <LeaderboardPage owner={ws.owner} />]]} sel={arg} go={(t) => go('desk/' + t)} />
+    if (page === 'desk') return <Tabs tabs={[['Books', <DeskPage go={go} coins={coins} owner={ws.owner} bidder={bidder} />], ['Leaderboard', <LeaderboardPage owner={ws.owner} />]]} sel={arg} go={(t) => go('desk/' + t)} />
     if (page === 'import') return <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={arg || ''} needWallet={needWallet} sol={ws.sol} />
     if (page === 'dev' || page === 'mine') return <Tabs tabs={[['My launches', <MinePage owner={ws.owner} go={go} solPrice={solPrice} onRenounce={renounce} onClaim={onClaim} busy={busy} />], ['How it works', <About />]]} sel={arg} go={(t) => go('dev/' + t)} />
     if (page === 'leaderboard') return <LeaderboardPage owner={ws.owner} />

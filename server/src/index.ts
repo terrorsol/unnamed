@@ -28,6 +28,7 @@ const server = createServer(async (req, res) => {
     // pubkey-shaped path params only
     for (const seg of [p.startsWith('/book/') && p.slice(6), p.startsWith('/vault/mint/') && p.slice(12), p.startsWith('/family/') && p.slice(8), p.startsWith('/dev/') && p.slice(5), p.startsWith('/import/quote/') && p.slice(14)]) if (seg && !isPk(seg)) throw new Error('bad address')
     if (p === '/health') return json(res, 200, { ok: true, rpc: RPC.replace(/api-key=.*/, 'api-key=…'), treasury: TREASURY, desk: D.stats(), vaults: V.list().length, stream: streamStats(), beta: { maxChestSol: V.MAX_CHEST_SOL, pumpStream: !!process.env.PUMPPORTAL_KEY, ipfs: !!process.env.PINATA_JWT, landing: process.env.JITO === '1' ? 'jito' : C.FAST ? 'sender' : 'rpc' } })
+    if (p === '/mybids') { const me = u.searchParams.get('me') || ''; if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(me)) return json(res, 400, { error: 'me' }); return json(res, 200, D.myBids(me)) }
     if (p === '/books') return json(res, 200, D.books())
     if (p === '/fills') return json(res, 200, D.history(u.searchParams.get('mint') || undefined))
     if (p === '/leaderboard') return json(res, 200, D.leaderboard(u.searchParams.get('me') || undefined))
