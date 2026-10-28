@@ -363,7 +363,9 @@ async function tickOne(v: Vault) {
       // a failed trade (rpc down, pumpportal unreachable) must not skip the quoting below: the action block has its own catch
       try {
       // defense: tranches at −20 / −35 / −50 from the high the crash started at (mm.ts: episode anchor, day cap, pool-impact cap, seller-concentration check, cooldown)
-      const dec = MM.defense(v, m, p, now, dd, MM.sellerShare(recent(v.mint), now))
+      // MM_BUYS=0 (beta knob): the vault never buys from the pool — no dip tranches, no accumulation; captures, the standing ask and a capped desk bid still run
+      const NOBUY = process.env.MM_BUYS === '0'
+      const dec = NOBUY ? null : MM.defense(v, m, p, now, dd, MM.sellerShare(recent(v.mint), now))
       if (dec) {
         const { spend, level } = dec
         await wait(Math.random() * 4000)
@@ -373,7 +375,7 @@ async function tickOne(v: Vault) {
         v.activity.unshift({ t: now, kind: 'buy', sol: spend, tokens: got, price: p, sig, msg: `tranche ${level + 1} · ${(dd * 100).toFixed(0)}% from high` }); EV.log('vault', `${v.symbol} dip buy ${spend} SOL (tranche ${level + 1})`, { mint: v.mint, sig })
       }
       // tax-funded vault: under its supply target → small buys under VWAP from the chest (the 2% tax keeps refilling it)
-      else if ((() => { const a = MM.accumulate(v, m, p, now); if (a) (v as any)._acc = a; return !!a })()) {
+      else if (!NOBUY && (() => { const a = MM.accumulate(v, m, p, now); if (a) (v as any)._acc = a; return !!a })()) {
         const spend = (v as any)._acc as number; delete (v as any)._acc
         const before = v.tokens; const sig = await trade(v, 'buy', spend, true, p)
         await sync(v, sig, -spend); const got = v.tokens - before; MM.onAccumulated(v, spend, got, now)
@@ -397,7 +399,7 @@ async function tickOne(v: Vault) {
       } catch {}
       // standing vault bid on the desk: −4%, ≤25% of chest, pulled for 15 min after toxic flow, only when the desk is open for this coin
       try {
-        const mb = R.minBlockSol(m); const want = MM.deskBid(v, mb, now)
+        const mb = R.minBlockSol(m); let want = MM.deskBid(v, mb, now); const bidMax = +(process.env.DESK_BID_MAX_SOL || 0); if (bidMax > 0 && want > bidMax) want = +Math.min(want, bidMax).toFixed(3)
         if (!v.bidRefreshAt || now > v.bidRefreshAt) v.bidRefreshAt = now + 45000 + Math.random() * 60000 // re-quote at random 45–105s, not on the minute
         if (R.deskOpen(m) && want > 0 && !PAPER) { if (Math.abs(want - v.deskBid) > v.chest * 0.05 || now > v.bidRefreshAt - 1000) { const stop = MM.stopped(v, p, now); const disc = Math.round(Math.max(stop ? 1500 : 0, R.deskDiscountBps(R.sigma(v.samples))) + (Math.random() * 100 - 50)); await D.placeInternal(kp(v), 'VAULT', v.mint, want, disc, () => v.chest - 0.02, (tx, solOut) => { KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'desk_fill', solOut) }, (seller) => MM.deskDenied(v, seller, Date.now())); if (!v.deskBid) v.activity.unshift({ t: now, kind: 'bid', sol: want, msg: `vault bid resting on desk at −${(disc / 100).toFixed(1)}%` }); v.deskBid = want } }
         else if (v.deskBid) { D.cancelInternal(v.pub, v.mint); v.deskBid = 0 }
