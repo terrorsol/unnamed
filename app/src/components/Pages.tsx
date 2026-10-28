@@ -85,17 +85,17 @@ export function SettingsPage({ s, set, owner, signTx, conn }: { s: Settings; set
 
 export function About() {
   return <div className="prose">
-    <h2>Our launchpad</h2>
-    <p>Coins launched here live on a curve bound to UNNAMED's platform (Raydium LaunchLab). <b>Every buy and sell pays a tax into that coin's chest</b> — the vault's market maker is funded by the coin's own volume from block zero — and 0.5% goes to the dev, on-chain. After graduation the liquidity is locked and its fees keep flowing. A copy launched on pump can't touch your pool, your fee or your buyers. pump.fun is still an option in the launch modal: bigger crowd, no tax, no defense.</p>
-    <h2>Three things, one terminal</h2>
-    <p><b>Vault.</b> A coin's own market maker, owned by its holders. Half the stake buys supply in the launch block, half sits in a chest. When a buy stretches the price, the vault sells a small slice into it and parks that SOL under the price — as a desk bid and as dip buys at −20 / −35 / −50%. It never withdraws. Timing, size and levels are randomized so it can't be front-run.</p>
-    <p><b>Desk.</b> Off-chart trading on any coin that clears the gate (graduated and ≥ $100K, or on the curve and ≥ $50K, with $5K/h of volume). Rest a bid 1–15% under spot, or a sell offer up to 15% either side. A fill is one transaction both sides sign — no candle, no slippage. Partial fills down to the min block. Names on the book are pseudonymous.</p>
-    <p><b>Vamps &amp; runners.</b> The home board scores every live coin: a <span className="tag pre">VAMP</span> tag means a younger, smaller copy of a coin that's moving — same ticker or name, launched inside its window, often the same deployer wallet or image — with a one-tap switch to the original. 🔥 marks runners by aged market cap × volume × buy pressure.</p>
-    <h2>What's live right now</h2>
-    <p>Every button is a real Solana transaction signed by your wallet. Curve coins route through pump.fun (via PumpPortal), graduated coins through Jupiter, landed through Helius Sender with a dual RPC route. Launches create real pump.fun coins with the vault in block zero via a Jito bundle. Prices come straight from the pool, not an indexer.</p>
+    <h2>Launchpad</h2>
+    <p>Coins launched here run on our curve (Raydium LaunchLab). Every buy and sell pays 2% into the coin's chest and 0.5% to the dev. The chest is the coin's own market maker from block zero. Optional: a 1% tax on every transfer, forever, on every venue. A copy launched on pump can't touch your pool. pump.fun is still in the launch modal: bigger crowd, no tax, no defense.</p>
+    <h2>Vault</h2>
+    <p>Half the stake buys supply in the launch block, half is the chest. Stretched buy → it sells a slice into it. Dips → it buys at −20 / −35 / −50%. It bids on the desk and sells at spot on the desk, no fee. Never withdraws. Timing and size are randomized.</p>
+    <h2>Desk</h2>
+    <p>Blocks off-chart, on any coin with a real price. Bid 1–15% under, or post a sell offer ±15%. A fill is one tx both sides sign. No candle, no slippage, no names. Partial fills down to the min block.</p>
+    <h2>Vamps</h2>
+    <p>A VAMP tag is a younger copy of a coin that's moving: same name or ticker, launched right after, often the same wallet. One tap switches you to the original — through the vault's spot offer when it has one, so the switch doesn't hit the chart. A copy that launched here pays its tax to the original's chest.</p>
     <h2>Fees</h2>
-    <p>Desk fills pay 0.5% to the treasury. No fee on trades from us. pump.fun takes 1%, PumpPortal 0.5% on curve trades; Jupiter routes carry only LP fees. Network and priority fees apply to everything.</p>
+    <p>Desk fills 0.5% to treasury, 0 when the vault is the seller. Launchpad trades: 2% chest + 0.5% dev + 0.25% Raydium. pump coins: 1% pump + 0.5% PumpPortal. Network fees on everything.</p>
     <h2>Custody</h2>
-    <p>Trading and the desk are non-custodial — we never see your keys. Vaults are run by a bot wallet in this beta: every signature passes a policy gate (purpose allowlist, per-transaction and hourly caps, never a withdrawal) and the chest is capped at 25 SOL per vault. Memecoins can go to zero; size accordingly, and read every transaction in your wallet before signing.</p>
+    <p>Trading and the desk never see your keys. Vaults run on a server key behind a policy gate: per-tx and hourly caps, no withdrawals, 25 SOL max per chest. Read every tx in your wallet before you sign.</p>
   </div>
 }

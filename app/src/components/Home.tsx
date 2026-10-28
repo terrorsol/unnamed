@@ -37,7 +37,7 @@ export default function Home(p: Props) {
       const vaultedCh = avg(ours.filter((x) => x.c).map((x) => x.c!.ch24)); const marketCh = avg(p.coins.map((c) => c.ch24))
       return <div className="tiles four" style={{ marginBottom: 12 }}>
         <div className="tile"><div className="l">Desks live</div><div className="v num"><Live v={desksLive}>{desksLive}</Live><span className="dim" style={{ fontSize: 13 }}> / {desks.length} open</span></div><div className="s status"><i className={p.deskUp ? '' : 'off'} />{p.deskUp ? 'desk online' : 'desk offline'}</div></div>
-        <div className="tile"><div className="l">Vaults live</div><div className="v num"><Live v={p.vaults.filter((v) => v.armed).length}>{p.vaults.filter((v) => v.armed).length}</Live></div><div className="s num">{chest > 0 ? `${S(chest, 1)} SOL in chests · ${ours.filter((x) => x.sg?.label === 'RUNNER').length} running` : 'holder-owned market makers'}</div></div>
+        <div className="tile"><div className="l">Vaults live</div><div className="v num"><Live v={p.vaults.filter((v) => v.armed).length}>{p.vaults.filter((v) => v.armed).length}</Live></div><div className="s num">{chest > 0 ? `${S(chest, 1)} SOL in chests · ${ours.filter((x) => x.sg?.label === 'RUNNER').length} running` : 'none yet'}</div></div>
         <div className="tile"><div className="l">Off-chart volume today</div><div className="v num"><Live v={offChartToday}>{S(offChartToday, 1)} SOL</Live></div><div className="s num">{fills24.length} desk fills · ${S(offChartToday * p.solPrice, 0)}</div></div>
         <div className="tile"><div className="l">24h · vaulted vs market</div><div className="v num">{vaultedCh == null ? <span className="dim">—</span> : <span className={vaultedCh >= 0 ? 'up' : 'dn'}>{vaultedCh >= 0 ? '+' : ''}{vaultedCh.toFixed(1)}%</span>}<span className="dim" style={{ fontSize: 13 }}> vs {marketCh == null ? '—' : (marketCh >= 0 ? '+' : '') + marketCh.toFixed(1) + '%'}</span></div><div className="s"><a href="#/docs/vaulted-vs-not" style={{ textDecoration: 'underline' }}>vaulted vs not →</a></div></div>
       </div> })()}
@@ -49,7 +49,7 @@ export default function Home(p: Props) {
     </div>
     {tab === 'ours' && <div className="lay">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {ours.length > 0 && <div className="card"><h3>Vaulted <span className="nm">holder-owned market maker on every one</span></h3><table><thead><tr><th>Coin</th><th className="r">MC</th><th className="r">1h</th><th className="r">Chest</th><th className="r">Floor</th><th className="r">Captured</th><th className="r">Signal</th><th className="r"></th></tr></thead><tbody>
+        {ours.length > 0 && <div className="card"><h3>Vaulted <span className="nm">market maker on</span></h3><table><thead><tr><th>Coin</th><th className="r">MC</th><th className="r">1h</th><th className="r">Chest</th><th className="r">Floor</th><th className="r">Captured</th><th className="r">Signal</th><th className="r"></th></tr></thead><tbody>
           {ours.map(({ v, c, sg }) => <tr key={v.id} onClick={() => p.go('coin/' + v.mint)}>
             <td><div className="row"><Pfp c={c || ({ mint: v.mint, image: v.image } as any)} mint={v.mint} /><div><div className="tk">{v.symbol} <span className={'tag ' + (v.mode === 'mm' ? 'live' : '')} style={{ marginLeft: 4 }}>{v.mode === 'mm' ? 'MM' : 'FLOOR'}</span></div></div></div></td>
             <td className="r">{c ? <Mc v={c.mcap} /> : (v as any).live?.price ? <Mc v={(v as any).live.price * (v.supply || 1e9) * p.solPrice} /> : '—'}</td><td className="r">{c ? <Ch v={c.ch1h} /> : (v as any).live?.vwap30 && (v as any).live?.price ? <Ch v={((v as any).live.price / (v as any).live.vwap30 - 1) * 100} /> : '—'}</td>
@@ -57,7 +57,7 @@ export default function Home(p: Props) {
             <td className="r">{sg ? <span className={'tag ' + labelTone(sg.label)} title={sg.reasons.join(' · ')}>{sg.label}</span> : <span className="dim">—</span>}</td>
             <td className="r">{c && <button className="btn sm pri" onClick={(e) => { e.stopPropagation(); p.quick(c) }}>⚡ {p.quickSol}</button>}</td></tr>)}
         </tbody></table></div>}
-        <div className="card"><h3>Runners <span className="nm">ranked by structure, not candles · tap a row for the why</span></h3><table><thead><tr><th>Coin</th><th className="r">MC</th><th className="r">5m</th><th className="r">1h</th><th className="r">Vol 1h</th><th className="r">Signal</th><th className="r"></th></tr></thead><tbody>
+        <div className="card"><h3>Runners <span className="nm">tap for the why</span></h3><table><thead><tr><th>Coin</th><th className="r">MC</th><th className="r">5m</th><th className="r">1h</th><th className="r">Vol 1h</th><th className="r">Signal</th><th className="r"></th></tr></thead><tbody>
           {!movers.length && <tr><td colSpan={7} className="empty">{p.err || 'Loading the market…'}</td></tr>}
           {movers.map(({ c, s }) => <tr key={c.mint} onClick={() => p.go('coin/' + c.mint)} title={s.reasons.join(' · ')}>
             <td><div className="row"><Pfp c={c} /><div><div className="tk">{c.symbol} {p.vaults.some((v) => v.mint === c.mint) && <span className="tag live" style={{ marginLeft: 4 }}>VAULTED</span>}{books[c.mint] && <span className="tag" style={{ marginLeft: 4 }}>DESK</span>}{vampMap[c.mint] && <span className="tag pre" style={{ marginLeft: 4 }} title={vampMap[c.mint].reasons.join(' · ')}>VAMP of {vampMap[c.mint].originalSymbol}</span>}</div><div className="nm">{vampMap[c.mint] ? vampMap[c.mint].reasons[0] : s.reasons[0]}</div></div></div></td>
@@ -67,13 +67,13 @@ export default function Home(p: Props) {
         </tbody></table></div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div className="card"><h3>Desks open <span className="nm">trade a block off-chart</span></h3>
+        <div className="card"><h3>Desks open</h3>
           <div className="feed" style={{ maxHeight: 300 }}>{desks.map((c) => <div className="it" key={c.mint} style={{ cursor: 'pointer' }} onClick={() => p.go('coin/' + c.mint + '/desk')}><span className="tk">{c.symbol}</span><span className="dim num"><Mc v={c.mcap} /></span><span className="num">{books[c.mint] ? `${books[c.mint].bids} bid${books[c.mint].bids === 1 ? '' : 's'} · ${S(books[c.mint].sol, 1)} SOL` : <span className="dim">no bids yet</span>}</span></div>)}
             {!desks.length && <div className="empty" style={{ padding: 16 }}>{p.deskUp ? 'No eligible coins loaded yet' : 'Desk offline'}</div>}</div></div>
         <div className="card"><h3>Off-chart <span className="nm">live</span></h3>
           <div className="feed tape" style={{ maxHeight: 320 }}>
             {tapeRows.map((x, i) => <div className={'it' + (x.t > mountedAt ? ' new' : '')} key={x.k || i} style={{ cursor: 'pointer' }} onClick={() => p.go('coin/' + x.mint)}><span className={'dot ' + x.tone} /><span className="tk">{x.symbol}</span><span className="num">{S(x.sol, 2)} SOL</span><span className={'num ' + x.tone}>{x.px}</span><span className="dim what">{x.what}</span><span className="dim num">{ago(x.t)}</span></div>)}
-            {!tapeRows.length && <div className="empty" style={{ padding: 16 }}>Every desk fill, capture and dip buy shows here</div>}</div></div>
+            {!tapeRows.length && <div className="empty" style={{ padding: 16 }}>Fills, captures, dip buys, tax</div>}</div></div>
       </div>
     </div>}
     {tab === 'market' && <MarketTable coins={p.coins} go={p.go} quick={p.quick} quickSol={p.quickSol} vaults={p.vaults} err={p.err} />}

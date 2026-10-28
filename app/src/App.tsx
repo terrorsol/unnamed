@@ -24,7 +24,7 @@ import { S, short } from './lib/fmt'
 import type { Coin } from './lib/dex'
 
 // three mains + bag; everything else lives under More
-const NAV: [string, string, string, string][] = [['home', 'Home', 'runners · our coins', '◼'], ['desk', 'Desk', 'blocks off-chart', '⇄'], ['vault', 'Vault', 'holder-owned mm', '◆'], ['portfolio', 'Bag', 'positions · p&l', '◎']]
+const NAV: [string, string, string, string][] = [['home', 'Home', 'runners · our coins', '◼'], ['vault', 'Vault', 'market maker', '◆'], ['desk', 'Desk', 'otc, off-chart', '⇄'], ['portfolio', 'Portfolio', 'positions · p&l', '◎']]
 const MORE: [string, string][] = [['dev', 'My launches'], ['vault/import', 'Import a coin'], ['settings', 'Settings'], ['docs', 'Docs']]
 
 function Tabs({ tabs, sel, go }: { tabs: [string, React.ReactNode][]; sel: string; go: (t: string) => void }) {
@@ -208,7 +208,7 @@ export default function App() {
     try { const before = ws.sol || 0; const sig = await T.sell({ ...x, depthSol: c.depthSol, venue: c.venue }, c.mint, frac, BigInt(h.raw), c.onCurve, (h.amount * (c.raw?.priceNative ? +c.raw.priceNative : 0)) * frac); const after = await connection.getBalance(x.owner).then((b) => b / 1e9).catch(() => before); recordSell(ws.owner, c.mint, c.symbol, frac, Math.max(0, after - before), sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Sold ${Math.round(frac * 100)}% ${c.symbol}`, rows: [['Landed', landing()], ['Received', '≈ ' + S(Math.max(0, after - before)) + ' SOL'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
     catch (e: any) { toast({ kind: 'err', title: 'Sell failed', rows: [['Reason', String(e?.message || e).slice(0, 120)]] }) } finally { setBusy('') }
   }
-  const onLaunch = async (meta: any, dev: number, stake: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = 0.3, venue: 'launchlab' | 'pump' = 'launchlab') => {
+  const onLaunch = async (meta: any, dev: number, stake: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = 0.3, venue: 'launchlab' | 'pump' = 'launchlab', permTax = false) => {
     const x = ctx(); if (!x) return needWallet()
     try {
       let vault: K.VaultPub | null = null
@@ -220,8 +220,8 @@ export default function App() {
         // fund the vault first so it can buy in block zero (skipped when retrying with an already-funded vault)
         if (!pend || pend.v.id !== vault.id) { setBusy('Funding vault…'); const t = new Transaction().add(SystemProgram.transfer({ fromPubkey: x.owner, toPubkey: new PublicKey(vault.pub), lamports: Math.floor(stake * 1e9) })); t.feePayer = x.owner; t.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
         const st = await signLegacy(t); const s2 = await connection.sendRawTransaction(st.serialize()); await confirmByPolling(connection, s2); pendingVault.current = { v: vault, dev: ws.owner, stake, venue } }
-        const r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, vault, +(stake * 0.5).toFixed(4), { sendBundle: K.sendBundle, signMsg }) : await T.launchBlockZero(x, meta, dev, vault, +(stake * 0.5).toFixed(4), { bundleSign: K.bundleSign, sendBundle: K.sendBundle, signMsg }); sig = r.sig; mint = r.mint; bundled = r.bundled
-      } else { const r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, null, 0, { sendBundle: K.sendBundle }) : await T.launch(x, meta, dev); sig = r.sig; mint = r.mint }
+        const r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, vault, +(stake * 0.5).toFixed(4), { sendBundle: K.sendBundle, signMsg, permTax }) : await T.launchBlockZero(x, meta, dev, vault, +(stake * 0.5).toFixed(4), { bundleSign: K.bundleSign, sendBundle: K.sendBundle, signMsg }); sig = r.sig; mint = r.mint; bundled = r.bundled
+      } else { const r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, null, 0, { sendBundle: K.sendBundle, permTax }) : await T.launch(x, meta, dev); sig = r.sig; mint = r.mint }
       pendingVault.current = null; recordCreate(ws.owner, mint, meta.symbol, dev, sig); setLedgerV((v) => v + 1); setLaunch(false)
       toast({ kind: 'ok', title: `${meta.symbol} is live${venue === 'launchlab' ? ' on UNNAMED' : ' on pump'}${bundled ? ' · vault in block zero' : ''}`, rows: [['Mint', short(mint, 6)], ['Dev buy', S(dev) + ' SOL']], href: solscan(sig) }); go('coin/' + mint)
       if (vault) {
@@ -278,7 +278,7 @@ export default function App() {
       <div className="row" style={{ marginTop: 6 }}><button className="btn" onClick={() => gateQ.ok(false)}>Hold</button><span className="sp" /><button className="btn pri" onClick={() => gateQ.ok(true)}>Fill at new price</button></div>
     </div></div>}
     {wp && <WalletPanel onClose={() => setWp(false)} burner={burner} setBurner={setBurner} mode={mode} setMode={setMode} sol={ws.sol} onWithdraw={onWithdraw} />}
-    {launch && <Launch onClose={() => setLaunch(false)} onLaunch={onLaunch} busy={busy} connected={connected} sol={ws.sol} needWallet={needWallet} taxBps={llp?.taxBps} platformReady={!!llp?.chain?.exists} />}
+    {launch && <Launch onClose={() => setLaunch(false)} onLaunch={onLaunch} busy={busy} connected={connected} sol={ws.sol} needWallet={needWallet} taxBps={llp?.taxBps} permTaxBps={llp?.permTaxBps} platformReady={!!llp?.chain?.exists} />}
     <div className="toasts" style={{ bottom: 'auto', top: 64 }}>{pings.map((r) => <RfqPing key={r.id} r={r} bidder={bidder} onRespond={onRespond} onDismiss={() => setPings((l) => l.filter((x) => x.id !== r.id))} busy={busy} />)}</div>
     <Toasts />
   </div>

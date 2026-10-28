@@ -261,10 +261,10 @@ export function openSwapFeed(onSwap: (s: SwapEvt) => void) {
 
 // ---- LaunchLab (our launchpad) ----
 export type LLPool = { poolId: string; status: number; migrated: boolean; priceSol: number; liqSol: number; soldPct: number; platformId: string; ours: boolean; platformFee: string }
-export type LLPlatform = { venue: string; platformId: string | null; admin: string | null; feeWallet: string; taxBps: number; creatorFeeBps: number; chain: { id: string; exists: boolean; feeRate?: number; creatorFeeRate?: number } | null }
+export type LLPlatform = { venue: string; permTaxBps?: number; platformId: string | null; admin: string | null; feeWallet: string; taxBps: number; creatorFeeBps: number; chain: { id: string; exists: boolean; feeRate?: number; creatorFeeRate?: number } | null }
 export const llPlatform = (): Promise<LLPlatform> => j('/ll/platform')
 export const llPlatformBuild = (admin: string): Promise<{ tx: string; platformId: string }> => j('/ll/platform/build', { admin })
 export const llPool = (mint: string): Promise<LLPool | null> => j('/ll/pool/' + mint)
 export const llQuote = (dev: number, vault: number): Promise<{ devPct: number; vaultPct: number; mcapSol: number }> => j(`/ll/quote?dev=${dev}&vault=${vault}`)
-export const llLaunchBuild = (b: { dev: string; name: string; symbol: string; uri: string; devBuySol: number; vaultId?: string; vaultBuySol?: number; auth?: DevAuth }): Promise<{ venue: string; mint: string; poolId: string; txs: string[]; vaultTx: string | null; vaultSpend: number; vaultTokens: number; devTokens: number }> => j('/ll/launch/build', b)
+export const llLaunchBuild = (b: { dev: string; name: string; symbol: string; uri: string; devBuySol: number; vaultId?: string; vaultBuySol?: number; auth?: DevAuth; permTax?: boolean }): Promise<{ venue: string; mint: string; poolId: string; txs: string[]; vaultTx: string | null; vaultSpend: number; vaultTokens: number; devTokens: number }> => j('/ll/launch/build', b)
 export const llTrade = (owner: string, action: 'buy' | 'sell', mint: string, amount: number, slippageBps?: number): Promise<{ tx: string }> => j('/ll/trade', { owner, action, mint, amount, slippageBps })

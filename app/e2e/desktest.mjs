@@ -156,7 +156,7 @@ await p3.route(/api\.dexscreener\.com/, (r) => r.fulfill({ status: 200, contentT
 await p3.goto('http://localhost:4191/#/coin/' + MINT + '/desk'); await p3.waitForTimeout(2500)
 const simple = await p3.locator('.panel').first().innerText()
 chk('simple desk: plain headline + both sides visible', /off the chart/i.test(simple) && /I want to sell/i.test(simple) && /I want to buy/i.test(simple))
-chk('simple desk: best offer or none, in words', /BEST OFFER|No offers yet/i.test(simple))
+chk('simple desk: best offer or none, in words', /BEST OFFER|No bids/i.test(simple))
 
 const buyTxt = await p3.locator('.panel').first().innerText()
 chk('simple desk: buy side explains itself, no above-market option', /under the price/i.test(buyTxt) && !/above the price/i.test(buyTxt))

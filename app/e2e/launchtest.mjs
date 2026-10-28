@@ -21,7 +21,7 @@ createServer(async (req, res) => {
   const u = new URL(req.url, 'http://x'); const p = u.pathname; let body = ''; for await (const c of req) body += c; const b = body ? JSON.parse(body) : {}
   ;(calls[p] ||= []).push(b); const json = (o) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(o)) }
   if (p === '/health') return json({ ok: true, vaults: 0, desk: { openBids: 0 }, beta: { keeper: {} } })
-  if (p === '/ll/platform') return json({ venue: 'launchlab', platformId: 'PLAT', admin: 'ADMIN', feeWallet: 'FEE', taxBps: 200, creatorFeeBps: 50, chain: { id: 'PLAT', exists: true, feeRate: 2, creatorFeeRate: 0.5 } })
+  if (p === '/ll/platform') return json({ venue: 'launchlab', permTaxBps: 100, platformId: 'PLAT', admin: 'ADMIN', feeWallet: 'FEE', taxBps: 200, creatorFeeBps: 50, chain: { id: 'PLAT', exists: true, feeRate: 2, creatorFeeRate: 0.5 } })
   if (p === '/ipfs') return json({ uri: 'https://ipfs.io/ipfs/test' })
   if (p === '/vault/create') return json({ ...vaultPub, dev: b.dev, venue: b.venue })
   if (p === '/ll/launch/build') { const dev = new PublicKey(b.dev); const vt = v0(vaultKp.publicKey, 2); vt.sign([vaultKp]); return json({ venue: 'launchlab', mint: MINT, poolId: 'POOL', txs: [b64(v0(dev))], vaultTx: b.vaultId ? b64(vt) : null, vaultSpend: 0.5, vaultTokens: 16.5e6, devTokens: 17.1e6 }) }
@@ -71,7 +71,7 @@ await pg.locator('.top .btn', { hasText: 'Launch' }).click(); await pg.waitForTi
 chk('launch modal: UNNAMED launchpad is the default', (await pg.locator('.venue button.on').innerText()).includes('UNNAMED'))
 const tagTxt = await pg.locator('.modal .tag').allInnerTexts(); chk('launch modal: tax shown from the server ' + JSON.stringify(tagTxt), tagTxt.some((t) => /2.0% tax/i.test(t)))
 chk('launch modal: pump is the other option, not recommended', (await pg.locator('.venue button').nth(1).innerText()).includes('no tax'))
-await pg.locator('.modal input').nth(0).fill('Ours'); await pg.locator('.modal input').nth(1).fill('OURS')
+await pg.locator('.modal input:not([type=checkbox])').nth(0).fill('Ours'); await pg.locator('.modal input:not([type=checkbox])').nth(1).fill('OURS')
 const png = join(SC, 'logo.png'); writeFileSync(png, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64'))
 await pg.locator('.modal input[type=file]').setInputFiles(png); await pg.waitForTimeout(200)
 chk('launch modal: supply estimate uses the real curve (≈1.7% for 1 SOL stake)', /1\.[5-9]% supply/.test(await pg.locator('.modal .note').first().innerText()))
@@ -80,6 +80,7 @@ chk('vault created on the launchlab venue', calls['/vault/create']?.[0]?.venue =
 chk('vault funded first (stake transfer sent)', sent.length >= 1)
 const lb = calls['/ll/launch/build']?.[0]
 chk('server asked to build the launch for the dev', !!lb && lb.dev === addr && lb.symbol === 'OURS' && lb.vaultId === 'v1' && lb.vaultBuySol === 0.5 && lb.devBuySol === 0.5)
+chk('permanent transfer tax requested by default', lb?.permTax === true)
 chk('launch build carries a dev signature (unnamed:launch:<vault>:<dev>:<minute>)', !!lb?.auth && lb.auth.msg.startsWith('unnamed:launch:v1:' + addr + ':') && lb.auth.sig.length > 60)
 chk('arm carries a dev signature', !!calls['/vault/arm']?.[0]?.auth && calls['/vault/arm'][0].auth.msg.startsWith('unnamed:arm:v1:' + MINT))
 const bundle = calls['/bundle']?.[0]?.txs || []

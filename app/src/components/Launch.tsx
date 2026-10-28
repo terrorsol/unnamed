@@ -6,12 +6,12 @@ import * as D from '../lib/dex'
 import { ModePicker } from './Desk'
 
 export type Venue = 'launchlab' | 'pump'
-type Props = { onClose: () => void; onLaunch: (m: CreateMeta, devBuy: number, stake: number, copyOf?: string, mode?: 'floor' | 'mm', ceiling?: number, venue?: Venue) => void; taxBps?: number; platformReady?: boolean; busy: string; connected: boolean; sol: number | null; needWallet: () => void }
+type Props = { onClose: () => void; onLaunch: (m: CreateMeta, devBuy: number, stake: number, copyOf?: string, mode?: 'floor' | 'mm', ceiling?: number, venue?: Venue, permTax?: boolean) => void; taxBps?: number; permTaxBps?: number; platformReady?: boolean; busy: string; connected: boolean; sol: number | null; needWallet: () => void }
 export default function Launch(p: Props) {
   const [name, setName] = useState(''); const [symbol, setSymbol] = useState(''); const [desc, setDesc] = useState(''); const [file, setFile] = useState<File | undefined>()
   const [tw, setTw] = useState(''); const [tg, setTg] = useState(''); const [web, setWeb] = useState('')
   const [dev, setDev] = useState(0.5); const [stake, setStake] = useState(1); const [mode, setMode] = useState<'floor' | 'mm'>('mm'); const [ceiling, setCeiling] = useState(0.3); const [adv, setAdv] = useState(false)
-  const [cq, setCq] = useState(''); const [cres, setCres] = useState<D.Coin[]>([]); const [copyOf, setCopyOf] = useState<D.Coin | null>(null); const [venue, setVenue] = useState<Venue>(p.platformReady === false ? 'pump' : 'launchlab')
+  const [cq, setCq] = useState(''); const [cres, setCres] = useState<D.Coin[]>([]); const [copyOf, setCopyOf] = useState<D.Coin | null>(null); const [venue, setVenue] = useState<Venue>(p.platformReady === false ? 'pump' : 'launchlab'); const [permTax, setPermTax] = useState(true)
   React.useEffect(() => { if (!cq.trim() || copyOf) { setCres([]); return } const t = setTimeout(() => D.search(cq).then((r) => setCres(r.slice(0, 5))).catch(() => {}), 300); return () => clearTimeout(t) }, [cq, copyOf])
   const ok = name.trim().length > 1 && symbol.trim().length > 0 && symbol.length <= 10 && !!file
   const total = dev + stake + (venue === 'launchlab' ? 0.1 : 0.02)
@@ -21,6 +21,7 @@ export default function Launch(p: Props) {
       <button className={venue === 'launchlab' ? 'on' : ''} disabled={p.platformReady === false} onClick={() => setVenue('launchlab')}><b>UNNAMED launchpad{p.platformReady === false ? ' · not set up yet' : ''}</b><span>every buy and sell pays {((p.taxBps ?? 200) / 100).toFixed(1)}% into the coin's chest · vault in block zero · copies can't touch your pool</span></button>
       <button className={venue === 'pump' ? 'on' : ''} onClick={() => setVenue('pump')}><b>pump.fun</b><span>bigger crowd, no tax, no vamp defense — the vault still works</span></button>
     </div>
+    {venue === 'launchlab' && (p.permTaxBps ?? 100) > 0 && <label className="row" style={{ gap: 8, fontSize: 12, marginBottom: 8 }}><input type="checkbox" checked={permTax} onChange={(e) => setPermTax(e.target.checked)} /> permanent {((p.permTaxBps ?? 100) / 100).toFixed(1)}% tax on every transfer, forever, every venue (token-2022)</label>}
     <div className="two">
       <div className="fld"><div className="lbl">Name</div><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Glass Frog" maxLength={32} /></div>
       <div className="fld"><div className="lbl">Ticker</div><input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} placeholder="GLASS" maxLength={10} /></div>
@@ -47,6 +48,6 @@ export default function Launch(p: Props) {
     <div className="kv"><span>Cost now</span><b className="num">{S(total, 2)} SOL (dev buy + vault stake + ~{venue === 'launchlab' ? '0.1 pool rent' : '0.02 fees'})</b></div>
     <div className="kv"><span>Wallet</span><b className="num">{p.sol == null ? '—' : S(p.sol) + ' SOL'}</b></div>
     <div className="row"><button className="btn" onClick={p.onClose}>Cancel</button><span className="sp" />
-      <button className="btn pri" disabled={!!p.busy || (p.connected && (!ok || (p.sol != null && total > p.sol)))} onClick={() => !p.connected ? p.needWallet() : p.onLaunch({ name: name.trim(), symbol: symbol.trim(), description: desc.trim(), file, twitter: tw || undefined, telegram: tg || undefined, website: web || undefined }, dev, stake, copyOf?.mint, mode, ceiling, venue)}>{p.busy || (!p.connected ? 'Connect wallet' : 'Create coin')}</button></div>
+      <button className="btn pri" disabled={!!p.busy || (p.connected && (!ok || (p.sol != null && total > p.sol)))} onClick={() => !p.connected ? p.needWallet() : p.onLaunch({ name: name.trim(), symbol: symbol.trim(), description: desc.trim(), file, twitter: tw || undefined, telegram: tg || undefined, website: web || undefined }, dev, stake, copyOf?.mint, mode, ceiling, venue, venue === 'launchlab' && permTax)}>{p.busy || (!p.connected ? 'Connect wallet' : 'Create coin')}</button></div>
   </div></div>
 }

@@ -129,12 +129,12 @@ async function confirmByPollingB58(conn: Connection, tx: VersionedTransaction) {
 /** Launch on OUR launchpad (Raydium LaunchLab under our platform config): the server builds create(+dev buy) for the dev to sign and, with a vault, the vault's
  *  block-zero buy already keeper-signed. Both go out as one Jito bundle; if the bundle path fails before anything is sent, the create goes out alone and
  *  the vault seeds on arm. Every trade on the coin pays the platform fee into the chest from the first block. */
-export async function launchOurs(ctx: Ctx, meta: P.CreateMeta, devBuySol: number, vault: { id: string } | null, vaultBuySol: number, deps: { sendBundle: (txs: string[]) => Promise<{ bundleId: string }>; signMsg?: (m: Uint8Array) => Promise<Uint8Array> }): Promise<{ sig: string; mint: string; bundled: boolean }> {
+export async function launchOurs(ctx: Ctx, meta: P.CreateMeta, devBuySol: number, vault: { id: string } | null, vaultBuySol: number, deps: { sendBundle: (txs: string[]) => Promise<{ bundleId: string }>; signMsg?: (m: Uint8Array) => Promise<Uint8Array>; permTax?: boolean }): Promise<{ sig: string; mint: string; bundled: boolean }> {
   const { conn, owner, sign, onStatus } = ctx
   onStatus?.('Uploading metadata…'); const uri = await P.uploadMetadata(meta, SERVER)
   onStatus?.('Building launch…')
   const auth = vault && deps.signMsg ? await K.devAuth(deps.signMsg, 'launch', vault.id, owner.toBase58()) : undefined
-  const b = await K.llLaunchBuild({ dev: owner.toBase58(), name: meta.name, symbol: meta.symbol, uri, devBuySol, vaultId: vault?.id, vaultBuySol, auth })
+  const b = await K.llLaunchBuild({ dev: owner.toBase58(), name: meta.name, symbol: meta.symbol, uri, devBuySol, vaultId: vault?.id, vaultBuySol, auth, permTax: !!deps.permTax })
   const txs = b.txs.map((x) => VersionedTransaction.deserialize(Buffer.from(x, 'base64')))
   onStatus?.(txs.length > 1 ? `Sign ${txs.length} transactions…` : 'Sign the create…')
   const signed: VersionedTransaction[] = []; for (const t of txs) signed.push(await sign(t))
