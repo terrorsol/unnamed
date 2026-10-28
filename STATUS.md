@@ -14,12 +14,12 @@
 - Private beta gate: invite keys (`npm run invites -- 10 "wave 1"` on the server), bound to the first wallet that signs, 30-day sessions; every write route and the bidder socket require one while `GATE=1`; reads stay open. Gate screen in the app, "have a key?" on banker.cash. 15-check e2e.
 - Brand: BANKER everywhere, black/white/green, bank mark; investor deck (`BANKER-deck.pdf`, source in `deck/`); waitlist landing live on banker.cash (repo `terrorsol/google`, gh-pages); `/waitlist` endpoint on the server.
 - Live: server on Render (`unnamed-server.onrender.com`, helius, gate on, 2 SOL chest cap, 1 SOL import tier), app at `app.banker.cash`, landing at `banker.cash`. One brand wallet `BANKY…` is every vault (top holder on every coin) with per-vault chest ledgers booked from tx deltas; launched mints end in `…BANK` from a pre-ground pool; launch metadata self-hosted. Drawdown stop on the mm leg. Paper vault runs on CI against live coins (`paper.yml`).
-- Tests: server 32/32, app 20/20, e2e launch 21 · app 22 · import 16 · mm 10 · desk 50 (desk has two checks being updated for the 25% bid); mainnet preflight in CI 31/33 → fixes pushed for the two.
+- Tests: server 32/32, app 20/20, e2e launch 21 (+21 in shared-wallet mode) · gate 15 · desk 50 · app 22 · import 16 · mm 10; mainnet: platform config created, platform fee claim (1.16 SOL) landed, a holder sell simulates clean. See POSTMORTEM.md for the first live launch.
 
 ## Left, in order (tight)
 
-1. **Fund `BANKYubgHd48UQt2VFtEytyE8QyeBHhiuptC3tHmfVPH` with 0.1 SOL** (platform config rent + fees) — you, 1 min. Nothing on-chain works before this.
-2. **Paper vault on a live coin** (`paper.yml`, running) — 2 h of real prices, zero SOL. Read the decisions, fix anything odd.
+1. **Refund stake** on TEST (Vault page, your signature) — then I flip MM_BUYS=1.
+2. **Phantom domain review** (2-min form, answers in POSTMORTEM.md).
 3. **Real import, 1 SOL chest** on a live coin — 1 h of watching fills, dip buys, the ledger vs the wallet (`/admin/wallet`).
 4. **One real launch** with a 0.5 SOL chest, you + 2 testers trade it — proves create, bundle, tax → chest, accumulation, `…BANK` mint. 30 min.
 5. Mint pool topped up from your PC (`npm run mints -- grind 50 push https://unnamed-server.onrender.com <ADMIN_KEY>`), Pinata JWT when you want IPFS permanence — 10 min.
