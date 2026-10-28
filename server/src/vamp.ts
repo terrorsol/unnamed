@@ -14,10 +14,11 @@ export type Family = { key: string; members: { mint: string; symbol: string; mca
 const norm = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
 const lev = (a: string, b: string) => { if (a === b) return 0; const m = a.length, n = b.length; if (!m || !n) return m + n; let prev = [...Array(n + 1).keys()]; for (let i = 1; i <= m; i++) { const cur = [i]; for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = cur } return prev[n] }
 /** 0..1 similarity of two names: exact 1, one edit 0.8, containment 0.6, shared 4+ char stem 0.4 */
-export function nameSim(a: string, b: string) { const x = norm(a), y = norm(b); if (!x || !y) return 0; if (x === y) return 1; const d = lev(x, y); if (d <= 1 && Math.min(x.length, y.length) >= 3) return 0.8; if (d <= 2 && Math.min(x.length, y.length) >= 5) return 0.65; if (x.length >= 4 && y.length >= 4 && (x.includes(y) || y.includes(x))) return 0.6; return 0 }
+export function nameSim(a: string, b: string) { const x = norm(a), y = norm(b); if (!x || !y) return 0; if (x === y) return 1; const d = lev(x, y); const L = Math.min(x.length, y.length); if (d <= 1 && L >= 4) return 0.8; if (d <= 2 && L >= 8) return 0.65; if (L >= 4 && (x.includes(y) || y.includes(x))) return 0.6; return 0 }
 
 const universe = new Map<string, Coin>(); let vamps: Vamp[] = []; let families: Family[] = []; let lastRun = 0
 const creators = new Map<string, string | null>()
+const createdHint = new Map<string, number>()
 
 function parsePair(p: any): Coin | null {
   if (!p?.baseToken?.address || p.chainId !== 'solana') return null
@@ -42,7 +43,12 @@ export const watch = (mint: string) => { if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.tes
 export async function refresh(extra: string[] = []) {
   const mints = new Set<string>([...pinned, ...extra])
   for (const path of ['/token-boosts/top/v1', '/token-boosts/latest/v1', '/token-profiles/latest/v1']) { try { const r = await fetch(DEX() + path); const arr: any[] = await r.json(); for (const x of arr) if (x.chainId === 'solana' && x.tokenAddress) mints.add(x.tokenAddress) } catch {} }
-  const coins = await tokensByMint([...mints].slice(0, 240))
+  // GeckoTerminal: what's trending (the originals) and what just launched (where vamps are born)
+  for (const path of ['/networks/solana/trending_pools?page=1', '/networks/solana/trending_pools?page=2', '/networks/solana/new_pools?page=1', '/networks/solana/new_pools?page=2']) {
+    try { const r = await fetch('https://api.geckoterminal.com/api/v2' + path, { headers: { accept: 'application/json' } }); if (!r.ok) continue; const d: any = await r.json(); for (const p of d.data || []) { const m = p.relationships?.base_token?.data?.id?.replace('solana_', ''); if (m && m !== 'So11111111111111111111111111111111111111112') { mints.add(m); const t = Date.parse(p.attributes?.pool_created_at || ''); if (t) createdHint.set(m, t) } } } catch {}
+  }
+  const coins = await tokensByMint([...mints].slice(0, 300))
+  for (const c of coins) if (!c.createdAt && createdHint.has(c.mint)) c.createdAt = createdHint.get(c.mint)!
   for (const c of coins) universe.set(c.mint, c)
   // drop stale entries not seen for 30 min
   const seen = new Set(coins.map((c) => c.mint)); for (const [m, c] of universe) if (!seen.has(m) && !pinned.has(m) && Date.now() - (c as any).seenAt > 1.8e6) universe.delete(m)

@@ -159,6 +159,10 @@ export async function takeAsk(conn: Connection, buyer: string, askId: string, si
   const r = await j('/ask/fill', { askId, buyer, sol: opts?.sol, tx: btoa(String.fromCharCode(...signed.serialize({ requireAllSignatures: false }))) })
   return { sig: r.sig, quote: q }
 }
+export type VampHit = { mint: string; symbol: string; original: string; originalSymbol: string; score: number; reasons: string[]; ageMin: number; mcapUsd: number }
+export type VampInfo = { vamp: VampHit | null; family: { key: string; members: { mint: string; symbol: string; mcapUsd: number; vol1h: number; leader: boolean; score: number; vampOf?: string }[] } | null; copies: VampHit[] }
+export const vampFor = (mint: string): Promise<VampInfo> => j('/vamp/' + mint)
+export const vamps = (): Promise<{ at: number; vamps: VampHit[]; families: any[] }> => j('/vamps')
 export const myAsks = (me: string): Promise<BookAsk[]> => j('/myasks?me=' + me)
 export const signMsgWith = (kp: Keypair) => async (m: Uint8Array) => nacl.sign.detached(m, kp.secretKey)
 export const signLegacyWith = (kp: Keypair) => async (t: Transaction) => { t.partialSign(kp); return t }
