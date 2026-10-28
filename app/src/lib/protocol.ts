@@ -17,14 +17,15 @@ export function flipFee(profit: number, heldMin: number): number {
 // pump.fun curve at creation: virtual 30 SOL × 1.073e9 tokens, 1e9 supply. Tokens are quoted on the gross SOL; the 1% fee is charged on top.
 // Same math as server/src/launch.ts, which CI preflight checks against PumpPortal's real builds to the lamport.
 export const CURVE0 = { vSol: 30, vTok: 1_073_000_000, supply: 1_000_000_000, feeBps: 100 }
-export function curveBuy(s: { vSol: number; vTok: number }, sol: number) { const vSol = s.vSol + sol; const vTok = (s.vSol * s.vTok) / vSol; return { tokens: s.vTok - vTok, after: { vSol, vTok }, cost: sol * (1 + CURVE0.feeBps / 1e4) } }
+/** pump: tokens on the gross SOL, fee on top. LaunchLab (our launchpad): the fees (protocol 0.25% + tax + creator) come OFF the SOL before it hits the curve. */
+export function curveBuy(s: { vSol: number; vTok: number }, sol: number, feeOffBps = 0) { const net = sol * (1 - feeOffBps / 1e4); const vSol = s.vSol + net; const vTok = (s.vSol * s.vTok) / vSol; return { tokens: s.vTok - vTok, after: { vSol, vTok }, cost: feeOffBps ? sol : sol * (1 + CURVE0.feeBps / 1e4) } }
 /** Block zero: dev buys inside the create tx, the vault buys half its stake right after in the same bundle. */
-export function blockZero(devSol: number, stakeSol: number) {
-  const dev = curveBuy(CURVE0, devSol); const vault = curveBuy(dev.after, stakeSol * 0.5)
+export function blockZero(devSol: number, stakeSol: number, feeOffBps = 0) {
+  const dev = curveBuy(CURVE0, devSol, feeOffBps); const vault = curveBuy(dev.after, stakeSol * 0.5, feeOffBps)
   const price = vault.after.vSol / vault.after.vTok
   return { devPct: dev.tokens / CURVE0.supply * 100, vaultPct: Math.min(VAULT_CAP * 100, vault.tokens / CURVE0.supply * 100), mcapSol: price * CURVE0.supply, chestSol: stakeSol * 0.5 }
 }
-export function vaultPct(stakeSol: number, devSol = 0): number { return blockZero(devSol, stakeSol).vaultPct }
+export function vaultPct(stakeSol: number, devSol = 0, feeOffBps = 0): number { return blockZero(devSol, stakeSol, feeOffBps).vaultPct }
 /** Cost-weighted clock when adding to a position */
 export function mergeClock(oldT: number, oldCost: number, newCost: number, now: number): number { return Math.round((oldT * oldCost + now * newCost) / (oldCost + newCost)) }
 /** Vault dip-buy budget for a given drawdown: ≤40% of chest per crash */

@@ -40,7 +40,7 @@ export default function Launch(p: Props) {
     </div>
     <div className="fld"><div className="lbl">Dev buy (block zero) — <b className="num">{S(dev, 2)} SOL</b></div><input type="range" className="slider" min={0} max={5} step={0.05} value={dev} onChange={(e) => setDev(+e.target.value)} /></div>
     </>}
-    <div className="note"><div className="row"><b>Vault stake</b><span className="sp" /><b className="num">{S(stake, 2)} SOL → {S(vaultPct(stake, dev), 1)}% supply</b></div>
+    <div className="note"><div className="row"><b>Vault stake</b><span className="sp" /><b className="num">{S(stake, 2)} SOL → {S(vaultPct(stake, dev, venue === 'launchlab' ? 25 + (p.taxBps ?? 200) + 50 : 0), 1)}% supply</b></div>
       <input type="range" className="slider" min={0} max={5} step={0.05} value={stake} onChange={(e) => setStake(+e.target.value)} style={{ marginTop: 6 }} />
       <div className="nm" style={{ marginTop: 4 }}>Half buys supply in the launch block, half is the chest. Your cut = vaulted %, renounceable. 0 = no vault.</div>
       {stake > 0 && adv && <div style={{ marginTop: 8 }}><ModePicker mode={mode} ceiling={ceiling} onChange={(m, c) => { setMode(m); setCeiling(c) }} compact /></div>}{stake > 0 && !adv && <div className="nm">Market maker · capture ceiling {Math.round(ceiling * 100)}%</div>}</div>
