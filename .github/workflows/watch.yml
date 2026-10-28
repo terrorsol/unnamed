@@ -1,0 +1,41 @@
+name: Watch (render)
+# The production server lives on Render (render.yaml). This job points the app at it (reports-live/server.json) and mirrors
+# /health, /admin/events and /admin/wallet to the reports-live branch every 2 min so the state can be watched without dashboard access.
+# One run lasts ~5h50m; the 6-hourly schedule keeps one alive.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '11 */6 * * *'
+  push:
+    branches: [main]
+    paths: ['.github/workflows/watch.yml']
+permissions:
+  contents: write
+concurrency:
+  group: live-desk   # same group as the tunnel desk: starting this cancels the tunnel, there is one desk
+  cancel-in-progress: true
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    env:
+      SERVER: ${{ vars.SERVER_URL || 'https://unnamed-server.onrender.com' }}
+      ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
+    steps:
+      - name: Mirror state
+        run: |
+          set -e
+          mkdir -p /tmp/pub && cd /tmp/pub && git init -q && git checkout -qb reports-live && git config user.name unnamed-ci && git config user.email ci@unnamed.local
+          end=$(( $(date +%s) + 345*60 ))
+          while [ $(date +%s) -lt $end ]; do
+            if curl -sf "$SERVER/health" -o health.json; then
+              printf '{ "url": "%s", "startedAt": %s, "run": "%s", "mode": "render" }\n' "$SERVER" "$(date +%s000)" "${{ github.run_id }}" > server.json
+              curl -sf "$SERVER/admin/events?key=$ADMIN_KEY" -o events.json || true
+              curl -sf "$SERVER/admin/wallet?key=$ADMIN_KEY" -o wallet.json || true
+              curl -sf "$SERVER/invite/redeemed?key=$ADMIN_KEY" -o redeemed.json || true
+            else
+              echo "$(date -u +%H:%M) server down" >> downtime.log
+            fi
+            git add -A && (git diff --cached --quiet || (git commit -qm "state $(date -u +%H:%M)" && git push -qf https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git reports-live)) || true
+            sleep 120
+          done

@@ -1,13 +1,9 @@
 name: Live desk (tunnel)
 # Runs the desk server (non-custodial, desk-only mode) on a runner behind a public Cloudflare quick tunnel for ~5h50m,
 # publishes the URL to the reports-live branch, which the app auto-discovers. A scheduled run every 6h keeps one alive.
+# Retired in favour of the Render deployment (watch.yml points the app there). Keep for a manual fallback desk.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '7 */6 * * *'
-  push:
-    branches: [main]
-    paths: ['server/src/**', '.github/workflows/live-desk.yml']
 permissions:
   contents: write
 concurrency:
