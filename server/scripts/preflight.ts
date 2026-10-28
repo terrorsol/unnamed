@@ -30,7 +30,7 @@ async function sim(tx: VersionedTransaction, label: string) {
   if (v.err) throw new Error(`${label} simulate err ${JSON.stringify(v.err)} · ${logs}`)
   return `${label} ok · ${v.unitsConsumed} CU · ${logs.slice(0, 160)}`
 }
-const ctx: { curveMint?: string; ammMint?: string; ammPool?: string; sol?: number } = {}
+const ctx: { curveMint?: string; mayhemMint?: string; ammMint?: string; ammPool?: string; sol?: number } = {}
 
 // ---------- market data shapes ----------
 await step('dexscreener: SOL pairs shape', async () => {
@@ -43,18 +43,21 @@ await step('geckoterminal: pump-fun curve pools (dex id)', async () => {
   const r = await timeout(fetch(`${GT}/networks/solana/dexes/pump-fun/pools?page=1&sort=h24_volume_usd_desc`), 10000); if (!r.ok) throw new Error('HTTP ' + r.status)
   const d: any = await r.json(); const pools = d.data || []; if (!pools.length) throw new Error('no pools')
   const cands = pools.filter((p: any) => +p.attributes.volume_usd.h1 > 500).sort((a: any, b: any) => +b.attributes.volume_usd.h1 - +a.attributes.volume_usd.h1)
-  const { curveSpot } = await import('../src/pool.ts'); const skipped: string[] = []; let live: any = null
-  for (const p of cands.slice(0, 8)) {
+  const { curveSpot } = await import('../src/pool.ts'); const skipped: string[] = []; let live: any = null, mayhem: any = null
+  for (const p of cands.slice(0, 10)) {
     const m = p.relationships.base_token.data.id.replace('solana_', '')
     try { const info = await conn.getAccountInfo(new PublicKey(m)); const sp = await curveSpot(m); const dec = (await conn.getTokenSupply(new PublicKey(m))).value.decimals
-      if (!info || info.owner.toBase58() !== 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') { skipped.push(`${p.attributes.name}: token-2022/mayhem`); continue }
       if (!sp || sp.complete) { skipped.push(`${p.attributes.name}: ${sp ? 'graduated' : 'no curve'}`); continue }
       if (dec !== 6) { skipped.push(`${p.attributes.name}: ${dec} decimals`); continue }
+      const t22 = !info || info.owner.toBase58() !== 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
+      if (t22) { if (!mayhem) mayhem = p; continue }
       live = p; break } catch (e: any) { skipped.push(`${p.attributes.name}: ${String(e.message).slice(0, 40)}`) }
+    if (live && mayhem) break
   }
-  if (!live) throw new Error('no plain live curve coin among ' + cands.length + ' · ' + skipped.join('; '))
-  ctx.curveMint = live.relationships.base_token.data.id.replace('solana_', '')
-  return `${pools.length} pools · picked ${live.attributes.name} mint ${ctx.curveMint.slice(0, 8)}… h24 $${(+live.attributes.volume_usd.h24).toFixed(0)}` + (skipped.length ? ` · skipped ${skipped.join('; ')}` : '')
+  // most live curve coins are now Token-2022 ("mayhem mode"). Prefer a plain one for the classic checks, but keep a mayhem one to test the routes against.
+  const pick = live || mayhem; if (!pick) throw new Error('no live curve coin among ' + cands.length + ' · ' + skipped.join('; '))
+  ctx.curveMint = pick.relationships.base_token.data.id.replace('solana_', ''); if (mayhem) ctx.mayhemMint = mayhem.relationships.base_token.data.id.replace('solana_', '')
+  return `${pools.length} pools · picked ${pick.attributes.name} (${live ? 'plain' : 'mayhem/token-2022'}) mint ${ctx.curveMint.slice(0, 8)}… h24 $${(+pick.attributes.volume_usd.h24).toFixed(0)}` + (mayhem ? ` · mayhem sample ${mayhem.attributes.name}` : ' · no mayhem coin in top 10') + (skipped.length ? ` · skipped ${skipped.join('; ')}` : '')
 })
 await sleep(2500)
 await step('geckoterminal: active pumpswap pool (trending) + ohlcv + trades', async () => {
@@ -126,6 +129,20 @@ await step('pumpportal: curve buy (single) → simulate', async () => {
   if (!r.ok) throw new Error(`HTTP ${r.status} ${await r.text()}`); const ct = r.headers.get('content-type')
   curveBuy = VersionedTransaction.deserialize(new Uint8Array(await r.arrayBuffer()))
   return `content-type=${ct} · version=${curveBuy.message.version} · ${curveBuy.message.compiledInstructions.length} ix · ` + (await sim(curveBuy, 'buy'))
+})
+await step('mayhem coin: pumpportal buy vs jupiter fallback → simulate', async () => {
+  if (!ctx.mayhemMint) return 'no Token-2022 curve coin in the top 10 right now — skipped'
+  const notes: string[] = []
+  try {
+    const r = await timeout(fetch(PP, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ publicKey: PAYER.toBase58(), action: 'buy', mint: ctx.mayhemMint, amount: 0.01, denominatedInSol: 'true', slippage: 15, priorityFee: 0.0005, pool: 'pump' }) }), 15000)
+    if (!r.ok) notes.push(`pumpportal HTTP ${r.status}`); else notes.push('pumpportal: ' + (await sim(VersionedTransaction.deserialize(new Uint8Array(await r.arrayBuffer())), 'buy').catch((e) => 'FAILS ' + String(e.message).slice(0, 90))))
+  } catch (e: any) { notes.push('pumpportal: ' + String(e.message).slice(0, 80)) }
+  await sleep(1500)
+  try { const { jupBuild } = await import('../src/chain.ts'); const tx = await jupBuild(PAYER, 'buy', ctx.mayhemMint, 0.01, true, 1500); notes.push('jupiter: ' + (await sim(tx, 'buy').catch((e) => 'FAILS ' + String(e.message).slice(0, 90)))) }
+  catch (e: any) { notes.push('jupiter: ' + String(e.message).slice(0, 80)) }
+  // this step reports; it fails only when NEITHER route can buy the coin
+  if (!notes.some((n) => / ok /.test(n))) throw new Error(notes.join(' · '))
+  return notes.join(' · ')
 })
 await step('pumpportal: amm buy (single) → simulate', async () => {
   const notes: string[] = []
