@@ -8,7 +8,7 @@ Decision from 4am: **UNNAMED is a launchpad on Raydium LaunchLab, pump stays as 
 4. **Vamps feeding runners.** Declared copies always streamed half the dev cut; now (a) the MM capture path streams too (was a bug), and (b) a vaulted coin the detector flags as a copy (score ≥0.8, original vaulted) becomes a copy automatically. On our launchpad a copy can't touch the original's pool at all.
 5. **Keeper** caps survive restarts. Tax claims are paid for by the coin's own vault (keeper co-signs), so the platform wallet never needs funding.
 
-Tests: server 23/23 unit, app 20/20, e2e desk 50 · app 22 · mm 10 · import 16 · **launch 16** (new, end to end in the browser), mainnet preflight 30 checks.
+Tests: server 25/25 unit, app 20/20, e2e desk 50 · app 22 · mm 10 · import 16 · **launch 18** (new, end to end in the browser), mainnet preflight **31/31** (incl. the real server's launchpad routes over HTTP).
 
 **Never rotate `VAULT_SECRET` once the platform exists** — the platform's fee wallet is derived from it; back it up from Render's env page. (Or set `PLATFORM_SECRET` to a base58 key you hold.)
 
