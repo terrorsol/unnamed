@@ -1,4 +1,17 @@
-# Morning checklist — vault + desk live on chain
+# Morning note (overnight 2026-10-28)
+
+Everything below ran simulated against mainnet, no funds. Full log in `DIAGNOSIS.md` → "Overnight 2026-10-28". Test state: server 23/23 unit, app 20/20 unit, e2e desk 50 · app 22 · mm 10 · import 16, mainnet preflight 24 checks (`reports-preflight` branch).
+
+What's new since you went to bed, in order of importance:
+1. **Vault signing is gated.** One keeper signs everything, with a purpose and a SOL-out amount; ≤75% of chest per tx, ≤100%/hour; treasury payouts and refunds exempt. Nothing can withdraw.
+2. **Launch math is exact.** Our block-zero numbers match PumpPortal's real builds to the lamport (checked on mainnet in CI). The server now signs the vault's block-zero buy on its *real* cost, not PumpPortal's 3× padded ceiling, and refuses anything that isn't a plain pump buy for that mint from that wallet.
+3. **Mayhem coins.** Most live pump curve coins today are Token-2022 ("mayhem mode"). PumpPortal's builder sometimes fails on them (pump error 6063); Jupiter buys them fine. Vault and app now dry-run every curve trade and switch to Jupiter when the chain says the build would fail. DexScreener misprices these coins; the exact curve read is what the vault/desk use, with GeckoTerminal as the data fallback.
+4. **UI:** every live number ticks green/red on change, new tape rows slide in, the coin page "Rules" tab and Docs are rewritten in plain words (no preview rows), home tiles are 2×2 on phone.
+5. The old `stake/(stake+1)×13.3%` supply estimate is gone: 1 SOL stake → ≈1.7% of supply at block zero (real curve). Shown that way in the launch modal now.
+
+Then do the checklist below. Nothing else needs you.
+
+# Checklist — vault + desk live on chain
 
 Everything below is wired, e2e-tested against mocks, and every transaction shape has been simulated on mainnet by CI (no funds). The only step that needs a human is the deploy.
 
