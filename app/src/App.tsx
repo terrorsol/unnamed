@@ -8,7 +8,7 @@ import { confirmByPolling } from './lib/rpc'
 import WalletPanel from './components/WalletPanel'
 import * as B from './lib/burner'
 import { useRoute, useSettings, useSolPrice, useTrending, useNewTokens, useWalletState, useCoins } from './hooks'
-import Board from './components/Board'
+import Home from './components/Home'
 import CoinPage from './components/CoinPage'
 import Launch from './components/Launch'
 import { Portfolio, SettingsPage, About } from './components/Pages'
@@ -50,7 +50,14 @@ export default function App() {
   const freshMints = useMemo(() => fresh.list.slice(0, 30).map((t) => t.mint), [fresh.list])
   const freshCoins = useCoins(freshMints, 12000)
   const heldCoins = useCoins(useMemo(() => ws.tokens.map((t) => t.mint), [ws.tokens]), 20000)
-  const byMint = useMemo(() => { const m: Record<string, Coin> = { ...freshCoins, ...heldCoins }; coins.forEach((c) => (m[c.mint] = c)); results.forEach((c) => (m[c.mint] = c)); return m }, [coins, freshCoins, heldCoins, results])
+  const [deskUp, setDeskUp] = useState(false); const [vaultV, setVaultV] = useState(0)
+  const [vaultList, setVaultList] = useState<K.VaultPub[]>([])
+  useEffect(() => { if (!deskUp) { setVaultList([]); return } const f = () => K.vaults().then(setVaultList).catch(() => {}); f(); const i = setInterval(f, 10000); return () => clearInterval(i) }, [deskUp, vaultV])
+  const vaulted = useMemo(() => new Set(vaultList.map((v) => v.mint!).filter(Boolean)), [vaultList])
+  const vaultMints = useMemo(() => vaultList.map((v) => v.mint!).filter(Boolean), [vaultList])
+  const vaultCoins = useCoins(vaultMints, 15000)
+
+  const byMint = useMemo(() => { const m: Record<string, Coin> = { ...freshCoins, ...heldCoins, ...vaultCoins }; coins.forEach((c) => (m[c.mint] = c)); results.forEach((c) => (m[c.mint] = c)); return m }, [coins, freshCoins, heldCoins, vaultCoins, results])
   const connected = !!activeKey
 
   useEffect(() => { if (!q.trim()) { setResults([]); return } const t = setTimeout(() => D.search(q).then(setResults).catch(() => {}), 350); return () => clearTimeout(t) }, [q])
@@ -64,7 +71,7 @@ export default function App() {
   // --- signing helpers for legacy txs / messages (desk + vault) ---
   const signLegacy = useCallback(async (t: Transaction) => { if (mode === 'burner') { if (!burner) throw new Error('wallet locked'); t.partialSign(burner); return t } if (!wallet.signTransaction) throw new Error('wallet cannot sign'); return wallet.signTransaction(t) }, [mode, burner, wallet.signTransaction])
   const signMsg = useCallback(async (m: Uint8Array) => { if (mode === 'burner') { if (!burner) throw new Error('wallet locked'); return K.signMsgWith(burner)(m) } if (!wallet.signMessage) throw new Error('wallet cannot sign messages'); return wallet.signMessage(m) }, [mode, burner, wallet.signMessage])
-  const [bidder, setBidder] = useState<K.BidderSession | null>(null); const [deskUp, setDeskUp] = useState(false); const [deskTick, setDeskTick] = useState(0)
+  const [bidder, setBidder] = useState<K.BidderSession | null>(null); const [deskTick, setDeskTick] = useState(0)
   const [pings, setPings] = useState<K.Rfq[]>([])
   useEffect(() => { K.health().then(() => setDeskUp(true)).catch(() => setDeskUp(false)); const i = setInterval(() => K.health().then(() => setDeskUp(true)).catch(() => setDeskUp(false)), 30000); return () => clearInterval(i) }, [])
   useEffect(() => {
@@ -89,9 +96,6 @@ export default function App() {
     try { const { sig, quote } = await K.takeBid(connection, activeB58, id, signLegacy, setBusy); const got = Number(BigInt(quote.sellerLamports)) / 1e9; recordSell(ws.owner, quote.mint, quote.bid.symbol, 0, got, sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Block sold on the desk`, rows: [['Received', S(got) + ' SOL'], ['Discount', '−' + (quote.bid.discBps / 100).toFixed(1) + '%'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
     catch (e: any) { toast({ kind: 'err', title: 'Desk fill failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
   }
-  const [vaultV, setVaultV] = useState(0)
-  const [vaulted, setVaulted] = useState<Set<string>>(new Set())
-  useEffect(() => { if (!deskUp) return; const f = () => K.vaults().then((l) => setVaulted(new Set(l.map((v) => v.mint!).filter(Boolean)))).catch(() => {}); f(); const i = setInterval(f, 30000); return () => clearInterval(i) }, [deskUp, vaultV])
   const onRedeem = async (c: Coin, tokens: number, decimals: number) => {
     if (!activeB58) return needWallet()
     try { const { sig, sol } = await K.redeem(connection, activeB58, c.mint, tokens, decimals, signLegacy, setBusy); recordSell(ws.owner, c.mint, c.symbol, 0, sol, sig); setLedgerV((v) => v + 1); setVaultV((x) => x + 1); toast({ kind: 'ok', title: `Redeemed ${c.symbol} against the vault`, rows: [['Received', S(sol, 4) + ' SOL'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
@@ -162,15 +166,18 @@ export default function App() {
     try {
       let vault: K.VaultPub | null = null
       if (stake > 0) { setBusy('Creating vault…'); vault = await K.vaultCreate(ws.owner, stake, copyOf, mode, ceiling).catch((e) => { toast({ kind: 'err', title: 'Vault server unreachable — launching without a vault', rows: [['Error', String(e.message)]] }); return null }) }
-      const { sig, mint } = await T.launch(x, meta, dev); recordCreate(ws.owner, mint, meta.symbol, dev, sig); setLedgerV((v) => v + 1); setLaunch(false)
-      toast({ kind: 'ok', title: `${meta.symbol} is live on pump.fun`, rows: [['Mint', short(mint, 6)], ['Dev buy', S(dev) + ' SOL']], href: solscan(sig) }); go('coin/' + mint)
+      let sig: string, mint: string, bundled = false
       if (vault) {
-        try {
-          setBusy('Funding vault…'); const t = new Transaction().add(SystemProgram.transfer({ fromPubkey: x.owner, toPubkey: new PublicKey(vault.pub), lamports: Math.floor(stake * 1e9) })); t.feePayer = x.owner; t.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
-          const st = await signLegacy(t); const s2 = await connection.sendRawTransaction(st.serialize()); await confirmByPolling(connection, s2)
-          setBusy('Arming vault…'); const v = await K.vaultArm(vault.id, mint, meta.symbol, meta.name); setVaultV((n) => n + 1)
-          toast({ kind: 'ok', title: `Vault armed · ${v.pct}% supply target`, rows: [['Stake', S(stake) + ' SOL'], ['Vault', short(v.pub, 6)]], href: solscan(s2) })
-        } catch (e: any) { toast({ kind: 'err', title: 'Vault funding failed — coin is live, vault is not', rows: [['Reason', String(e?.message || e).slice(0, 120)], ['Vault address', vault.pub]] }) }
+        // fund the vault first so it can buy in block zero
+        setBusy('Funding vault…'); const t = new Transaction().add(SystemProgram.transfer({ fromPubkey: x.owner, toPubkey: new PublicKey(vault.pub), lamports: Math.floor(stake * 1e9) })); t.feePayer = x.owner; t.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
+        const st = await signLegacy(t); const s2 = await connection.sendRawTransaction(st.serialize()); await confirmByPolling(connection, s2)
+        const r = await T.launchBlockZero(x, meta, dev, vault, +(stake * 0.5).toFixed(4), { bundleSign: K.bundleSign, sendBundle: K.sendBundle }); sig = r.sig; mint = r.mint; bundled = r.bundled
+      } else { const r = await T.launch(x, meta, dev); sig = r.sig; mint = r.mint }
+      recordCreate(ws.owner, mint, meta.symbol, dev, sig); setLedgerV((v) => v + 1); setLaunch(false)
+      toast({ kind: 'ok', title: `${meta.symbol} is live${bundled ? ' · vault in block zero' : ''}`, rows: [['Mint', short(mint, 6)], ['Dev buy', S(dev) + ' SOL']], href: solscan(sig) }); go('coin/' + mint)
+      if (vault) {
+        try { setBusy('Arming vault…'); const v = await K.vaultArm(vault.id, mint, meta.symbol, meta.name); setVaultV((n) => n + 1); toast({ kind: 'ok', title: `Vault armed · ${v.pct}% supply target`, rows: [['Stake', S(stake) + ' SOL'], ['Vault', short(v.pub, 6)]] }) }
+        catch (e: any) { toast({ kind: 'err', title: 'Vault arm failed — coin is live', rows: [['Reason', String(e?.message || e).slice(0, 120)], ['Vault address', vault.pub]] }) }
       }
       setTimeout(() => setRk((k) => k + 1), 1500)
     }
@@ -191,7 +198,7 @@ export default function App() {
     if (page === 'dev' || page === 'mine' || page === 'import') return <Tabs tabs={[['My launches', <MinePage owner={ws.owner} go={go} solPrice={solPrice} onRenounce={renounce} onClaim={onClaim} busy={busy} />], ['Import a coin', <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} go={go} initialMint={page === 'import' ? arg : ''} needWallet={needWallet} sol={ws.sol} />], ['How it works', <About />]]} sel={page === 'import' ? 'import-a-coin' : arg} go={(t) => go('dev/' + t)} />
     if (page === 'leaderboard') return <LeaderboardPage owner={ws.owner} />
     if (false) return <div className="prose"><h2>{page === 'vault' ? 'Vault' : 'Desk'} <span className="tag pre">PREVIEW</span></h2><p>{page === 'vault' ? 'Program-owned market maker funded by the dev\'s block-zero stake. Buys dips (≤40% of chest per crash), trims only above holder cost basis and 30-min VWAP, never withdraws. Ships on-chain in Beta v1 — the per-coin preview is on each coin page under Protocol.' : 'Escrowed block bids at −3–5%, 60s rest, all-or-none, min block 2% of pool reserve, open once a coin has graduated and holds $100K mc. Ships with the vault program; the gating is already computed live on each coin page.'}</p></div>
-    return <Board coins={q.trim() ? results : coins} fresh={fresh.list} freshCoins={freshCoins} trades={fresh.trades} live={fresh.live} solPrice={solPrice} watch={settings.watch} go={go} quick={quick} quickSol={settings.quickBuy} err={err} vaulted={vaulted} />
+    return <Home coins={q.trim() ? results : coins} byMint={byMint} vaults={vaultList} solPrice={solPrice} go={go} quick={quick} quickSol={settings.quickBuy} deskUp={deskUp} onLaunch={() => setLaunch(true)} fresh={fresh.list} freshCoins={freshCoins} trades={fresh.trades} live={fresh.live} err={err} watch={settings.watch} />
   }
   return <div className="app">
     <div className="top">

@@ -8,6 +8,7 @@ import * as R from './rules.ts'
 import { market } from './market.ts'
 import { balanceSol, tokenBalance, pumpTrade, conn, confirm, decimals, TREASURY } from './chain.ts'
 import * as D from './desk.ts'
+import { watchPool } from './stream.ts'
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import { PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from '@solana/web3.js'
 
@@ -21,6 +22,7 @@ export type Act = { t: number; kind: 'stake' | 'seed' | 'buy' | 'trim' | 'cut' |
 export type Vault = { id: string; pub: string; sk: string; mint?: string; symbol?: string; name?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; createdAt: number; copyOf?: string; streamed: number; redeemed: number; supply: number; deskBid: number; imported?: boolean; feePaid?: number; trimmedToday: number; trimDay: number; depositedTokens: number; funders: Record<string, number>; mode: 'floor' | 'mm'; ceiling: number; lastLiq: number; lastLiqT: number; buyTimes: number[]; tranchesFired: number[]; score: { captured: number; captures: number; deskBought: number; deskFills: number; dipBought: number; dips: number; redeployed: number; floor0: number }; lastCapture: number
   avgCost: number; tokens: number; chest: number; spentEpisode: number; high15: { t: number; p: number }[]; samples: { t: number; p: number; v: number }[]; ema5: number | null; ema15: number | null; lastBuy: number; lastTrim: number; activity: Act[]; devPaid: number }
 let vaults: Record<string, Vault> = {}
+const watched = new Map<string, () => void>()
 let SOLUSD = 0; setInterval(() => fetch(`${process.env.DEX_URL || 'https://api.dexscreener.com'}/tokens/v1/solana/So11111111111111111111111111111111111111112`).then((r) => r.json()).then((a: any[]) => { const x = a?.[0]?.priceUsd; if (x) SOLUSD = +x }).catch(() => {}), 30000)
 export function load() { if (existsSync(FILE)) vaults = JSON.parse(readFileSync(FILE, 'utf8')) }
 function save() { mkdirSync(DIR, { recursive: true }); writeFileSync(FILE, JSON.stringify(vaults)) }
@@ -40,8 +42,9 @@ export async function arm(id: string, mint: string, symbol: string, name = '') {
   const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) return pub(v)
   const bal = await balanceSol(v.pub); if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL`)
   v.mint = mint; v.symbol = symbol; v.name = name; v.armed = true; v.chest = bal; try { const sup = await conn.getTokenSupply(new PublicKey(mint)); v.supply = +(sup.value.uiAmount || 1e9) } catch {} v.activity.unshift({ t: Date.now(), kind: 'stake', sol: bal, msg: 'dev stake received' })
-  // seed: spend half the stake on supply at launch, keep half as chest for dips
+  // seed: spend half the stake on supply at launch, keep half as chest for dips (skipped when the vault already bought in the block-zero bundle)
   const seed = +(bal * 0.5).toFixed(4)
+  if (v.activity.some((a) => (a.msg || '').startsWith('signed block-zero'))) { await sync(v); v.avgCost = v.tokens ? (v.stakeSol * 0.5) / v.tokens : 0; v.activity.unshift({ t: Date.now(), kind: 'seed', sol: v.stakeSol * 0.5, tokens: v.tokens, msg: 'block-zero vault supply (bundled)' }); save(); return pub(v) }
   try { const sig = await pumpTrade(kp(v), 'buy', mint, seed, true, 15); await sync(v); v.avgCost = seed / Math.max(v.tokens, 1e-9); v.activity.unshift({ t: Date.now(), kind: 'seed', sol: seed, tokens: v.tokens, sig, msg: 'block-zero vault supply' }) }
   catch (e: any) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'seed failed: ' + e.message }) }
   save(); return pub(v)
@@ -168,8 +171,9 @@ export async function tick() {
       const high = Math.max(...v.high15.map((s) => s.p)); const dd = p / high - 1
       if (dd > -0.03) { v.spentEpisode = 0; v.tranchesFired = [] }
       if (!v.score) v.score = { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: v.supply ? v.chest / v.supply : 0 }
-      // infer net buy flow on graduated coins from the pool's SOL reserve delta (curve coins get exact buys from the stream)
-      if (!m.onCurve && m.liqSol) { if (v.lastLiq && now - v.lastLiqT < 20000) { const inflow = m.liqSol - v.lastLiq; if (inflow >= R.MM_MIN_BUY_SOL) await onBuy(v, inflow, m, p, now) } v.lastLiq = m.liqSol; v.lastLiqT = now }
+      // graduated coins: exact per-swap buys from the pool websocket; reserve-delta only while the stream isn't attached
+      if (!m.onCurve && m.pair && !watched.has(v.id)) { watched.set(v.id, watchPool(m.pair, async (sw) => { if (sw.side !== 'buy' || sw.trader === v.pub) return; try { const mm = await market(v.mint!); if (mm) { await onBuy(v, sw.sol, mm, mm.priceSol, Date.now()); save() } } catch {} })) }
+      if (!m.onCurve && m.liqSol && !watched.has(v.id)) { if (v.lastLiq && now - v.lastLiqT < 20000) { const inflow = m.liqSol - v.lastLiq; if (inflow >= R.MM_MIN_BUY_SOL) await onBuy(v, inflow, m, p, now) } v.lastLiq = m.liqSol; v.lastLiqT = now }
       // defense: three tranches at −20 / −35 / −50 from the 15-min high, each a third of the defense budget (40% of chest in mm, 40% in floor)
       const budget = v.chest * R.VAULT_MAX_CRASH_SPEND * R.inventorySkew(v.supply ? (v.tokens / v.supply) * 100 : 0, v.pct || 5).defend
       const level = R.DEFENSE_TRANCHES.findIndex((L, i) => dd <= L && !(v.tranchesFired || []).includes(i))
@@ -227,4 +231,22 @@ export function startStream() {
     pws.onclose = () => setTimeout(connect, 5000); pws.onerror = () => { try { pws.close() } catch {} }
   }
   connect(); setInterval(() => { try { if (pws?.readyState === 1) { const mints = Object.values(vaults).filter((v) => v.armed && v.mint).map((v) => v.mint!); if (mints.length) pws.send(JSON.stringify({ method: 'subscribeTokenTrade', keys: mints })) } } catch {} }, 60000)
+}
+
+/** Block-zero: sign the vault's buy tx inside a launch bundle. Verifies it is a PumpPortal buy for this vault's mint-to-be, within chest. */
+import { VersionedTransaction } from '@solana/web3.js'
+export async function signBundleTx(id: string, mint: string, txB64: string, maxSol: number) {
+  const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('already armed')
+  const bal = await balanceSol(v.pub); if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL`)
+  const spend = Math.min(maxSol, bal * 0.5); if (spend < 0.05) throw new Error('nothing to spend')
+  const tx = VersionedTransaction.deserialize(Buffer.from(txB64, 'base64'))
+  const keys = tx.message.staticAccountKeys.map((k) => k.toBase58()); if (keys[0] !== v.pub) throw new Error('tx fee payer is not the vault')
+  if (!keys.includes(mint)) throw new Error('tx does not reference the mint')
+  tx.sign([kp(v)]); v.mint = mint; v.activity.unshift({ t: Date.now(), kind: 'note', msg: `signed block-zero buy · ${spend.toFixed(3)} SOL` }); save()
+  return { tx: Buffer.from(tx.serialize()).toString('base64'), spend }
+}
+/** Submit a Jito bundle (array of base64 signed txs). Returns bundle id. */
+export async function sendBundle(txs: string[]) {
+  const r = await fetch(process.env.JITO_URL || 'https://mainnet.block-engine.jito.wtf/api/v1/bundles', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'sendBundle', params: [txs.map((b64) => bs58.encode(Buffer.from(b64, 'base64')))] }) })
+  const d = await r.json(); if (d.error) throw new Error('jito: ' + JSON.stringify(d.error)); return d.result as string
 }

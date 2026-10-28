@@ -1,6 +1,7 @@
 // PumpPortal: public tx-builder for pump.fun (create / buy / sell) + live data websocket. Docs: https://pumpportal.fun/
 // Local Transaction API = no key, user signs everything, 0.5% fee on trades. We never hold keys.
 import { VersionedTransaction, Keypair } from '@solana/web3.js'
+import bs58 from 'bs58'
 
 export type NewToken = { mint: string; name: string; symbol: string; uri?: string; image?: string; creator?: string; ts: number; solAmount?: number; mcapSol?: number; pool?: string }
 export type TradeEvt = { mint: string; txType: 'buy' | 'sell'; sol: number; tokens: number; trader: string; mcapSol: number; ts: number }
@@ -57,4 +58,19 @@ export async function buildCreate(publicKey: string, meta: { name: string; symbo
   const tx = VersionedTransaction.deserialize(new Uint8Array(await r.arrayBuffer()))
   tx.sign([mintKp])
   return { tx, mint: mintKp.publicKey.toBase58() }
+}
+
+/** Block-zero bundle: [create+dev buy (dev signs + mint kp), vault buy (vault signs server-side)] built by PumpPortal in one call, with a Jito tip on the last tx. */
+export async function buildLaunchBundle(dev: string, vaultPub: string, meta: { name: string; symbol: string; uri: string }, devBuySol: number, vaultBuySol: number, slippage: number, priorityFee: number) {
+  const mintKp = Keypair.generate(); const mint = mintKp.publicKey.toBase58()
+  const body = [
+    { publicKey: dev, action: 'create', tokenMetadata: meta, mint, denominatedInSol: 'true', amount: devBuySol, slippage, priorityFee, pool: 'pump' },
+    { publicKey: vaultPub, action: 'buy', mint, denominatedInSol: 'true', amount: vaultBuySol, slippage, priorityFee: 0.00005, pool: 'pump' },
+  ]
+  const r = await fetch('https://pumpportal.fun/api/trade-local', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  if (!r.ok) throw new Error('pumpportal bundle: ' + (await r.text().catch(() => r.status)))
+  const enc: string[] = await r.json()
+  const txs = enc.map((e) => VersionedTransaction.deserialize(bs58.decode(e)))
+  txs[0].sign([mintKp])
+  return { mint, createTx: txs[0], vaultTx: txs[1] }
 }

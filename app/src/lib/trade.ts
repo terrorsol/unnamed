@@ -3,6 +3,7 @@ import { Connection, PublicKey, VersionedTransaction } from '@solana/web3.js'
 import * as J from './jupiter'
 import * as P from './pumpportal'
 import { sendAndConfirm, priorityFee } from './rpc'
+import bs58 from 'bs58'
 import { SOL_MINT, LAMPORTS } from './fmt'
 import type { Settings } from './store'
 
@@ -78,3 +79,24 @@ export async function collectCreatorFee(ctx: Ctx, mint: string): Promise<string>
   const tx = VersionedTransaction.deserialize(new Uint8Array(await r.arrayBuffer()))
   return sendAndConfirm(conn, tx, sign, onStatus)
 }
+
+/** Launch with the vault in block zero: PumpPortal builds [create+dev buy, vault buy]; dev signs #1 (+mint), the server signs #2 with the vault key; both go to Jito as one bundle. Falls back to a plain launch if the bundle path fails before anything is sent. */
+export async function launchBlockZero(ctx: Ctx, meta: P.CreateMeta, devBuySol: number, vault: { id: string; pub: string }, vaultBuySol: number, deps: { bundleSign: (id: string, mint: string, tx: string, maxSol: number) => Promise<{ tx: string }>; sendBundle: (txs: string[]) => Promise<{ bundleId: string }> }): Promise<{ sig: string; mint: string; bundled: boolean }> {
+  const { conn, owner, sign, settings, onStatus } = ctx
+  onStatus?.('Uploading metadata…'); const uri = await P.uploadMetadata(meta)
+  try {
+    onStatus?.('Building block-zero bundle…')
+    const { mint, createTx, vaultTx } = await P.buildLaunchBundle(owner.toBase58(), vault.pub, { name: meta.name, symbol: meta.symbol, uri }, devBuySol, vaultBuySol, settings.slippageBps / 100, settings.priorityFeeSol)
+    onStatus?.('Vault signing…'); const signedVault = await deps.bundleSign(vault.id, mint, Buffer.from(vaultTx.serialize()).toString('base64'), vaultBuySol)
+    onStatus?.('Sign the create…'); const signedCreate = await sign(createTx)
+    onStatus?.('Sending bundle…'); await deps.sendBundle([Buffer.from(signedCreate.serialize()).toString('base64'), signedVault.tx])
+    onStatus?.('Confirming…'); await confirmByPollingB58(conn, signedCreate)
+    return { sig: bs58.encode(signedCreate.signatures[0]), mint, bundled: true }
+  } catch (e: any) {
+    if (/signature|reject|user/i.test(String(e?.message))) throw e
+    onStatus?.('Bundle unavailable — plain launch…')
+    const { tx, mint } = await P.buildCreate(owner.toBase58(), { name: meta.name, symbol: meta.symbol, uri }, devBuySol, settings.slippageBps / 100, settings.priorityFeeSol)
+    const sig = await sendAndConfirm(conn, tx, sign, onStatus); return { sig, mint, bundled: false }
+  }
+}
+async function confirmByPollingB58(conn: Connection, tx: VersionedTransaction) { const { confirmByPolling } = await import('./rpc'); await confirmByPolling(conn, bs58.encode(tx.signatures[0])) }

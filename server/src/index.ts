@@ -5,6 +5,7 @@ import bs58 from 'bs58'
 import * as D from './desk.ts'
 import * as V from './vault.ts'
 import { TREASURY, RPC } from './chain.ts'
+import { streamStats } from './stream.ts'
 
 const PORT = +(process.env.PORT || 8787)
 const json = (res: any, code: number, body: any) => { res.writeHead(code, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'GET,POST,OPTIONS' }); res.end(JSON.stringify(body)) }
@@ -14,7 +15,7 @@ const server = createServer(async (req, res) => {
   const u = new URL(req.url!, 'http://x'); const p = u.pathname
   if (req.method === 'OPTIONS') return json(res, 204, {})
   try {
-    if (p === '/health') return json(res, 200, { ok: true, rpc: RPC.replace(/api-key=.*/, 'api-key=…'), treasury: TREASURY, desk: D.stats(), vaults: V.list().length })
+    if (p === '/health') return json(res, 200, { ok: true, rpc: RPC.replace(/api-key=.*/, 'api-key=…'), treasury: TREASURY, desk: D.stats(), vaults: V.list().length, stream: streamStats() })
     if (p === '/books') return json(res, 200, D.books())
     if (p === '/fills') return json(res, 200, D.history(u.searchParams.get('mint') || undefined))
     if (p === '/leaderboard') return json(res, 200, D.leaderboard())
@@ -38,6 +39,8 @@ const server = createServer(async (req, res) => {
     if (p === '/import/create' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importCreate(b.owner, b.mint)) }
     if (p === '/import/activate' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importActivate(b.id, b.sig)) }
     if (p === '/vault/deposit' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.deposit(b.id, b.from, b.sig)) }
+    if (p === '/vault/bundle-sign' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.signBundleTx(b.id, b.mint, b.tx, +b.maxSol)) }
+    if (p === '/bundle' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, { bundleId: await V.sendBundle(b.txs) }) }
     if (p === '/vault/mode' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, V.setMode(b.id, b.dev, b.mode, b.ceiling != null ? +b.ceiling : undefined)) }
     if (p === '/vault/renounce' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, V.renounce(b.id, b.dev)) }
     json(res, 404, { error: 'not found' })
