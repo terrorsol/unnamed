@@ -183,8 +183,14 @@ export default function App() {
       if (fracLeft > 0.02) { setBusy('Selling ' + from.symbol + '…'); const sig1 = await T.sell(x, from.mint, fracLeft >= 0.98 ? 1 : fracLeft, BigInt(h.raw), from.onCurve); recordSell(ws.owner, from.mint, from.symbol, fracLeft, 0, sig1) }
       const after = await connection.getBalance(x.owner).then((b) => b / 1e9).catch(() => before); const got = Math.max(0, after - before - 0.003)
       if (got < 0.02) throw new Error('nothing to switch')
-      const to = await D.tokenPairs(toMint); setBusy('Buying ' + toSymbol + '…'); const sig2 = await T.buy(x, toMint, +got.toFixed(4), !!to?.onCurve); recordBuy(ws.owner, toMint, toSymbol, got, sig2); setLedgerV((v) => v + 1)
-      toast({ kind: 'ok', title: `Switched ${from.symbol} → ${toSymbol}`, rows: [['Moved', S(got) + ' SOL'], ['Tx', short(sig2, 6)]], href: solscan(sig2) }); setTimeout(() => setRk((k) => k + 1), 1500); go('coin/' + toMint)
+      // into the original: the vault's switch offer first (spot, no fee, no candle), the curve only for what's left
+      let sig2 = '', viaVault = 0
+      try { const bk = await K.getBook(toMint, activeB58!); const va = bk.asks.filter((a: any) => a.vault && !a.away).sort((a: any, b: any) => a.discBps - b.discBps)[0]
+        if (va && got >= Math.max(0.1, (bk.minBlock || 0))) { const take = Math.min(va.sol, got); setBusy(`Vault hands you ${toSymbol} at spot, no fee…`); const r = await K.takeAsk(connection, activeB58!, va.id, signLegacy, setBusy, { sol: take < va.sol - 1e-9 ? +take.toFixed(4) : undefined }); sig2 = r.sig; viaVault = take; recordBuy(ws.owner, toMint, toSymbol, take, r.sig) } } catch {}
+      const rest = +(got - viaVault).toFixed(4)
+      if (rest >= 0.02) { const to = await D.tokenPairs(toMint); const ll = await K.llPool(toMint).catch(() => null); setBusy('Buying ' + toSymbol + '…'); sig2 = await T.buy({ ...x, venue: ll && !ll.migrated ? 'launchlab' : undefined }, toMint, rest, !!to?.onCurve || !!ll); recordBuy(ws.owner, toMint, toSymbol, rest, sig2) }
+      setLedgerV((v) => v + 1)
+      toast({ kind: 'ok', title: `Switched ${from.symbol} → ${toSymbol}`, rows: [['Moved', S(got) + ' SOL'], ...(viaVault ? [['Off-chart via vault', S(viaVault) + ' SOL · no fee'] as [string, string]] : []), ['Tx', short(sig2, 6)]], href: solscan(sig2) }); setTimeout(() => setRk((k) => k + 1), 1500); go('coin/' + toMint)
     } catch (e: any) { toast({ kind: 'err', title: 'Switch failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
   }
   const onMode = async (v: K.VaultPub, m: 'floor' | 'mm', c: number) => { try { await K.vaultSetMode(v.id, ws.owner, m, c); setVaultV((x) => x + 1); toast({ kind: 'ok', title: m === 'mm' ? `Market maker on · ceiling ${Math.round(c * 100)}%` : 'Floor mode' }) } catch (e: any) { toast({ kind: 'err', title: 'Mode change failed', rows: [['Reason', e.message]] }) } }

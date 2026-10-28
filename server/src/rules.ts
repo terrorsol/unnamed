@@ -22,6 +22,8 @@ export function deskOpen(m: Market) { return deskWhy(m) === null }
 /** null when the desk is open for this market, otherwise the reason it isn't */
 export function deskWhy(m: Market): string | null {
   if (!m.priceSol) return 'no price'
+  // coins on our launchpad: the price is exact and the vault quotes both sides, so the desk is open from block zero
+  if ((m as any).venue === 'launchlab' && (m as any).ours) return m.liqSol >= GATE_MIN_LIQ_SOL ? null : 'pool too thin'
   if (m.onCurve && m.mcapUsd < GATE_CURVE_MCAP_USD) return `curve coins open at $${GATE_CURVE_MCAP_USD / 1000}K mc`
   if (!m.onCurve && m.mcapUsd < GATE_MCAP_USD) return `opens at $${GATE_MCAP_USD / 1000}K mc`
   if ((m.vol1h ?? GATE_MIN_VOL1H_USD) < GATE_MIN_VOL1H_USD) return 'not enough volume in the last hour'
@@ -36,12 +38,12 @@ export function validBid(sol: number, discBps: number, m: Market): string | null
   return null
 }
 /** tokens the seller must deliver to fully consume a bid, in base units */
-export function fillQuote(bidSol: number, discBps: number, priceSol: number, decimals: number) {
+export function fillQuote(bidSol: number, discBps: number, priceSol: number, decimals: number, feeBps = CROSS_FEE_BPS) {
   const px = priceSol * (1 - discBps / 10000)
   const tokens = bidSol / px
   const base = BigInt(Math.floor(tokens * 10 ** decimals))
   const lamports = BigInt(Math.floor(bidSol * 1e9))
-  const fee = BigInt(Math.floor(Number(lamports) * CROSS_FEE_BPS / 10000))
+  const fee = BigInt(Math.floor(Number(lamports) * feeBps / 10000))
   return { px, tokens, base, lamports, fee, sellerLamports: lamports - fee }
 }
 export function restable(placedAt: number, now = Date.now()) { return now - placedAt >= REST_MS }

@@ -13,9 +13,9 @@ import { verifyFill } from './verify.ts'
 export type Bid = { id: string; mint: string; symbol: string; bidder: string; sol: number; discBps: number; placedAt: number; refreshedAt: number; status: 'open' | 'filling' | 'filled' | 'cancelled'; ws: WebSocket | null; fills: number; rfq?: string; expiresAt?: number; awaySince?: number; internal?: { sign?: (tx: Transaction, solOut: number) => void; kp: Keypair; label: string; maxSol: () => number } }
 const bids = new Map<string, Bid>()
 /** A resting SELL offer: seller holds the tokens, names a SOL size and a price vs spot (discBps>0 under, <0 over). Buyers take it; the seller's browser co-signs. */
-export type Ask = { id: string; mint: string; symbol: string; seller: string; sol: number; discBps: number; placedAt: number; refreshedAt: number; status: 'open' | 'filling' | 'filled' | 'cancelled'; ws: WebSocket | null; awaySince?: number }
+export type Ask = { id: string; mint: string; symbol: string; seller: string; sol: number; discBps: number; placedAt: number; refreshedAt: number; status: 'open' | 'filling' | 'filled' | 'cancelled'; ws: WebSocket | null; awaySince?: number; internal?: { sign: (tx: Transaction, solOut: number) => void; label: string }; feeBps?: number }
 const asks = new Map<string, Ask>()
-const pubAsk = (a: Ask, me?: string) => ({ id: a.id, mint: a.mint, symbol: a.symbol, sol: a.sol, discBps: a.discBps, placedAt: a.placedAt, status: a.status, away: !!a.awaySince, seller: alias(a.seller), mine: me === a.seller })
+const pubAsk = (a: Ask, me?: string) => ({ id: a.id, mint: a.mint, symbol: a.symbol, sol: a.sol, discBps: a.discBps, placedAt: a.placedAt, status: a.status, away: !!a.awaySince, seller: a.internal ? a.internal.label : alias(a.seller), mine: me === a.seller, vault: !!a.internal, feeBps: a.feeBps ?? R.CROSS_FEE_BPS })
 const pending = new Map<string, { resolve: (v: any) => void; reject: (e: any) => void; timer: any }>()
 const decCache = new Map<string, number>()
 async function dec(mint: string) { if (!decCache.has(mint)) decCache.set(mint, await decimals(mint)); return decCache.get(mint)! }
@@ -95,27 +95,43 @@ export async function placeAsk(ws: WebSocket, seller: string, mint: string, sol:
   const told = new Set<WebSocket>(); for (const b of bids.values()) if (b.mint === mint && b.status === 'open' && b.ws && b.ws !== ws && b.ws.readyState === 1 && !told.has(b.ws)) { told.add(b.ws); b.ws.send(note) }
   return pubAsk(a, seller)
 }
+/** A vault's standing sell offer at spot, fee 0: the off-chart route for anyone switching INTO this coin (vamp → original) without touching the curve. Re-placed each tick; one per vault per mint. */
+export async function placeInternalAsk(kp: Keypair, label: string, mint: string, sol: number, discBps: number, sign: (tx: Transaction, solOut: number) => void): Promise<Ask> {
+  const seller = kp.publicKey.toBase58()
+  const existing = [...asks.values()].find((a) => a.seller === seller && a.mint === mint && a.status === 'open')
+  if (existing) { existing.sol = sol; existing.discBps = discBps; existing.refreshedAt = Date.now(); existing.internal!.sign = sign; return existing }
+  const m = await market(mint); if (!m) throw new Error('unknown market')
+  const id = 'v' + Math.random().toString(36).slice(2, 10)
+  const a: Ask = { id, mint, symbol: m.symbol, seller, sol, discBps, placedAt: Date.now(), refreshedAt: Date.now(), status: 'open', ws: null, internal: { sign, label }, feeBps: 0 }
+  asks.set(id, a); bookChanged(mint); return a
+}
 export function cancelAsk(seller: string, id: string) { const a = asks.get(id); if (a && a.seller === seller && a.status === 'open') { asks.delete(id); bookChanged(a.mint); return true } return false }
 export const myAsks = (me: string) => [...asks.values()].filter((a) => a.seller === me && a.status === 'open').map((a) => pubAsk(a, me))
 /** What a buyer pays to take an ask (whole or partial ≥ min block) */
 export async function askQuote(id: string, buyer: string, sol?: number) {
-  const a = asks.get(id); if (!a || a.status !== 'open') throw new Error('offer not open'); if (a.seller === buyer) throw new Error('cannot take your own offer'); if (a.awaySince) throw new Error('seller is away — try again in a moment')
+  const a = asks.get(id); if (!a || a.status !== 'open') throw new Error('offer not open'); if (a.seller === buyer) throw new Error('cannot take your own offer'); if (a.awaySince && !a.internal) throw new Error('seller is away — try again in a moment')
   const m = await market(a.mint, R.QUOTE_MAX_AGE_MS); if (!m) throw new Error('no market')
   const take = sol && sol < a.sol ? sol : a.sol; if (take < a.sol && take < R.minBlockSol(m) - 1e-9) throw new Error(`partial must be ≥ min block ${R.minBlockSol(m).toFixed(2)} SOL`)
-  const d = await dec(a.mint); const tp = await tokenProgram(a.mint); const q = R.fillQuote(take, a.discBps, m.priceSol, d)
+  const d = await dec(a.mint); const tp = await tokenProgram(a.mint); const q = R.fillQuote(take, a.discBps, m.priceSol, d, a.feeBps)
   const bal = await balanceSol(buyer); if (bal < take * (1 + R.CROSS_FEE_BPS / 10000) + 0.01) throw new Error(`insufficient balance (have ${bal.toFixed(3)} SOL)`)
   return { ask: pubAsk(a), takeSol: take, partial: take < a.sol, mint: a.mint, seller: a.seller, buyer, treasury: TREASURY, decimals: d, tokenProgram: tp, priceSol: m.priceSol, refAgeMs: Date.now() - ((m as any).t || Date.now()), base: q.base.toString(), tokens: q.tokens, sellerLamports: q.sellerLamports.toString(), fee: q.fee.toString(), px: q.px }
 }
 /** Buyer-built, buyer-signed tx → seller's browser verifies + co-signs (token transfer) → chain. */
 export async function askFill(id: string, buyer: string, txB64: string, sol?: number): Promise<{ sig: string }> {
   const a = asks.get(id); if (!a || a.status !== 'open') throw new Error('offer not open')
-  if (!a.ws || a.ws.readyState !== 1) throw new Error('seller is away — try again in a moment')
+  if (!a.internal && (!a.ws || a.ws.readyState !== 1)) throw new Error('seller is away — try again in a moment')
   a.status = 'filling'; let q: Awaited<ReturnType<typeof askQuote>>
   try { a.status = 'open'; q = await askQuote(id, buyer, sol); a.status = 'filling'; const held = await tokenBalance(a.seller, a.mint); if (held.raw < BigInt(q.base)) { asks.delete(id); bookChanged(a.mint); throw new Error('seller no longer holds the block — offer removed') } } catch (e) { if (a.status === 'filling') a.status = 'open'; throw e }
   const tx = Transaction.from(Buffer.from(txB64, 'base64'))
   const buyerSig = tx.signatures.find((s) => s.publicKey.toBase58() === buyer); if (!buyerSig?.signature) { a.status = 'open'; throw new Error('tx not signed by buyer') }
   const why = verifyFill(tx, { mint: a.mint, seller: a.seller, bidder: buyer, treasury: TREASURY, base: BigInt(q.base), sellerLamports: BigInt(q.sellerLamports), fee: BigInt(q.fee), tokenProgram: q.tokenProgram, decimals: q.decimals, payer: 'bidder' })
   if (why) { a.status = 'open'; throw new Error('fill rejected: ' + why) }
+  if (a.internal) {
+    // the vault is the seller: keeper co-signs the token transfer, we send and settle right here
+    try { a.internal.sign(tx, 0); const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 }); await confirm(sig)
+      pending.set('a:' + id, { resolve: () => {}, reject: () => {}, timer: setTimeout(() => {}, 0), buyer, tokens: q.tokens, takeSol: q.takeSol } as any); settleAsk(id, true, sig); return { sig } }
+    catch (e: any) { a.status = 'open'; throw new Error('vault fill failed: ' + String(e.message).slice(0, 100)) }
+  }
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => { pending.delete('a:' + id); if (a.status === 'filling') a.status = 'open'; reject(new Error('seller did not respond in time')) }, 25000)
     pending.set('a:' + id, { resolve, reject, timer, buyer, tokens: q.tokens, takeSol: q.takeSol } as any)
@@ -125,7 +141,7 @@ export async function askFill(id: string, buyer: string, txB64: string, sol?: nu
 export function settleAsk(id: string, ok: boolean, sig?: string, err?: string) {
   const p = pending.get('a:' + id); const a = asks.get(id); if (!p) return
   clearTimeout(p.timer); pending.delete('a:' + id)
-  if (ok && sig) { if (a) { const took = (p as any).takeSol || a.sol; const left = a.sol - took; if (left > 0.05) { a.sol = left; a.status = 'open' } else { a.status = 'filled'; asks.delete(id) } recordFill({ t: Date.now(), mint: a.mint, symbol: a.symbol, seller: a.seller, bidder: (p as any).buyer || '', sol: took, discBps: a.discBps, tokens: (p as any).tokens || 0, sig, vault: false }); bookChanged(a.mint) } p.resolve({ sig }) }
+  if (ok && sig) { if (a) { const took = (p as any).takeSol || a.sol; const left = a.sol - took; if (left > 0.05) { a.sol = left; a.status = 'open' } else { a.status = 'filled'; asks.delete(id) } recordFill({ t: Date.now(), mint: a.mint, symbol: a.symbol, seller: a.seller, bidder: (p as any).buyer || '', sol: took, discBps: a.discBps, tokens: (p as any).tokens || 0, sig, vault: !!a.internal }); bookChanged(a.mint) } p.resolve({ sig }) }
   else { if (a) { a.status = 'open'; bookChanged(a.mint) } p.reject(new Error(err || 'seller rejected')) }
 }
 export function cancel(bidder: string, id: string) { const b = bids.get(id); if (b && b.bidder === bidder && b.status === 'open') { b.status = 'cancelled'; bids.delete(id); bookChanged(b.mint); return true } return false }

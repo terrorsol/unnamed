@@ -74,9 +74,9 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
     <div className="lbl">I want to buy</div>
     {true && <>
       {asksOpen[0] && (() => { const a = asksOpen[0]; return <div className="card" style={{ padding: 14 }}>
-        <div className="lbl">Best sell offer right now</div>
-        <div style={{ fontSize: 19, fontWeight: 600 }} className="num"><Live v={a.sol}>{S(a.sol, 2)} SOL</Live> <span className="dim" style={{ fontSize: 14, fontWeight: 500 }}>of {symbol} at {a.discBps <= 0 ? `${(Math.abs(a.discBps) / 100).toFixed(1)}% over` : `${(a.discBps / 100).toFixed(1)}% under`} the price</span></div>
-        <div className="nm" style={{ marginTop: 4 }}>You'd get ≈ {px ? (a.sol / (px * (1 - a.discBps / 10000))).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'} {symbol} for {S(a.sol * (1 + book.rules.feeBps / 10000), 2)} SOL. Nothing prints on the chart.{asksOpen.length > 1 ? ` ${asksOpen.length - 1} more in Pro.` : ''}</div>
+        <div className="lbl">{a.vault ? <>Vault sells at spot <span className="tag live" style={{ marginLeft: 6 }}>NO FEE</span></> : 'Best sell offer'}</div>
+        <div style={{ fontSize: 19, fontWeight: 600 }} className="num"><Live v={a.sol}>{S(a.sol, 2)} SOL</Live> <span className="dim" style={{ fontSize: 14, fontWeight: 500 }}>of {symbol} {a.discBps === 0 ? 'at the price' : a.discBps < 0 ? `${(Math.abs(a.discBps) / 100).toFixed(1)}% over` : `${(a.discBps / 100).toFixed(1)}% under`}</span></div>
+        <div className="nm" style={{ marginTop: 4 }}>≈ {px ? (a.sol / (px * (1 - a.discBps / 10000))).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'} {symbol} for {S(a.sol * (1 + (a.feeBps ?? book.rules.feeBps) / 10000), 2)} SOL. No candle.{asksOpen.length > 1 ? ` ${asksOpen.length - 1} more in Pro.` : ''}</div>
         <div className="row" style={{ marginTop: 10 }}>{!d.connected ? <Wallet /> : <button className="btn pri big" disabled={!book.open || !!d.busy} onClick={() => d.takeAsk?.(a.id)}>{d.busy || 'Buy this block'}</button>}</div>
       </div> })()}
       <div className="card" style={{ padding: 14 }}>

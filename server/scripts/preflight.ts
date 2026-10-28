@@ -334,6 +334,22 @@ await step('desk fill tx: build + verify on real mint', async () => {
 })
 
 // ---------- pool websocket ----------
+async function wsOneSwap(pool: string, waitMs: number) {
+  return await timeout(new Promise<string>((res, rej) => {
+    const ws = new (globalThis as any).WebSocket(RPC.replace(/^http/, 'ws')); const a = t()
+    ws.onopen = () => ws.send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'logsSubscribe', params: [{ mentions: [pool] }, { commitment: 'confirmed' }] }))
+    ws.onerror = (e: any) => rej(new Error('ws error ' + (e?.message || '')))
+    ws.onmessage = async (ev: any) => {
+      const m = JSON.parse(ev.data); if (m.method !== 'logsNotification') return
+      const sig = m.params.result.value.signature; if (m.params.result.value.err) return
+      ws.close(); try { const sw = await decode(conn, pool, sig, m.params.result.context.slot); res(sw ? `swap in ${ms(a)}: ${sw.side} ${sw.sol.toFixed(4)} SOL by ${sw.trader.slice(0, 6)}…` : `log seen but not decoded as swap (${sig.slice(0, 8)}…)`) } catch (e: any) { rej(e) }
+    }
+  }), waitMs)
+}
+await step('helius ws: logsSubscribe on a launchlab pool → decode one swap (the vault\'s per-swap detector for our coins)', async () => {
+  if (!LLX.mint) throw new Error('no live launchlab pool'); const LL = await import('../src/launchlab.ts')
+  return wsOneSwap(LL.poolIdOf(LLX.mint).toBase58(), 60000)
+})
 await step('helius ws: logsSubscribe on amm pool → decode one swap', async () => {
   const pool = ctx.ammPool!
   return await timeout(new Promise<string>((res, rej) => {
