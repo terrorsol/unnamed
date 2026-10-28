@@ -1,6 +1,7 @@
 // Desk: an order book of resting SOL bids for blocks of tokens, 3–5% under spot. Non-custodial:
 // the fill is a single transaction co-signed by seller and bidder; the server only matches and relays.
 import { Transaction, Keypair } from '@solana/web3.js'
+import { createHash, randomBytes } from 'node:crypto'
 import { conn, confirm, tokenProgram } from './chain.ts'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import type { WebSocket } from 'ws'
@@ -9,23 +10,26 @@ import { market } from './market.ts'
 import { balanceSol, decimals, TREASURY } from './chain.ts'
 import { verifyFill } from './verify.ts'
 
-export type Bid = { id: string; mint: string; symbol: string; bidder: string; sol: number; discBps: number; placedAt: number; refreshedAt: number; status: 'open' | 'filling' | 'filled' | 'cancelled'; ws: WebSocket | null; fills: number; rfq?: string; internal?: { kp: Keypair; label: string; maxSol: () => number } }
+export type Bid = { id: string; mint: string; symbol: string; bidder: string; sol: number; discBps: number; placedAt: number; refreshedAt: number; status: 'open' | 'filling' | 'filled' | 'cancelled'; ws: WebSocket | null; fills: number; rfq?: string; expiresAt?: number; internal?: { kp: Keypair; label: string; maxSol: () => number } }
 const bids = new Map<string, Bid>()
 const pending = new Map<string, { resolve: (v: any) => void; reject: (e: any) => void; timer: any }>()
 const decCache = new Map<string, number>()
 async function dec(mint: string) { if (!decCache.has(mint)) decCache.set(mint, await decimals(mint)); return decCache.get(mint)! }
-const pubBid = (b: Bid, me?: string) => ({ id: b.id, mint: b.mint, symbol: b.symbol, sol: b.sol, discBps: b.discBps, placedAt: b.placedAt, restable: !!b.rfq || R.restable(b.placedAt), rfq: b.rfq, status: b.status, bidder: b.internal ? b.internal.label : b.bidder.slice(0, 4) + '…' + b.bidder.slice(-4), mine: me === b.bidder, vault: !!b.internal })
+/** Pseudonymous desk: wallets never appear in the book, pings or fill tape — only a per-wallet alias (salted hash, stable for the server's lifetime). Settlement is still one on-chain tx with both wallets; we hide nothing on-chain. */
+const SALT = randomBytes(8).toString('hex')
+export const alias = (pk: string) => 'desk-' + createHash('sha256').update(SALT + pk).digest('hex').slice(0, 5)
+const pubBid = (b: Bid, me?: string) => ({ id: b.id, mint: b.mint, symbol: b.symbol, sol: b.sol, discBps: b.discBps, placedAt: b.placedAt, restable: !!b.rfq || R.restable(b.placedAt), rfq: b.rfq, status: b.status, bidder: b.internal ? b.internal.label : alias(b.bidder), mine: me === b.bidder, vault: !!b.internal, block: b.rfq === 'buy', expiresAt: b.expiresAt })
 // ---- fill history (persisted) ----
 const DIR = process.env.DATA_DIR || './data'; const HF = DIR + '/fills.json'
 export type Fill = { t: number; mint: string; symbol: string; seller: string; bidder: string; sol: number; discBps: number; tokens: number; sig: string; vault: boolean }
 let fills: Fill[] = []; try { if (existsSync(HF)) fills = JSON.parse(readFileSync(HF, 'utf8')) } catch {}
 function recordFill(f: Fill) { fills.unshift(f); fills = fills.slice(0, 2000); try { mkdirSync(DIR, { recursive: true }); writeFileSync(HF, JSON.stringify(fills)) } catch {} }
-export const history = (mint?: string) => (mint ? fills.filter((f) => f.mint === mint) : fills).slice(0, 100)
+export const history = (mint?: string) => (mint ? fills.filter((f) => f.mint === mint) : fills).slice(0, 100).map((f) => ({ ...f, seller: alias(f.seller), bidder: f.vault ? 'vault' : alias(f.bidder) }))
 export function leaderboard() {
   const by: Record<string, { wallet: string; soldSol: number; boughtSol: number; fills: number; saved: number }> = {}
   for (const f of fills) { const s = (by[f.seller] ||= { wallet: f.seller, soldSol: 0, boughtSol: 0, fills: 0, saved: 0 }); s.soldSol += f.sol; s.fills++; s.saved += f.sol * 0.03
     if (!f.vault) { const b = (by[f.bidder] ||= { wallet: f.bidder, soldSol: 0, boughtSol: 0, fills: 0, saved: 0 }); b.boughtSol += f.sol; b.fills++; b.saved += f.sol * f.discBps / 10000 } }
-  return Object.values(by).sort((a, b) => b.soldSol + b.boughtSol - (a.soldSol + a.boughtSol)).slice(0, 50)
+  return Object.values(by).sort((a, b) => b.soldSol + b.boughtSol - (a.soldSol + a.boughtSol)).slice(0, 50).map((x) => ({ ...x, wallet: alias(x.wallet) }))
 }
 /** Server-held bidder (the vault). Keeps one resting bid per mint; refreshed by the vault loop. */
 export async function placeInternal(kp: Keypair, label: string, mint: string, sol: number, discBps: number, maxSol: () => number) { return pubBid(await placeInternalRaw(kp, label, mint, sol, discBps, maxSol)) }
@@ -52,10 +56,26 @@ export async function place(ws: WebSocket, bidder: string, mint: string, sol: nu
   const b: Bid = { id, mint, symbol: m.symbol, bidder, sol, discBps, placedAt: Date.now(), refreshedAt: Date.now(), status: 'open', ws, fills: 0 }
   bids.set(id, b); return pubBid(b, bidder)
 }
+/** Buy a block: buyer posts "I'll take up to `sol` SOL of this coin at up to +premiumBps over spot for ttl seconds". Any holder fills it
+ *  with the normal fill tx (seller signs, buyer's browser co-signs). Zero chart impact on entry; holders get an exit above spot. */
+export async function rfqBuy(ws: WebSocket, buyer: string, mint: string, sol: number, premiumBps: number, ttlSec: number) {
+  if (!Number.isFinite(sol) || sol <= 0 || sol > 10_000) throw new Error('bad size')
+  if (!Number.isFinite(premiumBps) || premiumBps < 0 || premiumBps > R.BUY_RFQ_MAX_PREMIUM_BPS) throw new Error(`premium must be 0–${R.BUY_RFQ_MAX_PREMIUM_BPS / 100}%`)
+  ttlSec = Math.max(30, Math.min(600, Math.round(ttlSec || 120)))
+  const m = await market(mint); if (!m) throw new Error('unknown market'); if (!R.deskOpen(m)) throw new Error('desk closed for this coin')
+  if (sol < R.minBlockSol(m)) throw new Error(`min block ${R.minBlockSol(m).toFixed(2)} SOL here`)
+  const open = [...bids.values()].filter((b) => b.bidder === buyer && b.status === 'open'); const committed = open.reduce((a, b) => a + b.sol, 0)
+  const bal = await balanceSol(buyer); if (bal < committed + sol * (1 + R.CROSS_FEE_BPS / 10000) + 0.01) throw new Error(`insufficient balance (have ${bal.toFixed(3)} SOL)`)
+  const id = 'b' + Math.random().toString(36).slice(2, 10)
+  const b: Bid = { id, mint, symbol: m.symbol, bidder: buyer, sol, discBps: -premiumBps, placedAt: Date.now(), refreshedAt: Date.now(), status: 'open', ws, fills: 0, rfq: 'buy', expiresAt: Date.now() + ttlSec * 1000 }
+  bids.set(id, b)
+  broadcast({ type: 'buy_rfq', mint, symbol: m.symbol, sol, premiumBps, secondsLeft: ttlSec, bidId: id }, ws)
+  return pubBid(b, buyer)
+}
 export function cancel(bidder: string, id: string) { const b = bids.get(id); if (b && b.bidder === bidder && b.status === 'open') { b.status = 'cancelled'; bids.delete(id); return true } return false }
 export function refresh(bidder: string) { for (const b of bids.values()) if (b.bidder === bidder) b.refreshedAt = Date.now() }
 export function dropSocket(ws: WebSocket) { for (const [id, b] of bids) if (b.ws === ws && b.status === 'open') bids.delete(id) }
-export function sweep() { const now = Date.now(); for (const [id, b] of bids) if (b.status === 'open' && !b.internal && R.expired(b.refreshedAt, now)) bids.delete(id) }
+export function sweep() { const now = Date.now(); for (const [id, b] of bids) if (b.status === 'open' && !b.internal && (R.expired(b.refreshedAt, now) || (b.expiresAt && now > b.expiresAt))) bids.delete(id) }
 
 export async function book(mint: string, me?: string) {
   const m = await market(mint)
@@ -74,7 +94,7 @@ export async function quote(id: string, seller: string) {
   if (b.bidder === seller) throw new Error('cannot fill your own bid')
   const m = await market(b.mint, R.QUOTE_MAX_AGE_MS); if (!m) throw new Error('no market')
   const d = await dec(b.mint); const tp = await tokenProgram(b.mint); const q = R.fillQuote(b.sol, b.discBps, m.priceSol, d)
-  const rf = b.rfq ? rfqs.get(b.rfq) : null; const drift = rf ? m.priceSol / rf.priceSol - 1 : 0
+  const rf = b.rfq && b.rfq !== 'buy' ? rfqs.get(b.rfq) : null; const drift = rf ? m.priceSol / rf.priceSol - 1 : 0
   return { bid: pubBid(b), mint: b.mint, bidder: b.bidder, seller, treasury: TREASURY, decimals: d, tokenProgram: tp, priceSol: m.priceSol, refAgeMs: Date.now() - ((m as any).t || Date.now()), drift, needsConfirm: !!rf && drift < -R.SELLER_DRIFT, anchorPrice: rf?.priceSol || null, px: q.px, tokens: q.tokens, base: q.base.toString(), lamports: q.lamports.toString(), sellerLamports: q.sellerLamports.toString(), fee: q.fee.toString() }
 }
 /** Seller submits a seller-signed tx; server verifies structure vs a fresh quote, relays to bidder to co-sign + send */
@@ -120,7 +140,7 @@ export let onVaultFill: ((bidder: string, sol: number, tokens: number) => void) 
 export function setOnVaultFill(f: typeof onVaultFill) { onVaultFill = f }
 let vaultResponder: ((mint: string, sizeSol: number, maxBps: number, rfqId: string) => Promise<Bid | null>) | null = null
 export function setVaultResponder(f: typeof vaultResponder) { vaultResponder = f }
-const pubRfq = (r: Rfq) => ({ ...r, remainingSol: Math.max(0, r.sizeSol - r.filledSol - r.matches.reduce((a, id) => a + (bids.get(id)?.status === 'open' || bids.get(id)?.status === 'filling' ? bids.get(id)!.sol : 0), 0)), secondsLeft: Math.max(0, Math.ceil((r.expiresAt - Date.now()) / 1000)) })
+const pubRfq = (r: Rfq) => ({ ...r, seller: alias(r.seller), counters: r.counters.map((c) => ({ ...c, bidder: c.vault ? 'vault' : alias(c.bidder) })), remainingSol: Math.max(0, r.sizeSol - r.filledSol - r.matches.reduce((a, id) => a + (bids.get(id)?.status === 'open' || bids.get(id)?.status === 'filling' ? bids.get(id)!.sol : 0), 0)), secondsLeft: Math.max(0, Math.ceil((r.expiresAt - Date.now()) / 1000)) })
 export async function rfqCreate(mint: string, seller: string, sizeSol: number, maxBps: number, ttlMs: number) {
   if (!Number.isFinite(sizeSol) || sizeSol <= 0 || sizeSol > 10_000) throw new Error('bad size')
   const m = await market(mint); if (!m) throw new Error('unknown market'); if (!R.deskOpen(m)) throw new Error('desk closed for this coin')
@@ -153,4 +173,4 @@ export async function rfqRespond(ws: WebSocket, bidder: string, rfqId: string, d
 }
 export function rfqNoteFill(bidId: string, sol: number) { for (const r of rfqs.values()) if (r.matches.includes(bidId) || r.counters.some((c) => c.bidId === bidId)) { r.filledSol += sol; r.matches = r.matches.filter((x) => x !== bidId); r.counters = r.counters.filter((c) => c.bidId !== bidId); if (r.filledSol >= r.sizeSol - 0.01) r.status = 'done' } }
 export function rfqCancel(id: string, seller: string) { const r = rfqs.get(id); if (r && r.seller === seller && r.status === 'open') r.status = 'cancelled' }
-export function rfqSweep() { const now = Date.now(); for (const [id, b] of bids) if (b.rfq && b.status === 'open') { const r = rfqs.get(b.rfq); if (!r || r.status !== 'open' || now > r.expiresAt + 30000) bids.delete(id) } for (const [id, r] of rfqs) if (now > r.expiresAt + 600000) rfqs.delete(id) }
+export function rfqSweep() { const now = Date.now(); for (const [id, b] of bids) if (b.rfq && b.rfq !== 'buy' && b.status === 'open') { const r = rfqs.get(b.rfq); if (!r || r.status !== 'open' || now > r.expiresAt + 30000) bids.delete(id) } for (const [id, r] of rfqs) if (now > r.expiresAt + 600000) rfqs.delete(id) }

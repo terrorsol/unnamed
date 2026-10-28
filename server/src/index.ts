@@ -76,6 +76,7 @@ wss.on('connection', (ws: WebSocket) => {
       if (!who) throw new Error('auth first')
       if (m.type === 'place') return send({ type: 'placed', bid: await D.place(ws, who, m.mint, +m.sol, +m.discBps) })
       if (m.type === 'cancel') return send({ type: 'cancelled', id: m.id, ok: D.cancel(who, m.id) })
+      if (m.type === 'buy_rfq') return send({ type: 'placed', bid: await D.rfqBuy(ws, who, m.mint, +m.sol, +m.premiumBps, +m.ttlSec) })
       if (m.type === 'refresh') return D.refresh(who)
       if (m.type === 'rfq_respond') return send({ type: 'rfq_responded', rfq: await D.rfqRespond(ws, who, m.rfqId, +m.discBps, +m.sol) })
       if (m.type === 'filled') return D.settle(m.bidId, true, m.sig)

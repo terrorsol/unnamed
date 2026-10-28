@@ -26,11 +26,7 @@ jobs:
         if: always()
         run: |
           set -e
-          cp -r server/reports /tmp/reports
-          git config user.name unnamed-ci && git config user.email ci@unnamed.local
-          git fetch origin reports:reports 2>/dev/null || git checkout --orphan reports
-          git checkout reports 2>/dev/null || true
-          git rm -rfq . 2>/dev/null || true
-          mkdir -p preflight && cp /tmp/reports/* preflight/
-          git add -A && git commit -qm "preflight ${{ github.run_id }}" || true
-          git push -f origin reports
+          mkdir -p /tmp/pub && cp -r server/reports/. /tmp/pub/
+          cd /tmp/pub && git init -q && git checkout -qb reports-preflight && git config user.name unnamed-ci && git config user.email ci@unnamed.local
+          git add -A && git commit -qm "preflight ${{ github.run_id }}"
+          git push -qf https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git reports-preflight

@@ -1,5 +1,6 @@
 // Desk + vault rules. Pure functions, unit-tested. Mirrors app/src/lib/protocol.ts.
 export const DISC_MIN_BPS = 300, DISC_MAX_BPS = 500          // bids sit 3–5% under spot
+export const BUY_RFQ_MAX_PREMIUM_BPS = 500                    // block buys may pay up to +5% over spot
 export const GATE_MCAP_USD = 100_000                            // desk opens: graduated + $100K mc
 export const MIN_BLOCK_OF_RESERVE = 0.02                        // min block = 2% of pool SOL reserve
 export const MIN_BLOCK_FLOOR_SOL = 0.2

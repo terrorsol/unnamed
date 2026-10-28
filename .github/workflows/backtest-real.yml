@@ -24,10 +24,7 @@ jobs:
         if: always()
         run: |
           set -e
-          cp -r app/data/real /tmp/real
-          git config user.name unnamed-ci && git config user.email ci@unnamed.local
-          git fetch origin reports:reports 2>/dev/null || true
-          git checkout reports 2>/dev/null || git checkout --orphan reports
-          rm -rf real && mkdir -p real && cp /tmp/real/* real/
-          git add -A && git commit -qm "real-flow backtest ${{ github.run_id }}" || true
-          git push -f origin reports
+          mkdir -p /tmp/pub && cp -r app/data/real/. /tmp/pub/
+          cd /tmp/pub && git init -q && git checkout -qb reports-backtest && git config user.name unnamed-ci && git config user.email ci@unnamed.local
+          git add -A && git commit -qm "real-flow backtest ${{ github.run_id }}"
+          git push -qf https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git reports-backtest
