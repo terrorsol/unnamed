@@ -1,7 +1,9 @@
 // Market simulator for the vault. Constant-product pool, scripted + random order flow, fees, the vault's real rules.
 // Shared by the server backtest (test/sim.test.mjs) and the Simulate page. Deterministic for a given seed.
 export type Mode = 'none' | 'floor' | 'mm'
-export type Params = { poolSol: number; chestPct: number; mode: Mode; ceiling: number; hours: number; seed: number; swapFee: number; deskUse: number; pumpStrength: number; v2?: boolean; skew?: boolean; zstretch?: boolean; volDisc?: boolean }
+export type Params = { poolSol: number; chestPct: number; mode: Mode; ceiling: number; hours: number; seed: number; swapFee: number; deskUse: number; pumpStrength: number; v2?: boolean; skew?: boolean; zstretch?: boolean; volDisc?: boolean; flow?: Flow[] }
+/** Recorded order flow (server tape or GeckoTerminal trades). When set, replaces the synthetic regime generator. */
+export type Flow = { t: number; side: 'buy' | 'sell'; sol: number }
 export type Result = { path: number[]; peak: number; maxDrawdown: number; final: number; vaultValue: number; vaultStart: number; chest: number; captured: number; captures: number; deskBought: number; deskFills: number; dips: number; dipBought: number; devPaid: number; floor: number; impactAvoided: number; volumeSol: number; trimmed: number; txs: number; feesPaid: number }
 
 export function captureFrac(price: number, vwap30: number, avgCost: number, mcapUsd: number, ceiling: number, rnd: number) {
@@ -40,7 +42,9 @@ export function simulate(P: Params): Result {
   const samples: { t: number; p: number; v: number }[] = []; const high15: { t: number; p: number }[] = []; const buyTimes: number[] = []
   let spentEpisode = 0, fired: number[] = [], lastCapture = -1e9, lastBuy = -1e9, trimmedToday = 0, lastTrim = -1e9
   let peak = p0, trough = p0, maxDD = 0
-  const steps = Math.round(P.hours * 720) // 5s steps
+  const F = P.flow && P.flow.length ? [...P.flow].sort((a, b) => a.t - b.t) : null; const f0 = F ? F[0].t : 0; let fi = 0
+  const hours = F ? Math.max(0.1, (F[F.length - 1].t - f0) / 3.6e6) : P.hours
+  const steps = Math.round(hours * 720) + 1 // 5s steps
   for (let i = 0; i < steps; i++) {
     const t = i * 5000; const h = i / 720
     // regime: chop → pump → dump → recover, repeating every ~2.5h, scaled by pumpStrength
@@ -49,9 +53,11 @@ export function simulate(P: Params): Result {
     const intensity = Math.min(1, 0.15 + Math.abs(bias) * 0.35)
     // external order flow this step
     let inflow = 0
-    if (r() < intensity) {
-      const size = 0.2 + r() * r() * (S0 * 0.03) // 0.2 SOL .. 3% of starting reserve, skewed small
-      const isBuy = r() < 0.5 + bias * 0.15
+    // replay mode: every recorded swap whose time has come; synthetic mode: one draw per step
+    const ev: { size: number; isBuy: boolean }[] = []
+    if (F) { while (fi < F.length && F[fi].t - f0 <= t) { ev.push({ size: Math.max(0.001, F[fi].sol), isBuy: F[fi].side === 'buy' }); fi++ } }
+    else if (r() < intensity) ev.push({ size: 0.2 + r() * r() * (S0 * 0.03), isBuy: r() < 0.5 + bias * 0.15 }) // 0.2 SOL .. 3% of starting reserve, skewed small
+    for (const { size, isBuy } of ev) {
       if (isBuy) { const b = buy(size); inflow += size; buyTimes.push(t); volumeSol += size; samples.push({ t, p: price(), v: size }) }
       else {
         // a seller: with a vault bid resting at −4%, part of sell flow uses the desk when it beats chart impact

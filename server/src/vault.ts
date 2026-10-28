@@ -2,18 +2,22 @@
 // Rules: buy dips (≤40% of chest per crash), trim only above cost+5% AND 30-min VWAP AND uptrend, never withdraw.
 import { Keypair } from '@solana/web3.js'
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto'
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, statSync } from 'node:fs'
 import bs58 from 'bs58'
 import * as R from './rules.ts'
 import { market } from './market.ts'
 import { balanceSol, tokenBalance, pumpTrade, conn, confirm, decimals, TREASURY, holderStats } from './chain.ts'
 import * as C from './chain.ts'
 import * as D from './desk.ts'
-import { watchPool } from './stream.ts'
+import { watchPool, streamStats } from './stream.ts'
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import { PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from '@solana/web3.js'
 
 const DIR = process.env.DATA_DIR || './data'; const FILE = DIR + '/vaults.json'
+/** Live tape: every swap seen on a vaulted coin, one JSON line {t,side,sol,trader,sig} → DATA_DIR/tape/<mint>.jsonl. Replay with `npm run replay -- <file>` in app/. Capped at ~20MB per coin. */
+export function tape(mint: string, e: { t: number; side: 'buy' | 'sell'; sol: number; trader?: string; sig?: string }) {
+  try { const d = DIR + '/tape'; if (!existsSync(d)) mkdirSync(d, { recursive: true }); const f = `${d}/${mint}.jsonl`; if (existsSync(f) && statSync(f).size > 20e6) return; appendFileSync(f, JSON.stringify(e) + '\n') } catch {}
+}
 const SECRET = process.env.VAULT_SECRET || 'dev-only-secret-change-me'
 const key = scryptSync(SECRET, 'unnamed-vault', 32)
 const enc = (u: Uint8Array) => { const iv = randomBytes(12); const c = createCipheriv('aes-256-gcm', key, iv); const ct = Buffer.concat([c.update(u), c.final()]); return Buffer.concat([iv, c.getAuthTag(), ct]).toString('base64') }
@@ -174,8 +178,9 @@ export async function tick() {
       if (!v.holders || now - v.holders.t > 60_000) { holderStats(v.mint, v.pub).then((h) => { v.holders = h }).catch(() => {}) }
       if (!v.score) v.score = { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: v.supply ? v.chest / v.supply : 0 }
       // graduated coins: exact per-swap buys from the pool websocket; reserve-delta only while the stream isn't attached
-      if (!m.onCurve && m.pair && !watched.has(v.id)) { watched.set(v.id, watchPool(m.pair, async (sw) => { D.broadcast({ type: 'swap', mint: v.mint, symbol: v.symbol, ...sw }); if (sw.side !== 'buy' || sw.trader === v.pub) return; try { const mm = await market(v.mint!); if (mm) { await onBuy(v, sw.sol, mm, mm.priceSol, Date.now()); save() } } catch {} })) }
-      if (!m.onCurve && m.liqSol && !watched.has(v.id)) { if (v.lastLiq && now - v.lastLiqT < 20000) { const inflow = m.liqSol - v.lastLiq; if (inflow >= R.MM_MIN_BUY_SOL) await onBuy(v, inflow, m, p, now) } v.lastLiq = m.liqSol; v.lastLiqT = now }
+      if (!m.onCurve && m.pair && !watched.has(v.id)) { watched.set(v.id, watchPool(m.pair, async (sw) => { D.broadcast({ type: 'swap', mint: v.mint, symbol: v.symbol, ...sw }); tape(v.mint!, { t: sw.t, side: sw.side, sol: sw.sol, trader: sw.trader, sig: sw.sig }); if (sw.side !== 'buy' || sw.trader === v.pub) return; try { const mm = await market(v.mint!); if (mm) { await onBuy(v, sw.sol, mm, mm.priceSol, Date.now()); save() } } catch {} })) }
+      // reserve-delta fallback when the pool websocket is not delivering (not connected, or no subscription yet)
+      if (!m.onCurve && m.liqSol && (!watched.has(v.id) || !streamStats().connected)) { if (v.lastLiq && now - v.lastLiqT < 20000) { const inflow = m.liqSol - v.lastLiq; if (inflow >= R.MM_MIN_BUY_SOL) await onBuy(v, inflow, m, p, now) } v.lastLiq = m.liqSol; v.lastLiqT = now }
       // defense: three tranches at −20 / −35 / −50 from the 15-min high, each a third of the defense budget (40% of chest in mm, 40% in floor)
       const budget = v.chest * R.VAULT_MAX_CRASH_SPEND * R.inventorySkew(v.supply ? (v.tokens / v.supply) * 100 : 0, v.pct || 5).defend
       const level = R.DEFENSE_TRANCHES.findIndex((L, i) => dd <= L && !(v.tranchesFired || []).includes(i))
@@ -229,7 +234,7 @@ export function startStream() {
   const connect = () => {
     try { pws = new WS('wss://pumpportal.fun/api/data') } catch { return }
     pws.onopen = () => { const mints = Object.values(vaults).filter((v) => v.armed && v.mint).map((v) => v.mint!); if (mints.length) pws.send(JSON.stringify({ method: 'subscribeTokenTrade', keys: mints })) }
-    pws.onmessage = async (ev: any) => { try { const d = JSON.parse(ev.data); if (d.txType !== 'buy') return; const v = Object.values(vaults).find((x) => x.mint === d.mint && x.armed); if (!v || v.pub === d.traderPublicKey) return; const m = await market(v.mint!); if (!m) return; await onBuy(v, +d.solAmount || 0, m, m.priceSol, Date.now()); save() } catch {} }
+    pws.onmessage = async (ev: any) => { try { const d = JSON.parse(ev.data); if (d.txType !== 'buy' && d.txType !== 'sell') return; const v = Object.values(vaults).find((x) => x.mint === d.mint && x.armed); if (!v) return; tape(v.mint!, { t: Date.now(), side: d.txType, sol: +d.solAmount || 0, trader: d.traderPublicKey, sig: d.signature }); if (d.txType !== 'buy' || v.pub === d.traderPublicKey) return; const m = await market(v.mint!); if (!m) return; await onBuy(v, +d.solAmount || 0, m, m.priceSol, Date.now()); save() } catch {} }
     pws.onclose = () => setTimeout(connect, 5000); pws.onerror = () => { try { pws.close() } catch {} }
   }
   connect(); setInterval(() => { try { if (pws?.readyState === 1) { const mints = Object.values(vaults).filter((v) => v.armed && v.mint).map((v) => v.mint!); if (mints.length) pws.send(JSON.stringify({ method: 'subscribeTokenTrade', keys: mints })) } } catch {} }, 60000)
