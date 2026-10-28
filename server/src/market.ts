@@ -6,6 +6,10 @@ export async function market(mint: string, maxAgeMs = 5000): Promise<(Market & {
   const pairs: any[] = await r.json()
   const p = pairs.filter((x) => x.chainId === 'solana').sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0]
   if (!p) return null
-  const m = { mcapUsd: p.marketCap || p.fdv || 0, liqSol: p.liquidity?.quote || 0, onCurve: p.dexId === 'pumpfun', priceSol: +(p.priceNative || 0), symbol: p.baseToken.symbol, pair: p.pairAddress, vol1h: p.volume?.h1 || 0, t: Date.now() }
+  const onCurve = p.dexId === 'pumpfun', priceSol = +(p.priceNative || 0)
+  // DexScreener reports no liquidity for bonding-curve coins. pump's curve is a virtual constant product (30 SOL × 1.073e9 tokens),
+  // so the effective SOL depth at price p is sqrt(k·p) — 30 SOL at launch, ~115 SOL at graduation. That is what impact math needs.
+  const liqSol = p.liquidity?.quote || (onCurve && priceSol ? Math.sqrt(30 * 1.073e9 * priceSol) : 0)
+  const m = { mcapUsd: p.marketCap || p.fdv || 0, liqSol, onCurve, priceSol, symbol: p.baseToken.symbol, pair: p.pairAddress, vol1h: p.volume?.h1 || 0, t: Date.now() }
   cache.set(mint, { t: m.t, m }); return m
 }

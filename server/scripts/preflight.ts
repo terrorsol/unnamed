@@ -42,14 +42,14 @@ await step('dexscreener: SOL pairs shape', async () => {
 await step('geckoterminal: pump-fun curve pools (dex id)', async () => {
   const r = await timeout(fetch(`${GT}/networks/solana/dexes/pump-fun/pools?page=1&sort=h24_volume_usd_desc`), 10000); if (!r.ok) throw new Error('HTTP ' + r.status)
   const d: any = await r.json(); const pools = d.data || []; if (!pools.length) throw new Error('no pools')
-  const live = pools.find((p: any) => +p.attributes.volume_usd.h1 > 500) || pools[0]
+  const live = pools.filter((p: any) => +p.attributes.volume_usd.h1 > 500).sort((a: any, b: any) => +b.attributes.volume_usd.h1 - +a.attributes.volume_usd.h1)[0] || pools[0]
   ctx.curveMint = live.relationships.base_token.data.id.replace('solana_', '')
   return `${pools.length} pools · picked ${live.attributes.name} mint ${ctx.curveMint.slice(0, 8)}… h24 $${(+live.attributes.volume_usd.h24).toFixed(0)}`
 })
 await sleep(2500)
 await step('geckoterminal: pumpswap pools + ohlcv + trades', async () => {
   const r = await timeout(fetch(`${GT}/networks/solana/dexes/pumpswap/pools?page=1&sort=h24_volume_usd_desc`), 10000); if (!r.ok) throw new Error('HTTP ' + r.status)
-  const d: any = await r.json(); const p = d.data?.[0]; if (!p) throw new Error('no pools')
+  const d: any = await r.json(); const p = (d.data || []).filter((x: any) => +x.attributes.volume_usd.h1 > 2000 && +x.attributes.transactions?.h1?.buys > 20).sort((a: any, b: any) => +b.attributes.volume_usd.h1 - +a.attributes.volume_usd.h1)[0] || d.data?.[0]; if (!p) throw new Error('no pools')
   ctx.ammPool = p.attributes.address; ctx.ammMint = p.relationships.base_token.data.id.replace('solana_', '')
   await sleep(2500)
   const o = await (await fetch(`${GT}/networks/solana/pools/${ctx.ammPool}/ohlcv/minute?aggregate=1&limit=5&currency=usd`)).json() as any
@@ -101,9 +101,13 @@ await step('pumpportal: curve buy (single) → simulate', async () => {
   return `content-type=${ct} · version=${curveBuy.message.version} · ${curveBuy.message.compiledInstructions.length} ix · ` + (await sim(curveBuy, 'buy'))
 })
 await step('pumpportal: amm buy (single) → simulate', async () => {
-  const r = await timeout(fetch(PP, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ publicKey: PAYER.toBase58(), action: 'buy', mint: ctx.ammMint, amount: 0.01, denominatedInSol: 'true', slippage: 15, priorityFee: 0.0005, pool: 'auto' }) }), 15000)
-  if (!r.ok) throw new Error(`HTTP ${r.status} ${await r.text()}`)
-  return await sim(VersionedTransaction.deserialize(new Uint8Array(await r.arrayBuffer())), 'amm buy')
+  const notes: string[] = []
+  for (const pool of ['auto', 'pump-amm']) {
+    const r = await timeout(fetch(PP, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ publicKey: PAYER.toBase58(), action: 'buy', mint: ctx.ammMint, amount: 0.01, denominatedInSol: 'true', slippage: 15, priorityFee: 0.0005, pool }) }), 15000)
+    if (!r.ok) { notes.push(`pool=${pool} HTTP ${r.status} ${(await r.text()).slice(0, 120)}`); continue }
+    return `pool=${pool} · ` + (await sim(VersionedTransaction.deserialize(new Uint8Array(await r.arrayBuffer())), 'amm buy')) + (notes.length ? ' · ' + notes.join('; ') : '')
+  }
+  throw new Error(notes.join('; '))
 })
 await step('our sender tip appended to pumpportal tx → simulate', async () => {
   if (!curveBuy) throw new Error('no curve buy tx'); const tipped = await addTip(conn, curveBuy, PAYER, MIN_TIP_LAMPORTS)

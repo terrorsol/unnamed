@@ -15,7 +15,7 @@ export type Pair = {
 export type Coin = {
   mint: string; symbol: string; name: string; image?: string; pair?: string; dex: string; url?: string
   priceUsd: number; mcap: number; liq: number; vol24: number; vol1h: number; ch1h: number; ch24: number; ch5m: number
-  buys24: number; sells24: number; createdAt: number; onCurve: boolean; raw?: Pair
+  buys24: number; sells24: number; createdAt: number; onCurve: boolean; depthSol: number; raw?: Pair
 }
 const BASE = 'https://api.dexscreener.com'
 async function j(url: string) { const r = await fetch(url); if (!r.ok) throw new Error(`dexscreener ${r.status}`); return r.json() }
@@ -25,7 +25,7 @@ export function pairToCoin(p: Pair): Coin {
     mint: p.baseToken.address, symbol: p.baseToken.symbol, name: p.baseToken.name, image: p.info?.imageUrl, pair: p.pairAddress,
     dex: p.dexId, url: p.url, priceUsd: +(p.priceUsd || 0), mcap: p.marketCap || p.fdv || 0, liq: p.liquidity?.usd || 0,
     vol24: p.volume?.h24 || 0, vol1h: p.volume?.h1 || 0, ch1h: p.priceChange?.h1 ?? 0, ch24: p.priceChange?.h24 ?? 0, ch5m: p.priceChange?.m5 ?? 0,
-    buys24: p.txns?.h24?.buys || 0, sells24: p.txns?.h24?.sells || 0, createdAt: p.pairCreatedAt || 0, onCurve: p.dexId === 'pumpfun', raw: p,
+    buys24: p.txns?.h24?.buys || 0, sells24: p.txns?.h24?.sells || 0, createdAt: p.pairCreatedAt || 0, onCurve: p.dexId === 'pumpfun', depthSol: depthSol(p), raw: p,
   }
 }
 function bestPair(pairs: Pair[]): Pair | undefined {
@@ -33,6 +33,8 @@ function bestPair(pairs: Pair[]): Pair | undefined {
   return sol.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0]
 }
 /** Batch: up to 30 mints → best pair each */
+/** SOL depth for impact math. DexScreener has no liquidity for bonding-curve coins; pump's curve is a virtual constant product (30 SOL × 1.073e9), depth = sqrt(k·p). */
+export function depthSol(p: any): number { const q = p?.liquidity?.quote; if (q) return q; const px = +(p?.priceNative || 0); return p?.dexId === 'pumpfun' && px ? Math.sqrt(30 * 1.073e9 * px) : 0 }
 export async function tokensByMint(mints: string[]): Promise<Record<string, Coin>> {
   const out: Record<string, Coin> = {}
   for (let i = 0; i < mints.length; i += 30) {

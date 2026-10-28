@@ -37,7 +37,7 @@ export default function CoinPage(p: Props) {
   const [tab, setTab] = useState<'trades' | 'desk' | 'vault' | 'protocol'>('trades'); const [sb, setSb] = useState(false); const [route, setRoute] = useState('')
   // Smart sell: if a resting desk bid beats the chart impact and fits inside the size, take it first; the rest goes to the pool.
   const smartSell = async () => {
-    const cc = coin!; const held0 = p.holding ? p.holding.amount : 0; const pxSol = cc.raw?.priceNative ? +cc.raw.priceNative : (p.solPrice ? cc.priceUsd / p.solPrice : 0); const liqSol = (cc.raw?.liquidity as any)?.quote || (p.solPrice ? cc.liq / 2 / p.solPrice : 0)
+    const cc = coin!; const held0 = p.holding ? p.holding.amount : 0; const pxSol = cc.raw?.priceNative ? +cc.raw.priceNative : (p.solPrice ? cc.priceUsd / p.solPrice : 0); const liqSol = cc.depthSol || (p.solPrice ? cc.liq / 2 / p.solPrice : 0)
     const sizeSol = held0 * frac * pxSol; const impact = K.poolImpactBps(sizeSol, liqSol)
     try {
       if (!cc.onCurve && p.desk.deskUp && sizeSol > 0.2) {
@@ -72,7 +72,7 @@ export default function CoinPage(p: Props) {
   const myTrades = p.trades.filter((t) => t.mint === p.mint)
   const stake = c.onCurve ? 0 : 0
   return <>
-    {sb && <SellBlock mint={p.mint} symbol={c.symbol} holdingUi={held} priceSol={c.raw?.priceNative ? +c.raw.priceNative : (p.solPrice ? c.priceUsd / p.solPrice : 0)} liqSol={(c.raw?.liquidity as any)?.quote || (p.solPrice ? c.liq / 2 / p.solPrice : 0)} owner={p.desk.owner} connected={p.connected} busy={p.busy} onClose={() => setSb(false)} takeBid={p.desk.takeBid} onPoolSell={(f) => p.onSell(c, f)} needWallet={p.needWallet} />}
+    {sb && <SellBlock mint={p.mint} symbol={c.symbol} holdingUi={held} priceSol={c.raw?.priceNative ? +c.raw.priceNative : (p.solPrice ? c.priceUsd / p.solPrice : 0)} liqSol={c.depthSol || (p.solPrice ? c.liq / 2 / p.solPrice : 0)} owner={p.desk.owner} connected={p.connected} busy={p.busy} onClose={() => setSb(false)} takeBid={p.desk.takeBid} onPoolSell={(f) => p.onSell(c, f)} needWallet={p.needWallet} />}
     <div className="coinhd"><Pfp c={c} lg /><div><h1>{c.symbol} <span className="nm" style={{ fontSize: 13 }}>{c.name}</span> <Status c={c} /></h1>
       <div className="meta"><Addr a={c.mint} /><span>pair {c.pair ? c.pair.slice(0, 6) : '—'}</span><span>{c.createdAt ? ago(c.createdAt) + ' old' : ''}</span>{c.url && <a href={c.url} target="_blank" rel="noreferrer">dexscreener ↗</a>}<a href={`https://pump.fun/coin/${c.mint}`} target="_blank" rel="noreferrer">pump.fun ↗</a></div></div>
       <span className="sp" />{vault ? <span className="tag live" style={{ marginRight: 8 }}>VAULTED</span> : vault === null && !c.onCurve ? <button className="btn sm pri" style={{ marginRight: 8 }} onClick={() => p.go('import/' + c.mint)}>+ Add vault · 15 SOL</button> : null}<button className="btn sm" onClick={() => p.toggleWatch(c.mint)}>{p.watch.includes(c.mint) ? '★ Watching' : '☆ Watch'}</button></div>

@@ -147,7 +147,7 @@ export default function App() {
       let fracLeft = 1
       if (!from.onCurve && deskUp) {
         try {
-          const px = from.raw?.priceNative ? +from.raw.priceNative : 0, liqSol = (from.raw?.liquidity as any)?.quote || 0, sizeSol = h.amount * px
+          const px = from.raw?.priceNative ? +from.raw.priceNative : 0, liqSol = from.depthSol || 0, sizeSol = h.amount * px
           if (sizeSol > 0.2 && liqSol > 0) {
             const impact = K.poolImpactBps(sizeSol, liqSol); const book = await K.getBook(from.mint, activeB58!)
             const best = book.bids.filter((b: any) => !b.mine && b.restable && b.discBps < impact && b.sol <= sizeSol * 1.02).sort((a: any, b: any) => a.discBps - b.discBps)[0]
