@@ -79,20 +79,20 @@ export async function buildPlatformTx(admin: PublicKey): Promise<{ tx: string; p
   return { tx: Buffer.from(tx.serialize()).toString('base64'), platformId: getPdaPlatformId(PROGRAM, admin).publicKey.toBase58() }
 }
 
-export type LaunchBuild = { mint: string; poolId: string; txs: string[]; devTokens: number; devCostSol: number; afterDev: { virtualA: bigint; virtualB: bigint; realA: bigint; realB: bigint } }
+export type LaunchBuild = { mint: string; poolId: string; txs: string[]; devTokens: number; devCostSol: number; afterDev: { virtualA: bigint; virtualB: bigint; realA: bigint; realB: bigint }; permTax: number }
 /** The create (+ dev buy) tx(s) for the dev to sign; the mint keypair has already co-signed. Platform = ours (must exist on chain). */
-export async function buildLaunch(dev: PublicKey, meta: { name: string; symbol: string; uri: string }, devBuySol: number, platformId: PublicKey | null = PLATFORM_ID): Promise<LaunchBuild> {
+export async function buildLaunch(dev: PublicKey, meta: { name: string; symbol: string; uri: string }, devBuySol: number, platformId: PublicKey | null = PLATFORM_ID, permTax = false): Promise<LaunchBuild> {
   if (!platformId) throw new Error('no platform configured (PLATFORM_ADMIN)')
   const mintKp = Keypair.generate()
   const r: any = await withOwner(dev, (r) => r.launchpad.createLaunchpad({
     programId: PROGRAM, platformId, mintA: mintKp.publicKey, decimals: 6, name: meta.name, symbol: meta.symbol.slice(0, 10), uri: meta.uri, migrateType: 'cpmm',
     configId: CONFIG_ID, buyAmount: new BN(Math.floor(devBuySol * 1e9)), createOnly: devBuySol <= 0, slippage: new BN(1000), txVersion: TxVersion.V0, extraSigners: [mintKp],
-    computeBudgetConfig: { units: 600_000, microLamports: 100_000 },
+    computeBudgetConfig: { units: 600_000, microLamports: 100_000 }, ...launchOpts(permTax),
   }))
   const txs: VersionedTransaction[] = r.transactions
   for (const t of txs) { const keys = t.message.staticAccountKeys.map((k) => k.toBase58()); if (keys.includes(mintKp.publicKey.toBase58()) && t.message.header.numRequiredSignatures > 1) t.sign([mintKp]) }
   const z = quoteFresh(devBuySol)
-  return { mint: mintKp.publicKey.toBase58(), poolId: poolIdOf(mintKp.publicKey.toBase58()).toBase58(), txs: txs.map((t) => Buffer.from(t.serialize()).toString('base64')), devTokens: z.tokens, devCostSol: z.cost, afterDev: z.after }
+  return { mint: mintKp.publicKey.toBase58(), poolId: poolIdOf(mintKp.publicKey.toBase58()).toBase58(), txs: txs.map((t) => Buffer.from(t.serialize()).toString('base64')), devTokens: z.tokens, devCostSol: z.cost, afterDev: z.after, permTax: permTax ? PERM_TAX_BPS : 0 }
 }
 // default config curve (SDK LaunchpadPoolInitParam): virtual 30.00085 SOL × 1,073,025,605.6 tokens, 793.1M on the curve, 85 SOL raise
 export const CURVE0 = { virtualA: 1_073_025_605_596_382n, virtualB: 30_000_852_951n, totalSellA: 793_100_000_000_000n, totalFundRaisingB: 85_000_000_000n, supply: 1_000_000_000_000_000n }
@@ -114,7 +114,7 @@ export function blockZero(devSol: number, vaultSol: number) {
 }
 
 /** a buy/sell on a LaunchLab pool for `owner`, unsigned. `poolState` lets the vault buy in the launch bundle before the pool exists. */
-export async function buildTrade(owner: PublicKey, action: 'buy' | 'sell', mint: string, amount: number | string, opts: { slippageBps?: number; poolState?: State; fromCreate?: boolean; tipLamports?: number; platformId?: PublicKey } = {}): Promise<VersionedTransaction> {
+export async function buildTrade(owner: PublicKey, action: 'buy' | 'sell', mint: string, amount: number | string, opts: { slippageBps?: number; poolState?: State; fromCreate?: boolean; tipLamports?: number; platformId?: PublicKey; permTaxBps?: number } = {}): Promise<VersionedTransaction> {
   const mintA = new PublicKey(mint)
   const slippage = new BN(Math.min(9999, Math.max(1, opts.slippageBps ?? 1000)))
   const base: any = { programId: PROGRAM, mintA, mintB: WSOL, slippage, txVersion: TxVersion.V0 as const, computeBudgetConfig: { units: 300_000, microLamports: 100_000 } }
@@ -125,16 +125,17 @@ export async function buildTrade(owner: PublicKey, action: 'buy' | 'sell', mint:
     const poolId = poolIdOf(mint); const vaultA = getPdaLaunchpadVaultId(PROGRAM, poolId, mintA).publicKey, vaultB = getPdaLaunchpadVaultId(PROGRAM, poolId, WSOL).publicKey
     poolInfo = { configId: CONFIG_ID, platformId: opts.platformId || PLATFORM_ID, mintA, mintB: WSOL, vaultA, vaultB, virtualA: bn(s.virtualA), virtualB: bn(s.virtualB), realA: bn(s.realA), realB: bn(s.realB), totalSellA: bn(CURVE0.totalSellA), totalFundRaisingB: bn(CURVE0.totalFundRaisingB), mintDecimalsA: 6, mintDecimalsB: 9, supply: bn(CURVE0.supply), status: 0, migrateFee: new BN(0), vestingSchedule: { totalLockedAmount: new BN(0), cliffPeriod: new BN(0), unlockPeriod: new BN(0), startTime: new BN(0), totalAllocatedShare: new BN(0) }, totalLockedAmount: new BN(0), cliffPeriod: new BN(0), unlockPeriod: new BN(0), mintProgramFlag: 0, creator: owner, platformFee: new BN(0), protocolFee: new BN(0), epoch: new BN(0), bump: 0, migrateType: 1, cpmmCreatorFeeOn: 0, platformVestingShare: new BN(0) }
   }
+  if (opts.poolState && opts.permTaxBps) { base.mintAProgram = TOKEN_2022_PROGRAM_ID; base.transferFeeConfigA = { transferFeeConfigAuthority: PublicKey.default, withdrawWithheldAuthority: PublicKey.default, withheldAmount: 0n, olderTransferFee: { epoch: 0n, maximumFee: 18446744073709551615n, transferFeeBasisPoints: opts.permTaxBps }, newerTransferFee: { epoch: 0n, maximumFee: 18446744073709551615n, transferFeeBasisPoints: opts.permTaxBps } }; if (poolInfo) poolInfo.mintProgramFlag = 1 }
   const r: any = await withOwner(owner, (r) => action === 'buy'
     ? r.launchpad.buyToken({ ...base, buyAmount: new BN(Math.floor(+amount * 1e9)), poolInfo, fromCreate: !!opts.fromCreate, skipCheckMintA: !!opts.poolState })
     : r.launchpad.sellToken({ ...base, sellAmount: new BN(typeof amount === 'string' && amount.endsWith('%') ? 0 : Math.floor(+amount * 1e6)), poolInfo }))
   return r.transaction as VersionedTransaction
 }
 /** sell a percentage of the owner's balance (vault sells are expressed as 'NN%') */
-export async function sellPct(owner: PublicKey, mint: string, pct: number, slippageBps = 1000): Promise<VersionedTransaction> {
+export async function sellPct(owner: PublicKey, mint: string, pct: number, slippageBps = 1000, feePayer?: PublicKey): Promise<VersionedTransaction> {
   const { tokenBalance } = await import('./chain.ts'); const bal = await tokenBalance(owner.toBase58(), mint)
   const raw = bal.raw * BigInt(Math.round(pct * 100)) / 10000n; if (raw <= 0n) throw new Error('nothing to sell')
-  const r: any = await withOwner(owner, (r) => r.launchpad.sellToken({ programId: PROGRAM, mintA: new PublicKey(mint), mintB: WSOL, sellAmount: new BN(raw.toString()), slippage: new BN(slippageBps), txVersion: TxVersion.V0, computeBudgetConfig: { units: 300_000, microLamports: 100_000 } }))
+  const r: any = await withOwner(owner, (r) => r.launchpad.sellToken({ programId: PROGRAM, mintA: new PublicKey(mint), mintB: WSOL, sellAmount: new BN(raw.toString()), slippage: new BN(slippageBps), feePayer, txVersion: TxVersion.V0, computeBudgetConfig: { units: 300_000, microLamports: 100_000 } }))
   return r.transaction as VersionedTransaction
 }
 
@@ -149,7 +150,7 @@ export async function buildClaim(mint: string, platformId: PublicKey | null = PL
 }
 /** unclaimed platform fee sitting in the pool (lamports) */
 export async function pendingFee(mint: string): Promise<number> { const p = await pool(mint, 0); return p ? Number(p.platformFee) / 1e9 : 0 }
-export const status = () => ({ venue: 'launchlab', program: PROGRAM.toBase58(), platformId: PLATFORM_ID?.toBase58() || null, admin: PLATFORM_ADMIN?.toBase58() || null, feeWallet: platformKeypair().publicKey.toBase58(), taxBps: TAX_BPS, creatorFeeBps: CREATOR_FEE_BPS, rpc: RPC.replace(/api-key=.*/, 'api-key=…') })
+export const status = () => ({ venue: 'launchlab', permTaxBps: PERM_TAX_BPS, program: PROGRAM.toBase58(), platformId: PLATFORM_ID?.toBase58() || null, admin: PLATFORM_ADMIN?.toBase58() || null, feeWallet: platformKeypair().publicKey.toBase58(), taxBps: TAX_BPS, creatorFeeBps: CREATOR_FEE_BPS, rpc: RPC.replace(/api-key=.*/, 'api-key=…') })
 
 // ---- after graduation: LP fees. The LP from migration is locked in a fee-key NFT held by the platform wallet; harvesting pulls the accrued
 // swap fees (SOL + token side) to the platform wallet. The vault's tick forwards the SOL to the chest. Experimental until the first graduation.
@@ -178,4 +179,35 @@ export async function buildHarvest(mint: string, feePayer: PublicKey): Promise<V
   const pk = platformKeypair().publicKey
   const r: any = await withOwner(pk, async (r) => { const { poolInfo, poolKeys } = await r.cpmm.getPoolInfoFromRpc(lock.poolId.toBase58()); return r.cpmm.harvestLockLp({ poolInfo, poolKeys, nftMint: lock.nftMint, lpFeeAmount: new BN('18446744073709551615'), feePayer, txVersion: TxVersion.V0, computeBudgetConfig: { units: 400_000, microLamports: 50_000 } }) })
   return r.transaction as VersionedTransaction
+}
+
+// ---- permanent tax (Token-2022 transfer fee). LaunchLab mints the coin as Token-2022 with a transfer fee; the fee is withheld in TOKENS on
+// every transfer on every venue, forever. Our platform key is the withdraw authority. Harvest: accounts → mint → platform wallet → sold for
+// SOL on the pool → forwarded to the chest by the vault tick. Fee rate is fixed for the coin's life (LaunchLab holds the config authority until graduation).
+import { TOKEN_2022_PROGRAM_ID, getMint, getTransferFeeConfig, unpackAccount, getTransferFeeAmount, createHarvestWithheldTokensToMintInstruction, createWithdrawWithheldTokensFromMintInstruction, getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token'
+import { Transaction as LegacyTx } from '@solana/web3.js'
+export const PERM_TAX_BPS = Math.min(500, Math.max(0, +(process.env.PERM_TAX_BPS || 100))) // transfer fee on every move of the token, cap 5%
+export function launchOpts(permTax: boolean) { return permTax && PERM_TAX_BPS > 0 ? { token2022: true, transferFeeExtensionParams: { transferFeeBasePoints: PERM_TAX_BPS, maxinumFee: new BN('18446744073709551615') } } : {} }
+/** is this a Token-2022 mint with a transfer fee we can withdraw? */
+export async function permTaxOf(mint: string): Promise<{ bps: number; withheldAtMint: bigint } | null> {
+  const info = await conn.getAccountInfo(new PublicKey(mint)).catch(() => null); if (!info || !info.owner.equals(TOKEN_2022_PROGRAM_ID)) return null
+  const m = await getMint(conn, new PublicKey(mint), 'confirmed', TOKEN_2022_PROGRAM_ID); const cfg = getTransferFeeConfig(m); if (!cfg) return null
+  return { bps: cfg.newerTransferFee.transferFeeBasisPoints, withheldAtMint: cfg.withheldAmount }
+}
+/** withheld fees sitting on holder token accounts → the mint → the platform wallet's ATA. Returns the tx (fee payer = the coin's vault) or null when nothing is waiting. */
+export async function buildPermTaxHarvest(mint: string, feePayer: PublicKey): Promise<{ tx: LegacyTx; tokens: number; accounts: number } | null> {
+  const mintPk = new PublicKey(mint); const pk = platformKeypair().publicKey
+  const m = await getMint(conn, mintPk, 'confirmed', TOKEN_2022_PROGRAM_ID); const cfg = getTransferFeeConfig(m); if (!cfg) return null
+  // holder accounts with withheld fees (token-2022 accounts for this mint: 165 bytes base + extensions)
+  const accs = await conn.getProgramAccounts(TOKEN_2022_PROGRAM_ID, { commitment: 'confirmed', filters: [{ memcmp: { offset: 0, bytes: mint } }] }).catch(() => [])
+  const sources: PublicKey[] = []; let withheld = 0n
+  for (const a of accs) { try { const acc = unpackAccount(a.pubkey, a.account, TOKEN_2022_PROGRAM_ID); const w = getTransferFeeAmount(acc)?.withheldAmount || 0n; if (w > 0n) { sources.push(a.pubkey); withheld += w } } catch {} if (sources.length >= 20) break }
+  const total = withheld + cfg.withheldAmount; if (total < 1000n) return null
+  const dest = getAssociatedTokenAddressSync(mintPk, pk, false, TOKEN_2022_PROGRAM_ID)
+  const tx = new LegacyTx()
+  if (sources.length) tx.add(createHarvestWithheldTokensToMintInstruction(mintPk, sources, TOKEN_2022_PROGRAM_ID))
+  tx.add(createAssociatedTokenAccountIdempotentInstruction(feePayer, dest, pk, mintPk, TOKEN_2022_PROGRAM_ID))
+  tx.add(createWithdrawWithheldTokensFromMintInstruction(mintPk, dest, pk, [], TOKEN_2022_PROGRAM_ID))
+  tx.feePayer = feePayer; tx.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash
+  return { tx, tokens: Number(total) / 10 ** m.decimals, accounts: sources.length }
 }

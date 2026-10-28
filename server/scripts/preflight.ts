@@ -285,6 +285,17 @@ await step('launchlab: launch bundle [create+dev buy, vault buy] → decode + si
   return `${txs.length} create tx · signers ${txs.map((t) => t.message.header.numRequiredSignatures).join('/')} · dev ${(built.devTokens / 1e6).toFixed(3)}M tok (${z.devPct.toFixed(2)}%) · vault buy ${(z.vaultTokens / 1e6).toFixed(3)}M (${z.vaultPct.toFixed(2)}%) programs ${progs} · mcap after ${z.mcapSol.toFixed(1)} SOL · ` + sims.join(' · ')
 })
 
+await step('launchlab: token-2022 launch with the permanent transfer tax → simulate create + vault buy shape', async () => {
+  const LL = await import('../src/launchlab.ts'); const { LAUNCHPAD_PLATFORM } = await import('@raydium-io/raydium-sdk-v2')
+  const built = await LL.buildLaunch(PAYER, { name: 'preflight', symbol: 'PRE', uri: 'https://ipfs.io/ipfs/bafkreigh2akiscaildc' }, 0.05, LAUNCHPAD_PLATFORM, true)
+  const txs = built.txs.map((b) => VersionedTransaction.deserialize(Buffer.from(b, 'base64')))
+  const keys = txs[0].message.staticAccountKeys.map((k) => k.toBase58()); const t22 = keys.includes('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb')
+  const vt = await LL.buildTrade(PAYER, 'buy', built.mint, 0.1, { poolState: built.afterDev, fromCreate: true, slippageBps: 3000, platformId: LAUNCHPAD_PLATFORM, permTaxBps: built.permTax })
+  const vkeys = vt.message.staticAccountKeys.map((k) => k.toBase58())
+  const sims: string[] = []; for (const [i, t] of txs.entries()) sims.push(await sim(t, `create#${i}`).catch((e) => `create#${i} simulate: ` + String(e.message).slice(0, 160)))
+  if (!t22) throw new Error('create tx does not use the token-2022 program')
+  return `tax ${built.permTax} bps · ${txs.length} create tx (token-2022 ${t22}) · vault buy references token-2022 ${vkeys.includes('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb')} · ` + sims.join(' · ')
+})
 await step('launchlab: HTTP routes on a live server (/ll/platform, /ll/pool, /ll/trade, /ll/launch/build) → simulate', async () => {
   const { spawn } = await import('node:child_process'); const { LAUNCHPAD_PLATFORM } = await import('@raydium-io/raydium-sdk-v2')
   const port = 4321 + Math.floor(Math.random() * 500)
