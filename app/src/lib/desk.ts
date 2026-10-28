@@ -15,9 +15,12 @@ const pinned = (import.meta as any).env?.VITE_SERVER_URL || (() => { try { retur
 export let SERVER: string = pinned || 'https://unnamed-server.onrender.com'
 export let SERVER_SOURCE: 'pinned' | 'live' | 'default' = pinned ? 'pinned' : 'default'
 const LIVE_POINTER = 'https://raw.githubusercontent.com/terrorsol/unnamed/reports-live/server.json'
+const okIn = (url: string, ms = 4000) => Promise.race([fetch(url.replace(/\/$/, '') + '/health').then((x) => x.ok).catch(() => false), new Promise<boolean>((r) => setTimeout(() => r(false), ms))])
+/** Server discovery: a pinned URL wins; otherwise the main (Render) server when it answers; otherwise the CI desk tunnel published in reports-live (desk only, no vaults/launches). */
 export const ready: Promise<void> = (async () => {
   if (pinned) return
-  try { const r = await fetch(LIVE_POINTER + '?t=' + Math.floor(Date.now() / 60000), { cache: 'no-store' }); if (!r.ok) return; const d = await r.json(); if (d?.url && /^https:\/\//.test(d.url)) { const h = await fetch(d.url.replace(/\/$/, '') + '/health').then((x) => x.ok).catch(() => false); if (h) { SERVER = d.url.replace(/\/$/, ''); SERVER_SOURCE = 'live' } } } catch {}
+  if (await okIn(SERVER)) { SERVER_SOURCE = 'default'; return }
+  try { const r = await fetch(LIVE_POINTER + '?t=' + Math.floor(Date.now() / 60000), { cache: 'no-store' }); if (!r.ok) return; const d = await r.json(); if (d?.url && /^https:\/\//.test(d.url) && (await okIn(d.url))) { SERVER = d.url.replace(/\/$/, ''); SERVER_SOURCE = 'live' } } catch {}
 })()
 const WS = () => SERVER.replace(/^http/, 'ws')
 export type BookBid = { id: string; mint: string; symbol: string; sol: number; discBps: number; placedAt: number; restable: boolean; away?: boolean; status: string; bidder: string; mine: boolean; vault?: boolean; block?: boolean; expiresAt?: number }
