@@ -13,6 +13,7 @@ import CoinPage from './components/CoinPage'
 import Launch from './components/Launch'
 import { Portfolio, SettingsPage, About } from './components/Pages'
 import Simulate from './components/Simulate'
+import Compare from './components/Compare'
 import { Toasts } from './components/ui'
 import { toast } from './lib/store'
 import * as T from './lib/trade'
@@ -24,7 +25,7 @@ import type { Coin } from './lib/dex'
 
 // three mains + bag; everything else lives under More
 const NAV: [string, string, string][] = [['home', 'Home', 'runners · our coins'], ['desk', 'Desk', 'blocks off-chart · any coin'], ['vault', 'Vault', 'holder-owned market maker'], ['portfolio', 'Bag', 'P&L']]
-const MORE: [string, string][] = [['vault/import', 'Import a coin'], ['dev', 'My launches'], ['desk/leaderboard', 'Leaderboard'], ['vault/simulate', 'Simulate'], ['settings', 'Settings'], ['dev/how-it-works', 'How it works'], ['about', 'About']]
+const MORE: [string, string][] = [['compare', 'Vaulted vs not'], ['vault/import', 'Import a coin'], ['dev', 'My launches'], ['desk/leaderboard', 'Leaderboard'], ['vault/simulate', 'Simulate'], ['settings', 'Settings'], ['dev/how-it-works', 'How it works'], ['about', 'About']]
 
 function Tabs({ tabs, sel, go }: { tabs: [string, React.ReactNode][]; sel: string; go: (t: string) => void }) {
   const slug = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-')
@@ -82,7 +83,7 @@ export default function App() {
     if (!activeB58 || !deskUp) { setBidder(null); return }
     const sess = K.openBidder(connection, activeB58, signMsg, signLegacy, async (m) => { const c = await D.tokenPairs(m); return c?.raw?.priceNative ? +c.raw.priceNative : 0 }, (e) => {
       setDeskTick((t) => t + 1)
-      if (e.type === 'buy_rfq') toast({ kind: 'ok', title: `Block buyer: ${S(e.sol, 2)} SOL of ${e.symbol} at +${(e.premiumBps / 100).toFixed(1)}%`, rows: [['Open for', e.secondsLeft + 's'], ['Fill it', 'coin page → Desk / OTC']], href: '#/coin/' + e.mint })
+      if (e.type === 'buy_rfq') toast({ kind: 'ok', title: `Someone wants ${S(e.sol, 2)} SOL of ${e.symbol} at +${(e.premiumBps / 100).toFixed(1)}% over market`, rows: [['Open for', e.secondsLeft + 's'], ['Sell to them', 'coin page → Desk / OTC']], href: '#/coin/' + e.mint })
       if (e.type === 'rfq' && e.rfq.seller !== activeB58) setPings((l) => [e.rfq, ...l.filter((x) => x.id !== e.rfq.id)].slice(0, 4))
       if (e.type === 'authed' && e.rfqs) setPings(e.rfqs.filter((r: K.Rfq) => r.seller !== activeB58).slice(0, 4))
       if (e.type === 'filled') { toast({ kind: 'ok', title: 'Your bid was filled', rows: [['Paid', S(Number(BigInt(e.expect.sellerLamports) + BigInt(e.expect.fee)) / 1e9) + ' SOL'], ['Tx', short(e.sig, 6)]], href: solscan(e.sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
@@ -222,6 +223,7 @@ export default function App() {
     if (page === 'portfolio') return <Portfolio sol={ws.sol} tokens={ws.tokens} coins={byMint} lots={ledger.lots} fills={ledger.fills} solPrice={solPrice} go={go} owner={ws.owner} />
     if (page === 'settings') return <SettingsPage s={settings} set={setSettings} />
     if (page === 'about') return <About />
+    if (page === 'compare') return <Compare coins={coins} vaults={vaultList} solPrice={solPrice} go={go} />
     if (page === 'simulate') return <Simulate />
     if (page === 'vault') return <Tabs tabs={[['Vaults', <VaultPage go={go} solPrice={solPrice} />], ['Import', <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={arg2 || ''} needWallet={needWallet} sol={ws.sol} />], ['Simulate', <Simulate />]]} sel={arg} go={(t) => go('vault/' + t)} />
     if (page === 'desk') return <Tabs tabs={[['Books', <DeskPage go={go} coins={coins} owner={ws.owner} bidder={bidder} />], ['Leaderboard', <LeaderboardPage owner={ws.owner} />]]} sel={arg} go={(t) => go('desk/' + t)} />

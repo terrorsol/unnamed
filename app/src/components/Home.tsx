@@ -22,12 +22,18 @@ export default function Home(p: Props) {
   const movers = useMemo(() => p.coins.map((c) => ({ c, s: classify(featsFromCoin(c, null, p.vaults.some((v) => v.mint === c.mint))) })).filter((x) => x.s.label !== 'DEAD' && x.s.label !== 'RUG RISK').sort((a, b) => b.s.score - a.s.score).slice(0, 14), [p.coins, p.vaults])
   const fills24 = fills.filter((f) => Date.now() - f.t < 86400000)
   return <>
-    <div className="row" style={{ marginBottom: 12, gap: 14, fontSize: 12, flexWrap: 'wrap' }}>
-      <span className="status"><i className={p.deskUp ? '' : 'off'} />{p.deskUp ? 'desk live' : 'desk offline'}</span>
-      <span><b className="num">{desks.length}</b> <span className="dim">desks open</span></span>
-      <span><b className="num">{fills24.length}</b> <span className="dim">blocks off-chart today</span>{fills24.length > 0 && <span className="dim num"> · {S(fills24.reduce((a, f) => a + f.sol, 0), 1)} SOL</span>}</span>
-      <span><b className="num">{p.vaults.length}</b> <span className="dim">vaulted</span>{chest > 0 && <span className="dim num"> · {S(chest, 1)} SOL in chests</span>}</span>
-      <span className="dim num">SOL ${S(p.solPrice, 2)}</span>
+    {(() => {
+      const desksLive = desks.filter((c) => books[c.mint]).length
+      const offChartToday = fills24.reduce((a, f) => a + f.sol, 0) + tape.filter((a: any) => Date.now() - a.t < 86400000 && (a.kind === 'buy' || a.kind === 'bid')).reduce((a: number, x: any) => a + (x.sol || 0), 0)
+      const avg = (xs: number[]) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null
+      const vaultedCh = avg(ours.filter((x) => x.c).map((x) => x.c!.ch24)); const marketCh = avg(p.coins.map((c) => c.ch24))
+      return <div className="tiles" style={{ marginBottom: 12, gridTemplateColumns: 'repeat(4,1fr)' }}>
+        <div className="tile"><div className="l">Desks live</div><div className="v num">{desksLive}<span className="dim" style={{ fontSize: 13 }}> / {desks.length} open</span></div><div className="s status"><i className={p.deskUp ? '' : 'off'} />{p.deskUp ? 'desk online' : 'desk offline'}</div></div>
+        <div className="tile"><div className="l">Vaults live</div><div className="v num">{p.vaults.filter((v) => v.armed).length}</div><div className="s num">{chest > 0 ? `${S(chest, 1)} SOL in chests · ${ours.filter((x) => x.sg?.label === 'RUNNER').length} running` : 'holder-owned market makers'}</div></div>
+        <div className="tile"><div className="l">Off-chart volume today</div><div className="v num">{S(offChartToday, 1)} SOL</div><div className="s num">{fills24.length} desk fills · ${S(offChartToday * p.solPrice, 0)}</div></div>
+        <div className="tile"><div className="l">24h · vaulted vs market</div><div className="v num">{vaultedCh == null ? <span className="dim">—</span> : <span className={vaultedCh >= 0 ? 'up' : 'dn'}>{vaultedCh >= 0 ? '+' : ''}{vaultedCh.toFixed(1)}%</span>}<span className="dim" style={{ fontSize: 13 }}> vs {marketCh == null ? '—' : (marketCh >= 0 ? '+' : '') + marketCh.toFixed(1) + '%'}</span></div><div className="s"><a href="#/compare" style={{ textDecoration: 'underline' }}>vaulted vs not →</a></div></div>
+      </div> })()}
+    <div className="row" style={{ marginBottom: 10 }}>
       <span className="sp" /><button className="btn pri sm" onClick={p.onLaunch}>Launch with a vault</button>
     </div>
     <div className="row" style={{ marginBottom: 10 }}>
