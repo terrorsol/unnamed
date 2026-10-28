@@ -134,6 +134,16 @@ export default function App() {
     try { setBusy('Reserving vault…'); const v = await K.importCreate(activeB58, mint); const { sig, vault } = await K.payImport(connection, activeB58, v, signLegacy, setBusy); setVaultV((x) => x + 1); toast({ kind: 'ok', title: `${vault.symbol} is now VAULTED`, rows: [['Chest', S(vault.chest) + ' SOL'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500); go('coin/' + mint) }
     catch (e: any) { toast({ kind: 'err', title: 'Import failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
   }
+  const onCrowd = async (mint: string) => {
+    if (!activeB58) return needWallet()
+    try { setBusy('Opening takeover…'); const v = await K.importCrowd(activeB58, mint); setVaultV((x) => x + 1); toast({ kind: 'ok', title: `${v.symbol} takeover is open`, rows: [['Goal', v.crowd?.goalSol + ' SOL'], ['Escrow', short(v.pub, 6)]] }) }
+    catch (e: any) { toast({ kind: 'err', title: 'Could not open takeover', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
+  }
+  const onContribute = async (v: K.VaultPub, sol: number) => {
+    if (!activeB58) return needWallet()
+    try { const { sig, vault } = await K.contribute(connection, activeB58, v, sol, signLegacy, setBusy); setVaultV((x) => x + 1); setTimeout(() => setRk((k) => k + 1), 1500); toast({ kind: vault.armed ? 'ok' : 'ok', title: vault.armed ? `${vault.symbol} is now VAULTED — takeover funded` : `Chipped in ${S(sol)} SOL`, rows: [['Raised', `${S(vault.crowd?.raised || 0, 2)} / ${vault.crowd?.goalSol} SOL`], ['Tx', short(sig, 6)]], href: solscan(sig) }) }
+    catch (e: any) { toast({ kind: 'err', title: 'Contribution failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
+  }
   const onDeposit = async (v: K.VaultPub, sol: number, tokens: number, decimals: number) => {
     if (!activeB58) return needWallet()
     try { const { sig, vault } = await K.depositToVault(connection, activeB58, v, sol, tokens, decimals, signLegacy, setBusy); setVaultV((x) => x + 1); toast({ kind: 'ok', title: 'Deposited into the vault', rows: [['Chest', S(vault.chest) + ' SOL'], ['Vault supply', vault.tokens.toLocaleString(undefined, { maximumFractionDigits: 0 })]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
@@ -212,7 +222,7 @@ export default function App() {
     if (page === 'simulate') return <Simulate />
     if (page === 'vault') return <Tabs tabs={[['Vaults', <VaultPage go={go} solPrice={solPrice} />], ['Simulate', <Simulate />]]} sel={arg} go={(t) => go('vault/' + t)} />
     if (page === 'desk') return <Tabs tabs={[['Books', <DeskPage go={go} />], ['Leaderboard', <LeaderboardPage owner={ws.owner} />]]} sel={arg} go={(t) => go('desk/' + t)} />
-    if (page === 'dev' || page === 'mine' || page === 'import') return <Tabs tabs={[['My launches', <MinePage owner={ws.owner} go={go} solPrice={solPrice} onRenounce={renounce} onClaim={onClaim} busy={busy} />], ['Import a coin', <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} go={go} initialMint={page === 'import' ? arg : ''} needWallet={needWallet} sol={ws.sol} />], ['How it works', <About />]]} sel={page === 'import' ? 'import-a-coin' : arg} go={(t) => go('dev/' + t)} />
+    if (page === 'dev' || page === 'mine' || page === 'import') return <Tabs tabs={[['My launches', <MinePage owner={ws.owner} go={go} solPrice={solPrice} onRenounce={renounce} onClaim={onClaim} busy={busy} />], ['Import a coin', <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={page === 'import' ? arg : ''} needWallet={needWallet} sol={ws.sol} />], ['How it works', <About />]]} sel={page === 'import' ? 'import-a-coin' : arg} go={(t) => go('dev/' + t)} />
     if (page === 'leaderboard') return <LeaderboardPage owner={ws.owner} />
     if (false) return <div className="prose"><h2>{page === 'vault' ? 'Vault' : 'Desk'} <span className="tag pre">PREVIEW</span></h2><p>{page === 'vault' ? 'Program-owned market maker funded by the dev\'s block-zero stake. Buys dips (≤40% of chest per crash), trims only above holder cost basis and 30-min VWAP, never withdraws. Ships on-chain in Beta v1 — the per-coin preview is on each coin page under Protocol.' : 'Escrowed block bids at −3–5%, 60s rest, all-or-none, min block 2% of pool reserve, open once a coin has graduated and holds $100K mc. Ships with the vault program; the gating is already computed live on each coin page.'}</p></div>
     return <Home coins={q.trim() ? results : coins} byMint={byMint} vaults={vaultList} solPrice={solPrice} go={go} quick={quick} quickSol={settings.quickBuy} deskUp={deskUp} onLaunch={() => setLaunch(true)} fresh={fresh.list} freshCoins={freshCoins} trades={fresh.trades} live={fresh.live} err={err} watch={settings.watch} />

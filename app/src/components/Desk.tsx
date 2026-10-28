@@ -165,10 +165,12 @@ export function LeaderboardPage({ owner }: { owner: string }) {
 }
 
 /** Import an existing coin and activate a vault on it */
-export function ImportPage({ owner, connected, busy, onPay, go, initialMint, needWallet, sol }: { owner: string; connected: boolean; busy: string; onPay: (mint: string) => Promise<void>; go: (p: string) => void; initialMint?: string; needWallet: () => void; sol: number | null }) {
+export function ImportPage({ owner, connected, busy, onPay, onCrowd, onContribute, go, initialMint, needWallet, sol }: { owner: string; connected: boolean; busy: string; onPay: (mint: string) => Promise<void>; onCrowd: (mint: string) => Promise<void>; onContribute: (v: K.VaultPub, sol: number) => Promise<void>; go: (p: string) => void; initialMint?: string; needWallet: () => void; sol: number | null }) {
   const [mint, setMint] = useState(initialMint || ''); const [q, setQ] = useState<K.ImportQuote | null>(null); const [err, setErr] = useState('')
   useEffect(() => { if (mint.trim().length < 32) { setQ(null); setErr(''); return } const t = setTimeout(() => K.importQuote(mint.trim()).then((x) => { setQ(x); setErr('') }).catch((e) => { setQ(null); setErr(String(e.message || e)) }), 400); return () => clearTimeout(t) }, [mint])
   const canPay = !!q && connected && !busy && (sol == null || sol >= (q.feeSol + 0.01))
+  const [who, setWho] = useState<'dev' | 'crowd'>('dev'); const [open, setOpen] = useState<K.VaultPub[]>([]); const [amt, setAmt] = useState<Record<string, string>>({})
+  useEffect(() => { const f = () => K.crowdOpen().then(setOpen).catch(() => {}); f(); const i = setInterval(f, 10000); return () => clearInterval(i) }, [busy])
   return <div style={{ maxWidth: 720 }}>
     <h2 style={{ margin: '0 0 6px', fontSize: 18 }}>Import a coin · activate a vault</h2>
     <div className="dim" style={{ marginBottom: 14, fontSize: 12 }}>Any coin with a market. One payment → the vault runs, the coin gets <span className="tag live">VAULTED</span>, every move is public.</div>
@@ -184,10 +186,24 @@ export function ImportPage({ owner, connected, busy, onPay, go, initialMint, nee
       <div className="kv"><span>Import fee</span><b className="num">{q.feeSol} SOL</b></div>
       <div className="kv"><span>→ seeds the chest</span><b className="num up">{q.seedSol} SOL</b></div>
       <div className="kv"><span>→ UNNAMED treasury</span><b className="num">{q.treasurySol} SOL</b></div>
-      <div className="kv"><span>Owner (gets the cut, can renounce)</span><b className="num">{owner ? short(owner, 6) : '—'}</b></div>
-      <button className="btn pri big" disabled={!canPay && connected} onClick={() => (connected ? onPay(q.mint) : needWallet())}>{busy || (!connected ? 'Connect wallet' : sol != null && sol < q.feeSol + 0.01 ? `Need ${q.feeSol} SOL` : `Pay ${q.feeSol} SOL · activate vault`)}</button>
-      <div className="nm">Then deposit your bag on the coin page — it can only leave via rule-bound trims or holder redeems. Cut 5%, renounceable.</div>
+      <div className="seg" style={{ marginTop: 4 }}><button className={who === 'dev' ? 'on' : ''} onClick={() => setWho('dev')}>I pay it</button><button className={who === 'crowd' ? 'on' : ''} onClick={() => setWho('crowd')}>Community takeover</button></div>
+      {who === 'dev' ? <>
+        <div className="kv"><span>Owner (gets the cut, can renounce)</span><b className="num">{owner ? short(owner, 6) : '—'}</b></div>
+        <button className="btn pri big" disabled={!canPay && connected} onClick={() => (connected ? onPay(q.mint) : needWallet())}>{busy || (!connected ? 'Connect wallet' : sol != null && sol < q.feeSol + 0.01 ? `Need ${q.feeSol} SOL` : `Pay ${q.feeSol} SOL · activate vault`)}</button>
+        <div className="nm">Then deposit your bag on the coin page — it can only leave via rule-bound trims or holder redeems. Cut 5%, renounceable.</div>
+      </> : <>
+        <div className="kv"><span>Goal</span><b className="num">{q.feeSol} SOL · anyone chips in ≥0.05</b></div>
+        <div className="kv"><span>Escrow</span><b className="num">the vault's own wallet · refunds in 7 days if not funded</b></div>
+        <button className="btn pri big" disabled={!!busy} onClick={() => (connected ? onCrowd(q.mint) : needWallet())}>{busy || (!connected ? 'Connect wallet' : 'Start the takeover')}</button>
+        <div className="nm">No dev needed. Cut is 0 from day one. Arms itself the moment the goal is reached.</div>
+      </>}
     </div></div>}
+    {open.length > 0 && <div style={{ marginTop: 16 }}><div className="lbl">Takeovers raising</div>
+      {open.map((v) => { const c = v.crowd!; const pct = Math.min(100, (c.raised / c.goalSol) * 100); return <div className="card" key={v.id} style={{ marginBottom: 8 }}><div className="panel" style={{ gap: 6 }}>
+        <div className="row"><b>{v.symbol}</b><span className="dim" style={{ fontSize: 11 }}>{c.backers} backers · {Math.max(0, Math.round((c.expiresAt - Date.now()) / 3.6e6))}h left</span><span className="sp" /><b className="num">{S(c.raised, 2)} / {c.goalSol} SOL</b></div>
+        <div style={{ height: 6, background: 'var(--line)', borderRadius: 3 }}><div style={{ width: pct + '%', height: '100%', background: 'var(--up)', borderRadius: 3 }} /></div>
+        <div className="row" style={{ gap: 6 }}><div className="inp" style={{ flex: 1 }}><input value={amt[v.id] || ''} onChange={(e) => setAmt({ ...amt, [v.id]: e.target.value })} placeholder="0.25" inputMode="decimal" /><span>SOL</span></div><button className="btn sm pri" disabled={!!busy || !(+(amt[v.id] || 0) >= 0.05)} onClick={() => (connected ? onContribute(v, +(amt[v.id] || 0)) : needWallet())}>Chip in</button><button className="btn sm" onClick={() => go('coin/' + v.mint)}>Coin</button></div>
+      </div></div> })}</div>}
   </div>
 }
 

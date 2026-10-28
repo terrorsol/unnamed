@@ -24,7 +24,7 @@ const enc = (u: Uint8Array) => { const iv = randomBytes(12); const c = createCip
 const dec = (s: string) => { const b = Buffer.from(s, 'base64'); const d = createDecipheriv('aes-256-gcm', key, b.subarray(0, 12)); d.setAuthTag(b.subarray(12, 28)); return new Uint8Array(Buffer.concat([d.update(b.subarray(28)), d.final()])) }
 
 export type Act = { t: number; kind: 'stake' | 'seed' | 'buy' | 'trim' | 'cut' | 'note' | 'redeem' | 'stream' | 'bid' | 'capture'; sol?: number; tokens?: number; price?: number; sig?: string; msg?: string }
-export type Vault = { holders?: any; id: string; pub: string; sk: string; mint?: string; symbol?: string; name?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; createdAt: number; copyOf?: string; streamed: number; redeemed: number; supply: number; deskBid: number; imported?: boolean; feePaid?: number; trimmedToday: number; trimDay: number; depositedTokens: number; funders: Record<string, number>; mode: 'floor' | 'mm'; ceiling: number; lastLiq: number; lastLiqT: number; buyTimes: number[]; tranchesFired: number[]; score: { captured: number; captures: number; deskBought: number; deskFills: number; dipBought: number; dips: number; redeployed: number; floor0: number }; lastCapture: number
+export type Vault = { holders?: any; crowd?: { goalSol: number; raised: number; contributors: Record<string, number>; expiresAt: number; refunded?: boolean }; id: string; pub: string; sk: string; mint?: string; symbol?: string; name?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; createdAt: number; copyOf?: string; streamed: number; redeemed: number; supply: number; deskBid: number; imported?: boolean; feePaid?: number; trimmedToday: number; trimDay: number; depositedTokens: number; funders: Record<string, number>; mode: 'floor' | 'mm'; ceiling: number; lastLiq: number; lastLiqT: number; buyTimes: number[]; tranchesFired: number[]; score: { captured: number; captures: number; deskBought: number; deskFills: number; dipBought: number; dips: number; redeployed: number; floor0: number }; lastCapture: number
   avgCost: number; tokens: number; chest: number; spentEpisode: number; high15: { t: number; p: number }[]; samples: { t: number; p: number; v: number }[]; ema5: number | null; ema15: number | null; lastBuy: number; lastTrim: number; activity: Act[]; devPaid: number }
 let vaults: Record<string, Vault> = {}
 const watched = new Map<string, () => void>()
@@ -32,7 +32,7 @@ let SOLUSD = 0; setInterval(() => fetch(`${process.env.DEX_URL || 'https://api.d
 export function load() { if (existsSync(FILE)) vaults = JSON.parse(readFileSync(FILE, 'utf8')) }
 function save() { mkdirSync(DIR, { recursive: true }); writeFileSync(FILE, JSON.stringify(vaults)) }
 const kp = (v: Vault) => Keypair.fromSecretKey(dec(v.sk))
-const pub = (v: Vault) => ({ id: v.id, pub: v.pub, mint: v.mint, symbol: v.symbol, name: v.name, dev: v.dev, stakeSol: v.stakeSol, pct: v.pct, cut: v.cut, armed: v.armed, renounced: v.renounced, avgCost: v.avgCost, tokens: v.tokens, chest: v.chest, devPaid: v.devPaid, activity: v.activity.slice(0, 50), createdAt: v.createdAt, copyOf: v.copyOf, imported: !!v.imported, mode: v.mode || 'floor', ceiling: v.ceiling ?? R.MM_MAX_CAPTURE, score: v.score || { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: 0 }, floor: v.supply ? v.chest / v.supply : 0, live: liveReadout(v), holders: v.holders || null, feePaid: v.feePaid || 0, depositedTokens: v.depositedTokens || 0, funders: v.funders || {}, streamed: v.streamed || 0, redeemed: v.redeemed || 0, supply: v.supply || 1e9, deskBid: v.deskBid || 0, copies: Object.values(vaults).filter((c) => c.copyOf === v.mint && c.armed).map((c) => ({ mint: c.mint, symbol: c.symbol, pub: c.pub })) })
+const pub = (v: Vault) => ({ id: v.id, pub: v.pub, crowd: v.crowd ? { goalSol: v.crowd.goalSol, raised: +v.crowd.raised.toFixed(3), backers: Object.keys(v.crowd.contributors).length, expiresAt: v.crowd.expiresAt, refunded: !!v.crowd.refunded } : undefined, mint: v.mint, symbol: v.symbol, name: v.name, dev: v.dev, stakeSol: v.stakeSol, pct: v.pct, cut: v.cut, armed: v.armed, renounced: v.renounced, avgCost: v.avgCost, tokens: v.tokens, chest: v.chest, devPaid: v.devPaid, activity: v.activity.slice(0, 50), createdAt: v.createdAt, copyOf: v.copyOf, imported: !!v.imported, mode: v.mode || 'floor', ceiling: v.ceiling ?? R.MM_MAX_CAPTURE, score: v.score || { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: 0 }, floor: v.supply ? v.chest / v.supply : 0, live: liveReadout(v), holders: v.holders || null, feePaid: v.feePaid || 0, depositedTokens: v.depositedTokens || 0, funders: v.funders || {}, streamed: v.streamed || 0, redeemed: v.redeemed || 0, supply: v.supply || 1e9, deskBid: v.deskBid || 0, copies: Object.values(vaults).filter((c) => c.copyOf === v.mint && c.armed).map((c) => ({ mint: c.mint, symbol: c.symbol, pub: c.pub })) })
 export const vaultPct = (s: number) => Math.min(10, (s / (s + 1)) * 13.3)
 
 /** Step 1 (before launch): make a vault address the dev will fund */
@@ -83,6 +83,52 @@ export async function importActivate(id: string, sig: string) {
   v.feePaid = R.IMPORT_FEE_SOL; v.funders[v.dev] = (v.funders[v.dev] || 0) + R.IMPORT_SEED_SOL
   try { const sup = await conn.getTokenSupply(new PublicKey(v.mint!)); v.supply = +(sup.value.uiAmount || 1e9) } catch {}
   await sync(v); v.armed = true; v.activity.unshift({ t: Date.now(), kind: 'stake', sol: v.chest, sig, msg: `vault activated · ${R.IMPORT_FEE_SOL} SOL import (${R.IMPORT_SEED_SOL} seeded)` }); save(); return pub(v)
+}
+/** SOL transfer signed by the vault key, confirmed by polling (no websocket dependency). */
+async function payFrom(v: Vault, to: string, lamports: number) {
+  const k = kp(v); const tx = new Transaction().add(SystemProgram.transfer({ fromPubkey: k.publicKey, toPubkey: new PublicKey(to), lamports }))
+  tx.feePayer = k.publicKey; tx.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash; tx.sign(k)
+  const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 }); await confirm(sig); return sig
+}
+/** Community takeover import: nobody pays 15 SOL alone. The vault wallet itself is the escrow — anyone sends ≥0.05 SOL to it; when
+ *  the goal is reached the server pays the treasury share from the vault and arms it (cut 0, renounced). Not funded in 7 days → refunds pro-rata. */
+export async function importCrowd(initiator: string, mint: string) {
+  const q = await importQuote(mint)
+  const existing = Object.values(vaults).find((v) => v.mint === mint && v.crowd && !v.armed && !v.crowd.refunded); if (existing) return { ...pub(existing), quote: q }
+  const v = await importCreate(initiator, mint); const vv = vaults[v.id]; vv.cut = 0; vv.renounced = true
+  vv.crowd = { goalSol: R.IMPORT_FEE_SOL, raised: 0, contributors: {}, expiresAt: Date.now() + 7 * 86400000 }
+  vv.activity.unshift({ t: Date.now(), kind: 'note', msg: `community takeover · raising ${R.IMPORT_FEE_SOL} SOL to activate` }); save(); return { ...pub(vv), quote: q }
+}
+export const crowdOpen = () => Object.values(vaults).filter((v) => v.crowd && !v.armed && !v.crowd.refunded).map(pub)
+/** Record a contribution (verified on-chain: SOL from `from` landed in the vault wallet in `sig`). Arms when funded. */
+export async function importContribute(id: string, from: string, sig: string) {
+  const v = vaults[id]; if (!v || !v.crowd || v.armed) throw new Error('not an open crowd import')
+  const tx = await conn.getParsedTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }); if (!tx || tx.meta?.err) throw new Error('contribution tx not found or failed')
+  const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58()); const pre = tx.meta!.preBalances, post = tx.meta!.postBalances
+  const i = keys.indexOf(v.pub); const got = i < 0 ? 0 : (post[i] - pre[i]) / 1e9
+  if (got < 0.05 - 1e-6) throw new Error('contribution must be ≥ 0.05 SOL to the vault wallet'); if (!keys.includes(from)) throw new Error('tx not from contributor')
+  if (v.activity.some((a) => a.sig === sig)) return pub(v)
+  v.crowd.contributors[from] = (v.crowd.contributors[from] || 0) + got; v.crowd.raised += got; v.funders[from] = (v.funders[from] || 0) + got
+  v.activity.unshift({ t: Date.now(), kind: 'stake', sol: got, sig, msg: `${got.toFixed(2)} SOL toward the takeover (${v.crowd.raised.toFixed(2)}/${v.crowd.goalSol})` })
+  if (v.crowd.raised >= v.crowd.goalSol - 1e-6) await crowdArm(v)
+  save(); return pub(v)
+}
+async function crowdArm(v: Vault) {
+  const treasurySol = R.IMPORT_FEE_SOL - R.IMPORT_SEED_SOL
+  const sig = await payFrom(v, TREASURY, Math.floor(treasurySol * 1e9))
+  v.feePaid = R.IMPORT_FEE_SOL; try { const sup = await conn.getTokenSupply(new PublicKey(v.mint!)); v.supply = +(sup.value.uiAmount || 1e9) } catch {}
+  await sync(v); v.armed = true; v.activity.unshift({ t: Date.now(), kind: 'stake', sol: v.chest, sig, msg: `vault activated by ${Object.keys(v.crowd!.contributors).length} backers · community takeover` })
+}
+/** Refund crowd imports that did not reach the goal in time (vault key pays everyone back pro-rata, minus tx fees). */
+export async function crowdSweep() {
+  for (const v of Object.values(vaults)) {
+    if (!v.crowd || v.armed || v.crowd.refunded || Date.now() < v.crowd.expiresAt) continue
+    try {
+      const bal = await balanceSol(v.pub); const total = v.crowd.raised || 1; const payable = Math.max(0, bal - 0.002)
+      for (const [who, amt] of Object.entries(v.crowd.contributors)) { const lam = Math.floor((amt / total) * payable * 1e9); if (lam > 5000) await payFrom(v, who, lam) }
+      v.crowd.refunded = true; v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'takeover not funded in 7 days — contributions refunded' }); save()
+    } catch (e: any) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'refund attempt failed: ' + String(e.message).slice(0, 80) }) }
+  }
 }
 /** Anyone can top up a chest; the owner can also deposit tokens (cost basis = price at deposit). Verified against chain balances. */
 export async function deposit(id: string, from: string, sig: string) {

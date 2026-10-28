@@ -51,6 +51,9 @@ const server = createServer(async (req, res) => {
     if (p === '/vault/arm' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.arm(b.id, b.mint, b.symbol || '', b.name || '')) }
     if (p.startsWith('/import/quote/')) return json(res, 200, await V.importQuote(p.slice(14)))
     if (p === '/import/create' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importCreate(b.owner, b.mint)) }
+    if (p === '/import/crowd' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importCrowd(b.owner, b.mint)) }
+    if (p === '/import/contribute' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importContribute(b.id, b.from, b.sig)) }
+    if (p === '/import/open') return json(res, 200, V.crowdOpen())
     if (p === '/import/activate' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importActivate(b.id, b.sig)) }
     if (p === '/vault/deposit' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.deposit(b.id, b.from, b.sig)) }
     if (p === '/vault/bundle-sign' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.signBundleTx(b.id, b.mint, b.tx, +b.maxSol)) }
@@ -88,5 +91,5 @@ wss.on('connection', (ws: WebSocket) => {
 })
 setInterval(D.sweep, 10000); setInterval(D.rfqSweep, 5000)
 D.setVaultResponder(V.respondRfq)
-V.load(); V.startStream(); setInterval(() => V.tick().catch(() => {}), 5000)
+V.load(); V.startStream(); setInterval(() => V.tick().catch(() => {}), 5000); setInterval(() => V.crowdSweep().catch(() => {}), 60000)
 server.listen(PORT, () => console.log(`unnamed server on :${PORT} · treasury ${TREASURY}`))
