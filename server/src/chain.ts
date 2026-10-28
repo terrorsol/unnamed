@@ -1,5 +1,6 @@
 import { Connection, Keypair, PublicKey, VersionedTransaction } from '@solana/web3.js'
 import bs58 from 'bs58'
+import { addTip, sendFast, MIN_TIP_LAMPORTS } from './fast.ts'
 export const RPC = process.env.RPC_URL || 'https://api.mainnet-beta.solana.com'
 export const conn = new Connection(RPC, 'confirmed')
 export const TREASURY = process.env.TREASURY || '11111111111111111111111111111111'
@@ -20,18 +21,32 @@ export async function tokenBalance(owner: string, mint: string) {
 }
 /** pump.fun / PumpSwap / Raydium trade signed by a server-held keypair (vault) */
 export async function pumpTrade(kp: Keypair, action: 'buy' | 'sell', mint: string, amount: number | string, denominatedInSol: boolean, slippage = 10, priorityFee = +(process.env.VAULT_PRIORITY_SOL || 0.001)) {
-  const r = await fetch((process.env.PUMPPORTAL_URL || 'https://pumpportal.fun/api') + '/trade-local', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ publicKey: kp.publicKey.toBase58(), action, mint, amount, denominatedInSol: denominatedInSol ? 'true' : 'false', slippage, priorityFee, pool: 'auto' }) })
+  const args = { publicKey: kp.publicKey.toBase58(), action, mint, amount, denominatedInSol: denominatedInSol ? 'true' : 'false', slippage, priorityFee, pool: 'auto' }
+  const url = (process.env.PUMPPORTAL_URL || 'https://pumpportal.fun/api') + '/trade-local'
+  const jito = process.env.JITO === '1'
+  // Jito mode: PumpPortal's array body builds bundle-ready txs — the first tx's priorityFee becomes the Jito tip. Response is base58 strings.
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(jito ? [args] : args) })
   if (!r.ok) throw new Error('pumpportal ' + r.status + ' ' + (await r.text().catch(() => '')))
-  const tx = VersionedTransaction.deserialize(new Uint8Array(await r.arrayBuffer())); tx.sign([kp])
+  let tx = jito ? VersionedTransaction.deserialize(bs58.decode((await r.json())[0])) : VersionedTransaction.deserialize(new Uint8Array(await r.arrayBuffer()))
+  if (!jito && FAST) tx = await addTip(conn, tx, kp.publicKey, TIP_LAMPORTS).catch(() => tx)
+  tx.sign([kp])
   const raw = tx.serialize(); const sig = bs58.encode(tx.signatures[0])
-  if (process.env.JITO === '1') {
-    // land it as a single-tx bundle with the priorityFee acting as the Jito tip (PumpPortal convention); fall back to RPC if the block engine refuses
-    try { const b = await fetch(process.env.JITO_URL || 'https://mainnet.block-engine.jito.wtf/api/v1/bundles', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'sendBundle', params: [[bs58.encode(raw)]] }) }); const d = await b.json(); if (d.error) throw new Error(JSON.stringify(d.error)) }
-    catch { await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }) }
-  } else await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 })
+  if (jito) {
+    try { await sendBundle([raw]) } catch { await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }) }
+  } else if (FAST) await sendFast(conn, raw, RPC)
+  else await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 })
   const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 2000)
   try { await confirm(sig); return sig } finally { clearInterval(rb) }
+}
+/** Helius Sender when the RPC is Helius (or FAST=1): tip + CU price, dual-routed. FAST=0 forces plain RPC. */
+export const FAST = process.env.FAST ? process.env.FAST === '1' : /helius/.test(RPC)
+export const TIP_LAMPORTS = Math.max(MIN_TIP_LAMPORTS, Math.floor(+(process.env.TIP_SOL || 0.001) * 1e9))
+/** Jito bundle: ≤5 signed txs, base58 (default encoding). Helius RPC proxies sendBundle (5 rps) so it is the default when the RPC is Helius. */
+export async function sendBundle(raws: Uint8Array[]): Promise<string> {
+  if (raws.length > 5) throw new Error('bundle > 5 txs')
+  const u = process.env.JITO_URL || (/helius/.test(RPC) ? RPC : 'https://mainnet.block-engine.jito.wtf/api/v1/bundles')
+  const b = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'sendBundle', params: [raws.map((x) => bs58.encode(x))] }) })
+  const d: any = await b.json(); if (d.error) throw new Error('jito: ' + JSON.stringify(d.error)); return d.result as string
 }
 
 /** Holder concentration + authorities straight from chain (used for signals on vaulted coins) */

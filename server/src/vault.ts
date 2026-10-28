@@ -7,6 +7,7 @@ import bs58 from 'bs58'
 import * as R from './rules.ts'
 import { market } from './market.ts'
 import { balanceSol, tokenBalance, pumpTrade, conn, confirm, decimals, TREASURY, holderStats } from './chain.ts'
+import * as C from './chain.ts'
 import * as D from './desk.ts'
 import { watchPool } from './stream.ts'
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
@@ -247,7 +248,4 @@ export async function signBundleTx(id: string, mint: string, txB64: string, maxS
   return { tx: Buffer.from(tx.serialize()).toString('base64'), spend }
 }
 /** Submit a Jito bundle (array of base64 signed txs). Returns bundle id. */
-export async function sendBundle(txs: string[]) {
-  const r = await fetch(process.env.JITO_URL || 'https://mainnet.block-engine.jito.wtf/api/v1/bundles', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'sendBundle', params: [txs.map((b64) => bs58.encode(Buffer.from(b64, 'base64')))] }) })
-  const d = await r.json(); if (d.error) throw new Error('jito: ' + JSON.stringify(d.error)); return d.result as string
-}
+export async function sendBundle(txs: string[]) { return C.sendBundle(txs.map((b64) => new Uint8Array(Buffer.from(b64, 'base64')))) }
