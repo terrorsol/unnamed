@@ -11,6 +11,7 @@ import { addTip, senderUrl, TIP_ACCOUNTS, MIN_TIP_LAMPORTS } from '../src/fast.t
 import { verifyFill } from '../src/verify.ts'
 import * as R from '../src/rules.ts'
 
+process.env.PERM_TAX_BPS ||= '100' // the token-2022 check needs a non-zero transfer tax to build the extension (production default is 0)
 const RPC = process.env.RPC_URL || 'https://api.mainnet-beta.solana.com'
 const conn = new Connection(RPC, 'confirmed')
 const PAYER = new PublicKey(process.env.PREFLIGHT_PAYER || '5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9') // any well-funded wallet; we only simulate
@@ -223,7 +224,7 @@ await step('pumpportal: collectCreatorFee → shape', async () => {
 })
 
 // ---------- launchlab: our launchpad ----------
-const LLX: { mint?: string; platformId?: string } = {}
+const LLX: { mint?: string; platformId?: string; mints: string[]; first?: boolean } = { mints: [] }
 await step('launchlab: reference platform + default config decode', async () => {
   const LL = await import('../src/launchlab.ts'); const { LAUNCHPAD_PLATFORM, PlatformConfig, LaunchpadConfig } = await import('@raydium-io/raydium-sdk-v2')
   const [pi, ci] = await Promise.all([conn.getAccountInfo(LAUNCHPAD_PLATFORM), conn.getAccountInfo(LL.CONFIG_ID)])
@@ -242,15 +243,17 @@ await step('launchlab: live pool decode vs geckoterminal price', async () => {
   const sample = list[0]; const keys = Object.keys(sample).slice(0, 40).join(','); const mintKey = ['mint', 'mintA', 'address', 'tokenMint', 'baseMint'].find((k) => typeof sample[k] === 'string' && sample[k].length > 30) || 'mint'
   list = list.map((x: any) => ({ ...x, mint: x[mintKey] }))
   const d = { data: list.map((x: any) => ({ relationships: { base_token: { data: { id: 'solana_' + x.mint } } }, attributes: { name: x.symbol || x.name || '?', base_token_price_native_currency: String(x.priceSol ?? x.price ?? 0) } })) }
-  const notes: string[] = []
+  const notes: string[] = []; let msg = ''
   for (const p of (d.data || []).slice(0, 8)) {
     const mint = p.relationships.base_token.data.id.replace('solana_', ''); const pl = await LL.pool(mint, 0)
     if (!pl) { notes.push(`${p.attributes.name}: no pool pda`); continue }
     if (pl.migrated) { notes.push(`${p.attributes.name}: migrated`); continue }
+    LLX.mints.push(mint); if (LLX.mint) continue
     const gpx = +p.attributes.base_token_price_native_currency; const dev = gpx ? Math.abs(pl.priceSol / gpx - 1) * 100 : NaN
     LLX.mint = mint; LLX.platformId = pl.platformId
-    return `${p.attributes.name} · pool ${pl.poolId.slice(0, 8)}… status ${pl.status} sold ${pl.soldPct}% · ours ${pl.priceSol.toPrecision(4)} vs gecko ${gpx.toPrecision(4)} (${dev.toFixed(1)}% apart) · liq ${pl.liqSol.toFixed(1)} SOL · platform ${pl.platformId.slice(0, 8)}… fee pending ${(Number(pl.platformFee) / 1e9).toFixed(4)} SOL` + (notes.length ? ' · skipped ' + notes.join('; ') : '')
+    msg = `${p.attributes.name} · pool ${pl.poolId.slice(0, 8)}… status ${pl.status} sold ${pl.soldPct}% · ours ${pl.priceSol.toPrecision(4)} vs gecko ${gpx.toPrecision(4)} (${dev.toFixed(1)}% apart) · liq ${pl.liqSol.toFixed(1)} SOL · platform ${pl.platformId.slice(0, 8)}… fee pending ${(Number(pl.platformFee) / 1e9).toFixed(4)} SOL` + (notes.length ? ' · skipped ' + notes.join('; ') : '')
   }
+  if (msg) return msg + ` · ${LLX.mints.length} live pools`
   throw new Error('no live (unmigrated) launchlab pool in top 8 · ' + notes.join('; ') + ` · row keys ${keys} · sample ${JSON.stringify(sample).slice(0, 300)}`)
 })
 await step('launchlab: buy tx via sdk → simulate', async () => {
@@ -345,21 +348,24 @@ await step('desk fill tx: build + verify on real mint', async () => {
 })
 
 // ---------- pool websocket ----------
-async function wsOneSwap(pool: string, waitMs: number) {
+async function wsOneSwap(pools: string | string[], waitMs: number) {
+  const list = Array.isArray(pools) ? pools : [pools]; const subs = new Map<number, string>()
   return await timeout(new Promise<string>((res, rej) => {
     const ws = new (globalThis as any).WebSocket(RPC.replace(/^http/, 'ws')); const a = t()
-    ws.onopen = () => ws.send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'logsSubscribe', params: [{ mentions: [pool] }, { commitment: 'confirmed' }] }))
+    ws.onopen = () => list.forEach((pool, i) => ws.send(JSON.stringify({ jsonrpc: '2.0', id: i + 1, method: 'logsSubscribe', params: [{ mentions: [pool] }, { commitment: 'confirmed' }] })))
     ws.onerror = (e: any) => rej(new Error('ws error ' + (e?.message || '')))
     ws.onmessage = async (ev: any) => {
-      const m = JSON.parse(ev.data); if (m.method !== 'logsNotification') return
+      const m = JSON.parse(ev.data); if (m.id && typeof m.result === 'number') { subs.set(m.result, list[m.id - 1]); return } if (m.method !== 'logsNotification') return
       const sig = m.params.result.value.signature; if (m.params.result.value.err) return
+      const pool = subs.get(m.params.subscription) || list[0]
       ws.close(); try { const sw = await decode(conn, pool, sig, m.params.result.context.slot); res(sw ? `swap in ${ms(a)}: ${sw.side} ${sw.sol.toFixed(4)} SOL by ${sw.trader.slice(0, 6)}…` : `log seen but not decoded as swap (${sig.slice(0, 8)}…)`) } catch (e: any) { rej(e) }
     }
   }), waitMs)
 }
 await step('helius ws: logsSubscribe on a launchlab pool → decode one swap (the vault\'s per-swap detector for our coins)', async () => {
   if (!LLX.mint) throw new Error('no live launchlab pool'); const LL = await import('../src/launchlab.ts')
-  return wsOneSwap(LL.poolIdOf(LLX.mint).toBase58(), 60000)
+  // the 4 most recently traded live pools at once: one swap on any of them proves the detector; a single quiet pool used to time out
+  return wsOneSwap([LLX.mint, ...LLX.mints.filter((m) => m !== LLX.mint)].slice(0, 4).map((m) => LL.poolIdOf(m).toBase58()), 90000)
 })
 await step('helius ws: logsSubscribe on amm pool → decode one swap', async () => {
   const pool = ctx.ammPool!
