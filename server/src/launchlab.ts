@@ -58,8 +58,8 @@ export const isOurs = (p: Pool | null) => !!p && !!PLATFORM_ID && p.platformId =
 export async function platform(): Promise<{ id: string; exists: boolean; feeRate?: number; creatorFeeRate?: number; feeWallet?: string; nftWallet?: string; name?: string } | null> {
   if (!PLATFORM_ID) return null
   const info = await conn.getAccountInfo(PLATFORM_ID).catch(() => null)
-  if (!info) return { id: PLATFORM_ID.toBase58(), exists: false }
-  const d: any = PlatformConfig.decode(info.data)
+  if (!info || info.data.length < 100) return { id: PLATFORM_ID.toBase58(), exists: false }
+  let d: any; try { d = PlatformConfig.decode(info.data) } catch { return { id: PLATFORM_ID.toBase58(), exists: false } }
   return { id: PLATFORM_ID.toBase58(), exists: true, feeRate: +d.feeRate.toString() / 1e4, creatorFeeRate: +d.creatorFeeRate.toString() / 1e4, feeWallet: d.platformClaimFeeWallet.toBase58(), nftWallet: d.platformLockNftWallet.toBase58(), name: Buffer.from(d.name).toString('utf8').replace(/\0+$/, '') }
 }
 let platformExists = false

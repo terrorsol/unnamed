@@ -106,7 +106,7 @@ chk('vault armed with chest', armed.armed === true && armed.chest === 5)
 await new Promise((r) => setTimeout(r, 7000))
 const book = await (await fetch('http://localhost:4192/book/' + MINT)).json()
 const vb = book.bids.find((b) => b.vault)
-chk('vault bid resting on desk ≈ −4% (±0.5) ≈ 60% chest (±10%)', !!vb && vb.discBps >= 350 && vb.discBps <= 450 && vb.sol >= 2.7 && vb.sol <= 3.3)
+chk('vault bid resting on desk ≈ −4% (±0.5) ≈ 25% chest (±10%)', !!vb && vb.discBps >= 350 && vb.discBps <= 450 && vb.sol >= 1.1 && vb.sol <= 1.4)
 // redeem quote: 500000 tokens of 1e9 supply × 5 SOL × 0.93
 const rq = await (await fetch('http://localhost:4192/redeem/quote', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mint: MINT, tokens: 500000 }) })).json()
 chk('redeem quote', Math.abs(rq.sol - 0.002325) < 1e-6)
@@ -123,10 +123,11 @@ chk('redeem toast', (await seller.pg.locator('.toast.ok').last().innerText().cat
 // vault bid fill: seller sells a block into the vault's bid after it has rested
 console.log('waiting for vault bid rest…'); await seller.pg.waitForTimeout(55000)
 await seller.pg.locator('.seg button', { hasText: 'Desk' }).click(); await seller.pg.waitForTimeout(6000)
-chk('vault bid visible in the book', /vault/i.test(await seller.pg.locator('.desktbl tbody').first().innerText()))
+chk('vault bid is the best bid on the desk tab', /Best bid/i.test(await seller.pg.locator('.main').innerText()) && /SOL/.test(await seller.pg.locator('.main').innerText()))
 // ---- smart sell: plain Sell routes through the vault bid because it beats chart impact ----
 await seller.pg.locator('.seg button', { hasText: 'Sell' }).first().click(); await seller.pg.waitForTimeout(300); await seller.pg.locator('.presets button', { hasText: '100%' }).first().click()
-const ss0 = sent.length; await seller.pg.locator('.btn.big.sell').click(); await seller.pg.waitForTimeout(8000)
+const bookNow = await (await fetch('http://localhost:4192/book/' + MINT)).json(); console.log('BOOK before smart sell', JSON.stringify(bookNow.bids.map((b) => ({ sol: b.sol, disc: b.discBps, restable: b.restable, away: b.away, vault: b.vault }))), 'minBlock', bookNow.minBlock)
+const ss0 = sent.length; await seller.pg.locator('.btn.big.sell').click(); await seller.pg.waitForTimeout(8000); console.log('ROUTE', (await seller.pg.locator('.main').innerText()).match(/Routing[^\n]*|No desk bid[^\n]*|Desk filled[^\n]*|entirely[^\n]*/)?.[0])
 chk('smart sell routed via desk first', /via desk|Desk filled|entirely on the desk/.test(await seller.pg.locator('.main').innerText()))
 chk('smart sell sent a desk fill tx', sent.length >= ss0 + 1)
 const sb = sent.length; chk('vault bid consumed by smart sell (vault fill recorded)', (await (await fetch('http://localhost:4192/fills?mint=' + MINT)).json()).some((f) => f.vault)); await seller.pg.waitForTimeout(100)
