@@ -52,7 +52,7 @@ export function create(dev: string, stakeSol: number, copyOf?: string, mode: 'fl
 export async function arm(id: string, mint: string, symbol: string, name = '') {
   const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) return pub(v)
   const bal = await balanceSol(v.pub); if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL`)
-  v.mint = mint; v.symbol = symbol; v.name = name; v.armed = true; v.chest = bal; try { const sup = await conn.getTokenSupply(new PublicKey(mint)); v.supply = +(sup.value.uiAmount || 1e9) } catch {} v.activity.unshift({ t: Date.now(), kind: 'stake', sol: bal, msg: 'dev stake received' })
+  v.mint = mint; v.symbol = symbol; v.name = name; v.armed = true; v.chest = bal; VM.watch(mint); try { const sup = await conn.getTokenSupply(new PublicKey(mint)); v.supply = +(sup.value.uiAmount || 1e9) } catch {} v.activity.unshift({ t: Date.now(), kind: 'stake', sol: bal, msg: 'dev stake received' })
   // seed: spend half the stake on supply at launch, keep half as chest for dips (skipped when the vault already bought in the block-zero bundle)
   const seed = +(bal * 0.5).toFixed(4)
   if (v.activity.some((a) => (a.msg || '').startsWith('signed block-zero'))) {
@@ -244,7 +244,7 @@ export const PAPER = process.env.PAPER === '1'
 const jitter = (base: number, pct: number) => base * (1 + (Math.random() * 2 - 1) * pct)
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 async function trade(v: Vault, action: 'buy' | 'sell', amount: number | string, denominatedInSol: boolean, price: number): Promise<string> {
-  if (!PAPER) { const signer = (tx: any) => KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'trade', action === 'buy' ? +amount : 0); return v.venue === 'launchlab' ? C.llTrade(kp(v), action, v.mint!, amount, 1000, signer) : pumpTrade(kp(v), action, v.mint!, amount, denominatedInSol, 10, undefined, signer) }
+  if (!PAPER) { const signer = (tx: any) => KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'trade', action === 'buy' ? +amount : 0); const onLL = v.venue === 'launchlab' && !!(await LL.pool(v.mint!).catch(() => null))?.migrated === false; return onLL ? C.llTrade(kp(v), action, v.mint!, amount, 1000, signer) : pumpTrade(kp(v), action, v.mint!, amount, denominatedInSol, 10, undefined, signer) }
   if (action === 'buy') { const sol = +amount; v.chest -= sol; v.tokens += (sol / price) * 0.985 }
   else { const frac = typeof amount === 'string' ? parseFloat(amount) / 100 : +amount / v.tokens; const tok = v.tokens * frac; v.tokens -= tok; v.chest += tok * price * 0.985 }
   return 'paper-' + Math.random().toString(36).slice(2, 10)
@@ -406,10 +406,13 @@ export async function claimTax(v: Vault): Promise<number> {
   const pk = LL.platformKeypair()
   const tx = await LL.buildClaim(v.mint, LL.PLATFORM_ID, kp(v).publicKey); tx.sign([pk]); KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'payout', 0)
   const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 }); await confirm(sig)
-  // forward exactly what the pool held to the vault (the claim unwraps to the platform wallet's SOL)
-  const fwd = new TX().add(SP.transfer({ fromPubkey: pk.publicKey, toPubkey: new PK(v.pub), lamports: Math.floor(pending * 1e9) }))
+  // the claim should unwrap to SOL; if it left WSOL behind, close that account into the wallet first
+  try { const { getAssociatedTokenAddressSync: ata, createCloseAccountInstruction: closeIx } = await import('@solana/spl-token'); const w = ata(new PK('So11111111111111111111111111111111111111112'), pk.publicKey); const bal = await conn.getTokenAccountBalance(w).catch(() => null); if (bal && +bal.value.amount > 0) { const u = new TX().add(closeIx(w, pk.publicKey, pk.publicKey)); u.feePayer = pk.publicKey; u.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash; u.sign(pk); await confirm(await conn.sendRawTransaction(u.serialize(), { maxRetries: 3 })) } } catch {}
+  const have = await balanceSol(pk.publicKey.toBase58()); const send = Math.min(pending, Math.max(0, have - 0.003)); if (send < 0.001) throw new Error('claimed fee not in the platform wallet yet')
+  // forward exactly what the pool held to the vault
+  const fwd = new TX().add(SP.transfer({ fromPubkey: pk.publicKey, toPubkey: new PK(v.pub), lamports: Math.floor(send * 1e9) }))
   fwd.feePayer = pk.publicKey; fwd.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash; fwd.sign(pk)
   const sig2 = await conn.sendRawTransaction(fwd.serialize(), { maxRetries: 3 }); await confirm(sig2)
-  v.taxClaimed = (v.taxClaimed || 0) + pending; v.activity.unshift({ t: Date.now(), kind: 'tax', sol: pending, sig: sig2, msg: `tax → chest · ${pending.toFixed(4)} SOL` })
+  v.taxClaimed = (v.taxClaimed || 0) + send; v.activity.unshift({ t: Date.now(), kind: 'tax', sol: send, sig: sig2, msg: `tax → chest · ${send.toFixed(4)} SOL` })
   await sync(v); save(); return pending
 }
