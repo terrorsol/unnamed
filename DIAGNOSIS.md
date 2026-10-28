@@ -41,6 +41,8 @@ Plus the parts every terminal needs: 1-click wallet, fast board, signals, TP/SL,
 `app/src/lib/sim.ts` — `simulate(params)` and `compare(params)`; `app/scripts/backtest.mjs` runs the grid. Rules constants live once in `server/src/rules.ts` and are mirrored in `sim.ts` (same functions, same numbers; `test/sim.test.mjs` pins the claims). Change a constant, run `npm run backtest`, read the deltas.
 
 ## Live-chain log
+- 2026-10-28 · **mainnet preflight 19/19** (CI, no funds): pumpportal curve/amm/bundle/create/creator-fee txs build and simulate clean; our Sender tip appended to a pumpportal tx simulates clean; jupiter api.jup.ag v0+ALT swap + tip simulates clean; desk fill verifies on a real mint; Helius ws decoded a live swap in 2.6s. Found and fixed: bonding-curve coins have no DexScreener liquidity (depth now from pump's virtual constant product), 4/40 top pumpswap mints are Token-2022 (fills use TransferChecked + mint-owner program), stale pools in GeckoTerminal's dex listing.
+- 2026-10-28 · desk is two-sided (block buys at a premium) and pseudonymous; community-takeover imports; beta chest cap 25 SOL; bidder API documented.
 - 2026-10-27 · landing path moved to Helius Sender (tip ≥0.001 SOL to a Sender tip account + CU price; dual-routed), Jito bundles via PumpPortal bundle mode / Helius sendBundle proxy. Fixed a parse bug that closed every desk. Tick is concurrent per vault; reserve-delta fallback when the pool websocket is down. Nothing has executed on mainnet yet — first real run is `npm run smoke --trade` after deploy.
 
 ## Backtest log
@@ -61,7 +63,10 @@ Plus the parts every terminal needs: 1-click wallet, fast board, signals, TP/SL,
 | Signals (runner/rug/bundle/crash/dead with reasons) | live, tested on synthetic shapes |
 | Own chart with vault/desk/your markers + floor | live |
 | TP/SL | browser-side only (no key server-side by design) |
-| Backtest (`npm run backtest`) · live replay of real flow (`npm run replay -- gecko:<pool>` or a server tape) | live |
+| Backtest (`npm run backtest`) · live replay of real flow (`npm run replay -- gecko:<pool>` or a server tape) · daily 80–100 real-coin replay in CI (`reports-backtest` branch) | live |
+| Mainnet preflight in CI (`reports-preflight` branch) — every integration simulated against the chain on each server change | live |
+| Desk: buy-side blocks, pseudonymous book/tape, bidder API (`server/BIDDER_API.md`) | live (server) |
+| Import: dev-paid or community takeover (escrow = vault wallet, auto-arm, refunds) | live (server) |
 | Server deploy: Render one-click (`render.yaml`) · `npm run smoke` mainnet checks + optional micro-trade | ready |
 | On-chain program (flip fee, trustless vault, treasury switch) | v2 |
 | Platform fee, referrals, ToS | deferred by decision / v1.1 |
