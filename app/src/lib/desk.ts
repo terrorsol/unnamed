@@ -190,10 +190,11 @@ export const vaultCreate = (dev: string, stakeSol: number, copyOf?: string, mode
 export const vaultSetMode = (id: string, dev: string, mode: 'floor' | 'mm', ceiling?: number): Promise<VaultPub> => j('/vault/mode', { id, dev, mode, ceiling })
 export type DevAuth = { msg: string; sig: string }
 /** proves to the server that the dev of a vault is the one asking it to sign a launch (`unnamed:<action>:<vaultId>:<mint>:<minute>`) */
-export async function devAuth(signMsg: (m: Uint8Array) => Promise<Uint8Array>, action: 'launch' | 'bundle' | 'arm', vaultId: string, mint: string): Promise<DevAuth> {
+export async function devAuth(signMsg: (m: Uint8Array) => Promise<Uint8Array>, action: 'launch' | 'bundle' | 'arm' | 'refund', vaultId: string, mint: string): Promise<DevAuth> {
   const msg = `unnamed:${action}:${vaultId}:${mint}:${Math.floor(Date.now() / 60000)}`
   return { msg, sig: bs58.encode(await signMsg(new TextEncoder().encode(msg))) }
 }
+export const vaultRefund = (id: string, auth: DevAuth): Promise<{ sig: string; sol: number }> => j('/vault/refund', { id, auth })
 export const vaultFund = (id: string, sig: string): Promise<VaultPub> => j('/vault/fund', { id, sig })
 export const vaultArm = (id: string, mint: string, symbol: string, name = '', auth?: DevAuth): Promise<VaultPub> => j('/vault/arm', { id, mint, symbol, name, auth })
 export const vaultRenounce = (id: string, dev: string): Promise<VaultPub> => j('/vault/renounce', { id, dev })

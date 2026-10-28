@@ -239,6 +239,15 @@ export async function deposit(id: string, from: string, sig: string) {
   save(); return pub(v)
 }
 export function renounce(id: string, dev: string) { const v = vaults[id]; if (!v || v.dev !== dev) throw new Error('not yours'); v.cut = 0; v.renounced = true; v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'dev renounced cut' }); save(); return pub(v) }
+/** A launch that never armed (bundle dropped, arm never signed, coin abandoned): the dev takes the stake back. Signed by the dev; only before arm; pays to the wallet that funded it. */
+export async function refund(id: string, auth?: { msg?: string; sig?: string }) {
+  const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('an armed vault never pays out its chest — that is the point of it')
+  devAuth(v, 'refund', v.mint || 'none', auth)
+  const sol = +Math.max(0, (v.shared ? v.chest : await balanceSol(v.pub)) - 0.001).toFixed(6); if (sol < 0.001) throw new Error('nothing to refund')
+  const sig = await payFrom(v, v.dev, Math.floor(sol * 1e9), 'refund')
+  v.activity.unshift({ t: Date.now(), kind: 'note', sol, sig, msg: `stake refunded to ${v.dev.slice(0, 4)}… (vault never armed)` }); if (v.shared) v.chest = 0
+  EV.log('vault', `${v.symbol || id} refunded ${sol} SOL to the dev (never armed)`, { id, sig }); save(); return { sig, sol }
+}
 /** admin: drop a vault that never armed (its stake was returned by hand from the shared wallet); refuses armed vaults */
 export function retire(id: string) { const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('armed vaults cannot be retired'); const out = { id, chest: v.chest, mint: v.mint }; delete vaults[id]; save(); EV.log('vault', `retired unarmed vault ${id} (ledger ${out.chest} SOL)`, out); return out }
 export const get = (id: string) => vaults[id] ? pub(vaults[id]) : null
