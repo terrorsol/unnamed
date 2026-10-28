@@ -150,3 +150,32 @@ export async function buildClaim(mint: string, platformId: PublicKey | null = PL
 /** unclaimed platform fee sitting in the pool (lamports) */
 export async function pendingFee(mint: string): Promise<number> { const p = await pool(mint, 0); return p ? Number(p.platformFee) / 1e9 : 0 }
 export const status = () => ({ venue: 'launchlab', program: PROGRAM.toBase58(), platformId: PLATFORM_ID?.toBase58() || null, admin: PLATFORM_ADMIN?.toBase58() || null, feeWallet: platformKeypair().publicKey.toBase58(), taxBps: TAX_BPS, creatorFeeBps: CREATOR_FEE_BPS, rpc: RPC.replace(/api-key=.*/, 'api-key=…') })
+
+// ---- after graduation: LP fees. The LP from migration is locked in a fee-key NFT held by the platform wallet; harvesting pulls the accrued
+// swap fees (SOL + token side) to the platform wallet. The vault's tick forwards the SOL to the chest. Experimental until the first graduation.
+import { LOCK_CPMM_PROGRAM, CREATE_CPMM_POOL_PROGRAM, getCpLockPda, LockPositionLayout, getCpmmPdaPoolId } from '@raydium-io/raydium-sdk-v2'
+export async function cpmmPoolIdOf(mint: string): Promise<PublicKey | null> {
+  const ref = await conn.getAccountInfo(PLATFORM_ID || LAUNCHPAD_PLATFORM); if (!ref) return null
+  const cfg: any = PlatformConfig.decode(ref.data); const a = new PublicKey(mint)
+  for (const [m0, m1] of [[a, WSOL], [WSOL, a]]) { const id = getCpmmPdaPoolId(CREATE_CPMM_POOL_PROGRAM, cfg.cpConfigId, m0, m1).publicKey; const info = await conn.getAccountInfo(id).catch(() => null); if (info) return id }
+  return null
+}
+/** the fee-key NFT in the platform wallet that locks this coin's post-graduation LP */
+export async function lockNftFor(mint: string): Promise<{ nftMint: PublicKey; poolId: PublicKey } | null> {
+  const poolId = await cpmmPoolIdOf(mint); if (!poolId) return null
+  const pk = platformKeypair().publicKey
+  const accs = await conn.getParsedTokenAccountsByOwner(pk, { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') })
+  for (const a of accs.value) {
+    const info = (a.account.data as any).parsed.info; if (info.tokenAmount.decimals !== 0 || info.tokenAmount.amount !== '1') continue
+    const nft = new PublicKey(info.mint); const lock = await conn.getAccountInfo(getCpLockPda(LOCK_CPMM_PROGRAM, nft).publicKey).catch(() => null); if (!lock) continue
+    const d: any = LockPositionLayout.decode(lock.data); if (d.poolId.equals(poolId)) return { nftMint: nft, poolId }
+  }
+  return null
+}
+/** harvest tx (owner = platform wallet, fee payer = the coin's vault) or null when there is nothing to harvest */
+export async function buildHarvest(mint: string, feePayer: PublicKey): Promise<VersionedTransaction | null> {
+  const lock = await lockNftFor(mint); if (!lock) return null
+  const pk = platformKeypair().publicKey
+  const r: any = await withOwner(pk, async (r) => { const { poolInfo, poolKeys } = await r.cpmm.getPoolInfoFromRpc(lock.poolId.toBase58()); return r.cpmm.harvestLockLp({ poolInfo, poolKeys, nftMint: lock.nftMint, lpFeeAmount: new BN('18446744073709551615'), feePayer, txVersion: TxVersion.V0, computeBudgetConfig: { units: 400_000, microLamports: 50_000 } }) })
+  return r.transaction as VersionedTransaction
+}
