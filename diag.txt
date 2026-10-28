@@ -1,28 +1,17 @@
-dev balance { ui: 17200659.043611, raw: 17200659043611n }
-pool {
-  realA: '17200659043611',
-  realB: '488750004',
-  platformFee: '0',
-  status: 0
-}
-SELL sim err null
-Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success
-Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]
-Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 112 of 266356 compute units
-Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success
-Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]
-Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 112 of 257330 compute units
-Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success
-Program LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj consumed 44868 of 299405 compute units
-Program LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj success
-Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [1]
-Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 118 of 254537 compute units
-Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success
+Server responded with 429 Too Many Requests.  Retrying after 500ms delay...
+Server responded with 429 Too Many Requests.  Retrying after 1000ms delay...
+dev balance { ui: 0, raw: 0n }
+pool { realA: '0', realB: '4', platformFee: '0', status: 0 }
+SELL build error ["sell amount should be gt 0"] Error: ["sell amount should be gt 0"] |     at oa.logAndCreateError (/home/runner/work/unnamed/unnamed/server/node_modules/@raydium-io/raydium-sdk-v2/lib/index.js:1:75379) |     at oa.sellToken (/home/runner/work/unnamed/unnamed/server/node_modules/@raydium-io/raydium-sdk-v2/lib/index.js:1:443781)
+Server responded with 429 Too Many Requests.  Retrying after 500ms delay...
+Server responded with 429 Too Many Requests.  Retrying after 1000ms delay...
 pending platform fee SOL 0
+Server responded with 429 Too Many Requests.  Retrying after 500ms delay...
 CLAIM sim err "AccountNotFound"
 
+Server responded with 429 Too Many Requests.  Retrying after 500ms delay...
 pool fee fields {
-  protocolFee: '12556359',
+  protocolFee: '13778234',
   platformFee: '0',
   migrateFee: '0',
   cpmmCreatorFeeOn: '0'
@@ -35,3 +24,58 @@ platform config {
   transferFeeExtensionAuth: 'BANKYubgHd48UQt2VFtEytyE8QyeBHhiuptC3tHmfVPH',
   platformVestingWallet: 'BANKYubgHd48UQt2VFtEytyE8QyeBHhiuptC3tHmfVPH'
 }
+Server responded with 429 Too Many Requests.  Retrying after 500ms delay...
+Server responded with 429 Too Many Requests.  Retrying after 1000ms delay...
+pool txs 12
+Server responded with 429 Too Many Requests.  Retrying after 500ms delay...
+tx 66eVEWWBNMAfsXzf err null deltas [["HuZGx4k4",-0.52514236],["7aAZbX5P",0.0010668],["5wkkpYfP",0.00282956],["ChgtVh7M",0.00148844],["4J73vjwZ",0.49148844],["3MJWZDHJ",0.0137338],["71nf7N4w",0.00148844],["9pAiUQjE",0.00148844],["Gpz8YGtf",0.01],["Cf3PqcHo",0.00148844]]
+  inner system:createAccount:{"lamports":2829560,"newAccount":"5wkkpYfPutyc8b46LQ6mDJkhMkXxTnQhbmsUpc4K73EJ","owner":"LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj","source":"HuZGx4k41dCPuXR4
+  inner system:createAccount:{"lamports":1066800,"newAccount":"7aAZbX5PsauTJmbsxm7Ab2j9UTP5K5mTYm8qcd7BANK","owner":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","source":"HuZGx4k41dCPuXR4P
+  inner spl-token:initializeMint2:{"decimals":6,"mint":"7aAZbX5PsauTJmbsxm7Ab2j9UTP5K5mTYm8qcd7BANK","mintAuthority":"WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh"}
+  inner system:createAccount:{"lamports":1488440,"newAccount":"ChgtVh7MJJ2p7xB2KAH3WtuzckDtCMtEkV3tAa2ZmBqd","owner":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","source":"HuZGx4k41dCPuXR4
+  inner spl-token:initializeAccount3:{"account":"ChgtVh7MJJ2p7xB2KAH3WtuzckDtCMtEkV3tAa2ZmBqd","mint":"7aAZbX5PsauTJmbsxm7Ab2j9UTP5K5mTYm8qcd7BANK","owner":"WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJ
+  inner system:createAccount:{"lamports":1488440,"newAccount":"4J73vjwZZF5NydzRJcUt4Rp6GFrPRA5kHxY6bPfvsG6S","owner":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","source":"HuZGx4k41dCPuXR4
+  inner spl-token:initializeAccount3:{"account":"4J73vjwZZF5NydzRJcUt4Rp6GFrPRA5kHxY6bPfvsG6S","mint":"So11111111111111111111111111111111111111112","owner":"WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJ
+  inner LanMV9sA
+  inner metaqbxx
+  inner system:transfer:{"destination":"3MJWZDHJXFdgWcWFzfwzJYvtspNSffT7EmBEkwsYCJS8","lamports":13733800,"source":"HuZGx4k41dCPuXR4PnBNdHNXJ4WzbUnDxo9wvU3VpXAY"}
+  inner system:allocate:{"account":"3MJWZDHJXFdgWcWFzfwzJYvtspNSffT7EmBEkwsYCJS8","space":607}
+  inner system:assign:{"account":"3MJWZDHJXFdgWcWFzfwzJYvtspNSffT7EmBEkwsYCJS8","owner":"metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"}
+  logs Program log: Instruction: InitializeV2 | Program log: Instruction: BuyExactIn
+Server responded with 429 Too Many Requests.  Retrying after 500ms delay...
+tx 2U5ND81WWy6pnwEu err null deltas [["FHBu1LfV",-1.02278188],["96gYZGLn",0.01],["AcEKJWok",0.00148844],["J35QYTts",0.00148844],["4J73vjwZ",0.98],["Gpz8YGtf",0.02]]
+  inner spl-token:getAccountDataSize:{"extensionTypes":["immutableOwner"],"mint":"So11111111111111111111111111111111111111112"}
+  inner system:createAccount:{"lamports":1488440,"newAccount":"AcEKJWokZwWnEq3PtGW9bwySC1BXind6HFfsFEiv8Q9","owner":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","source":"FHBu1LfVMcNwSM7TZ
+  inner spl-token:initializeImmutableOwner:{"account":"AcEKJWokZwWnEq3PtGW9bwySC1BXind6HFfsFEiv8Q9"}
+  inner spl-token:initializeAccount3:{"account":"AcEKJWokZwWnEq3PtGW9bwySC1BXind6HFfsFEiv8Q9","mint":"So11111111111111111111111111111111111111112","owner":"FHBu1LfVMcNwSM7TZqEbubfcHXosSdXni7hmqgcLZ
+  inner LanMV9sA
+  inner spl-token:transferChecked:{"authority":"FHBu1LfVMcNwSM7TZqEbubfcHXosSdXni7hmqgcLZsNF","destination":"4J73vjwZZF5NydzRJcUt4Rp6GFrPRA5kHxY6bPfvsG6S","mint":"So11111111111111111111111111111
+  inner spl-token:transferChecked:{"authority":"WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh","destination":"J35QYTtsBKVpLSpYJoMAoAisw7xBqyNGei3oZ49H5h98","mint":"7aAZbX5PsauTJmbsxm7Ab2j9UTP5K5mT
+  inner spl-token:transferChecked:{"authority":"WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh","destination":"Gpz8YGtfZHLT7HWL7oHjE6qT9yUzAvHwZSxt2sCkgikP","mint":"So111111111111111111111111111111
+  logs Program log: Instruction: BuyExactIn
+tx 2iVmVkfvUYuavhMt err null deltas [["BMkHjN2N",-1.01449344],["3SEjCD1Z",0.000135],["46qnt5Lg",0.012948284],["4J73vjwZ",0.9702],["6JMnxz2s",0.00148844],["7cw6oUoF",0.00135],["7mohfpzG",0.00009],["846ah7iB",0.008425],["Gpz8YGtf",0.0198]]
+  inner spl-associated-token-account:createIdempotent:{"account":"6JMnxz2s4sVBn3hsdFyNxVRo8XMWip1wxaHG79FniLY6","mint":"7aAZbX5PsauTJmbsxm7Ab2j9UTP5K5mTYm8qcd7BANK","source":"BMkHjN2N8K2PdCqeC92YYjUovn9ecW4GvFpH6yD
+  inner spl-token:getAccountDataSize:{"extensionTypes":["immutableOwner"],"mint":"7aAZbX5PsauTJmbsxm7Ab2j9UTP5K5mTYm8qcd7BANK"}
+  inner system:createAccount:{"lamports":1488440,"newAccount":"6JMnxz2s4sVBn3hsdFyNxVRo8XMWip1wxaHG79FniLY6","owner":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","source":"BMkHjN2N8K2PdCqe
+  inner spl-token:initializeImmutableOwner:{"account":"6JMnxz2s4sVBn3hsdFyNxVRo8XMWip1wxaHG79FniLY6"}
+  inner spl-token:initializeAccount3:{"account":"6JMnxz2s4sVBn3hsdFyNxVRo8XMWip1wxaHG79FniLY6","mint":"7aAZbX5PsauTJmbsxm7Ab2j9UTP5K5mTYm8qcd7BANK","owner":"BMkHjN2N8K2PdCqeC92YYjUovn9ecW4GvFpH6yDg
+  inner system:createAccount:{"lamports":991488440,"newAccount":"Fp3wrnFKPnZjA6qdP7RSHsaUBdjXj8LE2ABz421tZ769","owner":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","source":"BMkHjN2N8K2PdC
+  inner spl-token:initializeAccount3:{"account":"Fp3wrnFKPnZjA6qdP7RSHsaUBdjXj8LE2ABz421tZ769","mint":"So11111111111111111111111111111111111111112","owner":"BMkHjN2N8K2PdCqeC92YYjUovn9ecW4GvFpH6yDg
+  inner spl-token:syncNative:{"account":"Fp3wrnFKPnZjA6qdP7RSHsaUBdjXj8LE2ABz421tZ769"}
+  inner LanMV9sA
+  inner LanMV9sA
+  inner spl-token:transferChecked:{"authority":"BMkHjN2N8K2PdCqeC92YYjUovn9ecW4GvFpH6yDggXWJ","destination":"4J73vjwZZF5NydzRJcUt4Rp6GFrPRA5kHxY6bPfvsG6S","mint":"So11111111111111111111111111111
+  inner spl-token:transferChecked:{"authority":"WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh","destination":"6JMnxz2s4sVBn3hsdFyNxVRo8XMWip1wxaHG79FniLY6","mint":"7aAZbX5PsauTJmbsxm7Ab2j9UTP5K5mT
+  logs Program log: Instruction: BuyExactIn
+tx 3m2EdC6D8UYzwJtS err null deltas [["BMkHjN2N",0.936086675],["3SEjCD1Z",0.000127703],["4J73vjwZ",-0.965305686],["4kuG6NsA",0.00796964],["7cw6oUoF",0.001277033],["7mohfpzG",0.000085135],["AsttteNv",0.000367606],["Gpz8YGtf",0.0193545]]
+  inner system:createAccount:{"lamports":1488440,"newAccount":"Fp3wrnFKPnZjA6qdP7RSHsaUBdjXj8LE2ABz421tZ769","owner":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","source":"BMkHjN2N8K2PdCqe
+  inner spl-token:initializeAccount3:{"account":"Fp3wrnFKPnZjA6qdP7RSHsaUBdjXj8LE2ABz421tZ769","mint":"So11111111111111111111111111111111111111112","owner":"BMkHjN2N8K2PdCqeC92YYjUovn9ecW4GvFpH6yDg
+  inner LanMV9sA
+  inner LanMV9sA
+  inner spl-token:transferChecked:{"authority":"BMkHjN2N8K2PdCqeC92YYjUovn9ecW4GvFpH6yDggXWJ","destination":"ChgtVh7MJJ2p7xB2KAH3WtuzckDtCMtEkV3tAa2ZmBqd","mint":"7aAZbX5PsauTJmbsxm7Ab2j9UTP5K5m
+  inner spl-token:transferChecked:{"authority":"WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh","destination":"Fp3wrnFKPnZjA6qdP7RSHsaUBdjXj8LE2ABz421tZ769","mint":"So111111111111111111111111111111
+  inner spl-token:transferChecked:{"authority":"WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh","destination":"Gpz8YGtfZHLT7HWL7oHjE6qT9yUzAvHwZSxt2sCkgikP","mint":"So111111111111111111111111111111
+  inner spl-token:closeAccount:{"account":"Fp3wrnFKPnZjA6qdP7RSHsaUBdjXj8LE2ABz421tZ769","destination":"BMkHjN2N8K2PdCqeC92YYjUovn9ecW4GvFpH6yDggXWJ","owner":"BMkHjN2N8K2PdCqeC92YYjUovn9ecW4G
+  inner FLASHX8D
+  inner system:transfer:{"destination":"2ApLdwLrGayEmxgpLX9BTR47Q2QprfMg5SpjrLeaK8s7","lamports":9459511,"source":"BMkHjN2N8K2PdCqeC92YYjUovn9ecW4GvFpH6yDggXWJ"}
+  logs Program log: Instruction: SellExactIn
