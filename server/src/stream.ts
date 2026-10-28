@@ -32,7 +32,7 @@ function connect() {
 }
 /** Read the pool's WSOL delta from the tx: + = buy (SOL into pool), − = sell. Works for PumpSwap, Raydium, Meteora pools. */
 export async function decode(c: Connection, pool: string, sig: string, slot: number): Promise<Swap | null> {
-  const tx = await c.getTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }); if (!tx || tx.meta?.err) return null
+  const tx = await c.getTransaction(sig, { maxSupportedTransactionVersion: 1, commitment: 'confirmed' }); if (!tx || tx.meta?.err) return null
   const keys = tx.transaction.message.getAccountKeys({ accountKeysFromLookups: tx.meta?.loadedAddresses as any }).staticAccountKeys.map((k) => k.toBase58())
   const payer = keys[0]
   const pre = tx.meta?.preTokenBalances || [], post = tx.meta?.postTokenBalances || []
