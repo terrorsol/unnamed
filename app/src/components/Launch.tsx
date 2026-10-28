@@ -14,7 +14,7 @@ export default function Launch(p: Props) {
   const [cq, setCq] = useState(''); const [cres, setCres] = useState<D.Coin[]>([]); const [copyOf, setCopyOf] = useState<D.Coin | null>(null); const [venue, setVenue] = useState<Venue>(p.platformReady === false ? 'pump' : 'launchlab')
   React.useEffect(() => { if (!cq.trim() || copyOf) { setCres([]); return } const t = setTimeout(() => D.search(cq).then((r) => setCres(r.slice(0, 5))).catch(() => {}), 300); return () => clearTimeout(t) }, [cq, copyOf])
   const ok = name.trim().length > 1 && symbol.trim().length > 0 && symbol.length <= 10 && !!file
-  const total = dev + stake + 0.02
+  const total = dev + stake + (venue === 'launchlab' ? 0.1 : 0.02)
   return <div className="modal" onClick={p.onClose}><div className="box" onClick={(e) => e.stopPropagation()}>
     <div className="row"><h2>Launch a coin</h2><span className="sp" /><span className="tag live">{venue === 'launchlab' ? `${((p.taxBps ?? 200) / 100).toFixed(1)}% tax → chest` : 'pump.fun'}</span></div>
     <div className="venue">
@@ -44,7 +44,7 @@ export default function Launch(p: Props) {
       <input type="range" className="slider" min={0} max={5} step={0.05} value={stake} onChange={(e) => setStake(+e.target.value)} style={{ marginTop: 6 }} />
       <div className="nm" style={{ marginTop: 4 }}>Half buys block-zero supply, half is the chest. Cut = vaulted %, renounceable. 0 = plain pump launch.</div>
       {stake > 0 && adv && <div style={{ marginTop: 8 }}><ModePicker mode={mode} ceiling={ceiling} onChange={(m, c) => { setMode(m); setCeiling(c) }} compact /></div>}{stake > 0 && !adv && <div className="nm">Market maker · capture ceiling {Math.round(ceiling * 100)}%</div>}</div>
-    <div className="kv"><span>Cost now</span><b className="num">{S(total, 2)} SOL (dev buy + vault stake + ~0.02 fees)</b></div>
+    <div className="kv"><span>Cost now</span><b className="num">{S(total, 2)} SOL (dev buy + vault stake + ~{venue === 'launchlab' ? '0.1 pool rent' : '0.02 fees'})</b></div>
     <div className="kv"><span>Wallet</span><b className="num">{p.sol == null ? '—' : S(p.sol) + ' SOL'}</b></div>
     <div className="row"><button className="btn" onClick={p.onClose}>Cancel</button><span className="sp" />
       <button className="btn pri" disabled={!!p.busy || (p.connected && (!ok || (p.sol != null && total > p.sol)))} onClick={() => !p.connected ? p.needWallet() : p.onLaunch({ name: name.trim(), symbol: symbol.trim(), description: desc.trim(), file, twitter: tw || undefined, telegram: tg || undefined, website: web || undefined }, dev, stake, copyOf?.mint, mode, ceiling, venue)}>{p.busy || (!p.connected ? 'Connect wallet' : 'Create coin')}</button></div>

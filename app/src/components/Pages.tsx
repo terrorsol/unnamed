@@ -85,6 +85,8 @@ export function SettingsPage({ s, set, owner, signTx, conn }: { s: Settings; set
 
 export function About() {
   return <div className="prose">
+    <h2>Our launchpad</h2>
+    <p>Coins launched here live on a curve bound to UNNAMED's platform (Raydium LaunchLab). <b>Every buy and sell pays a tax into that coin's chest</b> — the vault's market maker is funded by the coin's own volume from block zero — and 0.5% goes to the dev, on-chain. After graduation the liquidity is locked and its fees keep flowing. A copy launched on pump can't touch your pool, your fee or your buyers. pump.fun is still an option in the launch modal: bigger crowd, no tax, no defense.</p>
     <h2>Three things, one terminal</h2>
     <p><b>Vault.</b> A coin's own market maker, owned by its holders. Half the stake buys supply in the launch block, half sits in a chest. When a buy stretches the price, the vault sells a small slice into it and parks that SOL under the price — as a desk bid and as dip buys at −20 / −35 / −50%. It never withdraws. Timing, size and levels are randomized so it can't be front-run.</p>
     <p><b>Desk.</b> Off-chart trading on any coin that clears the gate (graduated and ≥ $100K, or on the curve and ≥ $50K, with $5K/h of volume). Rest a bid 1–15% under spot, or a sell offer up to 15% either side. A fill is one transaction both sides sign — no candle, no slippage. Partial fills down to the min block. Names on the book are pseudonymous.</p>
