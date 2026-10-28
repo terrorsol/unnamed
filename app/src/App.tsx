@@ -143,7 +143,19 @@ export default function App() {
     const h = ws.tokens.find((t) => t.mint === from.mint); if (!h) return
     try {
       const before = ws.sol || 0
-      setBusy('Selling ' + from.symbol + '…'); const sig1 = await T.sell(x, from.mint, 1, BigInt(h.raw), from.onCurve); recordSell(ws.owner, from.mint, from.symbol, 1, 0, sig1)
+      // same routing as the sell button: a resting desk bid that beats chart impact absorbs part of the exit first (zero chart impact on the coin you're leaving)
+      let fracLeft = 1
+      if (!from.onCurve && deskUp) {
+        try {
+          const px = from.raw?.priceNative ? +from.raw.priceNative : 0, liqSol = (from.raw?.liquidity as any)?.quote || 0, sizeSol = h.amount * px
+          if (sizeSol > 0.2 && liqSol > 0) {
+            const impact = K.poolImpactBps(sizeSol, liqSol); const book = await K.getBook(from.mint, activeB58!)
+            const best = book.bids.filter((b: any) => !b.mine && b.restable && b.discBps < impact && b.sol <= sizeSol * 1.02).sort((a: any, b: any) => a.discBps - b.discBps)[0]
+            if (best) { setBusy(`Desk takes ${S(best.sol, 2)} SOL of ${from.symbol} at −${(best.discBps / 100).toFixed(1)}%…`); const { quote } = await K.takeBid(connection, activeB58!, best.id, signLegacy, setBusy, gate); recordSell(ws.owner, from.mint, from.symbol, best.sol / sizeSol, Number(BigInt(quote.sellerLamports)) / 1e9, ''); fracLeft = Math.max(0, 1 - best.sol / sizeSol) }
+          }
+        } catch {}
+      }
+      if (fracLeft > 0.02) { setBusy('Selling ' + from.symbol + '…'); const sig1 = await T.sell(x, from.mint, fracLeft >= 0.98 ? 1 : fracLeft, BigInt(h.raw), from.onCurve); recordSell(ws.owner, from.mint, from.symbol, fracLeft, 0, sig1) }
       const after = await connection.getBalance(x.owner).then((b) => b / 1e9).catch(() => before); const got = Math.max(0, after - before - 0.003)
       if (got < 0.02) throw new Error('nothing to switch')
       const to = await D.tokenPairs(toMint); setBusy('Buying ' + toSymbol + '…'); const sig2 = await T.buy(x, toMint, +got.toFixed(4), !!to?.onCurve); recordBuy(ws.owner, toMint, toSymbol, got, sig2); setLedgerV((v) => v + 1)
