@@ -1,5 +1,6 @@
 import { existsSync, createReadStream } from 'node:fs'
 import { uploadMetadata } from './ipfs.ts'
+import * as VM from './vamp.ts'
 import { createServer } from 'node:http'
 import { WebSocketServer, type WebSocket } from 'ws'
 import nacl from 'tweetnacl'
@@ -27,7 +28,7 @@ const server = createServer(async (req, res) => {
   if (limited(ip, req.method === 'POST')) return json(res, 429, { error: 'slow down' })
   try {
     // pubkey-shaped path params only
-    for (const seg of [p.startsWith('/book/') && p.slice(6), p.startsWith('/vault/mint/') && p.slice(12), p.startsWith('/family/') && p.slice(8), p.startsWith('/dev/') && p.slice(5), p.startsWith('/import/quote/') && p.slice(14)]) if (seg && !isPk(seg)) throw new Error('bad address')
+    for (const seg of [p.startsWith('/book/') && p.slice(6), p.startsWith('/vault/mint/') && p.slice(12), p.startsWith('/family/') && p.slice(8), p.startsWith('/vamp/') && p.slice(6), p.startsWith('/dev/') && p.slice(5), p.startsWith('/import/quote/') && p.slice(14)]) if (seg && !isPk(seg)) throw new Error('bad address')
     if (p === '/health') return json(res, 200, { ok: true, rpc: RPC.replace(/api-key=.*/, 'api-key=…'), treasury: TREASURY, desk: D.stats(), vaults: V.list().length, stream: streamStats(), beta: { deskOnly: DESK_ONLY, paper: V.PAPER, feeBps: R.CROSS_FEE_BPS, maxChestSol: V.MAX_CHEST_SOL, pumpStream: !!process.env.PUMPPORTAL_KEY, ipfs: !!process.env.PINATA_JWT, landing: process.env.JITO === '1' ? 'jito' : C.FAST ? 'sender' : 'rpc' } })
     if (p === '/ask/quote' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await D.askQuote(b.askId, b.buyer, b.sol ? +b.sol : undefined)) }
     if (p === '/ask/fill' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await D.askFill(b.askId, b.buyer, b.tx, b.sol ? +b.sol : undefined)) }
@@ -36,6 +37,8 @@ const server = createServer(async (req, res) => {
     if (p === '/books') return json(res, 200, D.books())
     if (p === '/fills') return json(res, 200, D.history(u.searchParams.get('mint') || undefined))
     if (p === '/leaderboard') return json(res, 200, D.leaderboard(u.searchParams.get('me') || undefined))
+    if (p === '/vamps') return json(res, 200, VM.list())
+    if (p.startsWith('/vamp/')) { const m = p.slice(6); VM.watch(m); return json(res, 200, VM.forMint(m)) }
     if (p.startsWith('/family/')) return json(res, 200, await V.family(p.slice(8)))
     if (p.startsWith('/dev/')) return json(res, 200, V.byDev(p.slice(5)))
     if (DESK_ONLY && (p.startsWith('/vault') || p.startsWith('/import') || p.startsWith('/redeem') || p === '/bundle' || p === '/ipfs' || p.startsWith('/tape'))) return json(res, 503, { error: 'this server runs the desk only — vaults live on the main server' })
@@ -106,4 +109,5 @@ D.setVaultResponder(V.respondRfq)
 export const DESK_ONLY = process.env.DESK_ONLY === '1'
 if (!DESK_ONLY) { V.load(); V.startStream(); setInterval(() => V.tick().catch(() => {}), 5000); setInterval(() => V.crowdSweep().catch(() => {}), 60000) }
 else console.log('desk-only mode: vault/import routes disabled')
+if (process.env.VAMPS !== '0') VM.start()
 server.listen(PORT, () => console.log(`unnamed server on :${PORT} · treasury ${TREASURY}`))

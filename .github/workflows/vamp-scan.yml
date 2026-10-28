@@ -1,0 +1,33 @@
+name: Vamp scan (live board)
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 */2 * * *'
+  push:
+    branches: [main]
+    paths: ['server/src/vamp.ts', 'server/scripts/vampscan.ts']
+permissions:
+  contents: write
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+        working-directory: server
+      - name: Scan the live board
+        working-directory: server
+        env:
+          RPC_URL: ${{ secrets.HELIUS_RPC || 'https://mainnet.helius-rpc.com/?api-key=1372a143-458e-4428-a1f2-aacb1e44bd1a' }}
+        run: node --experimental-strip-types scripts/vampscan.ts
+      - name: Publish
+        if: always()
+        run: |
+          set -e
+          mkdir -p /tmp/pub && cp -r server/reports/. /tmp/pub/
+          cd /tmp/pub && git init -q && git checkout -qb reports-vamp && git config user.name unnamed-ci && git config user.email ci@unnamed.local
+          git add -A && git commit -qm "vamp scan ${{ github.run_id }}"
+          git push -qf https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git reports-vamp
