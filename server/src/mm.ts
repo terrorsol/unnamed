@@ -25,6 +25,7 @@ export const P = {
   accumulateEveryMs: 120_000,
   accumulateMinChest: 0.3,
   accumulateDayFrac: 0.25,                     // accumulation has its own day budget so it never starves the desk bid or the crash defense
+  warmupMs: 10 * 60_000,                       // no buys in the first 10 min after arming: the VWAP/high have to mean something first (the paper vault bought a −54% 'dip' 15s after seeding into a crash)
   maxDrawdown: 0.35,                           // drawdown stop: the mm leg (dip buys, desk fills, accumulation − captures) down ≥35% on what it deployed → no new buys, desk bid halved and deep, until it is back at break-even. 0 = off                       // a dip is only bought under the 30-min and 2-hour VWAP (a −20% dip from a +300% pump is not a dip)                         // false = legacy behaviour (rolling 15-min high only), kept for the simulator's before/after
 }
 export type Params = typeof P
@@ -38,7 +39,7 @@ export type State = {
   dayKey?: number; dayDefense?: number; dayAccum?: number; dayChest0?: number; trimmedToday: number; trimDay: number
   buyTimes: number[]; nextCaptureAt?: number; lastCapture: number
   deskPauseUntil?: number; lastDeskFill?: { t: number; p: number; seller?: string } | null; toxicEvents?: number[]; denied?: Record<string, number>
-  mmSpent?: number; mmGot?: number; mmTok?: number; stoppedAt?: number
+  mmSpent?: number; mmGot?: number; mmTok?: number; stoppedAt?: number; armedAt?: number
 }
 export type Market = { priceSol: number; mcapUsd: number; liqSol: number; vol1h?: number }
 
@@ -94,7 +95,7 @@ export function sellerShare(tape: Swap[], now: number, p_: Params = P): number {
 
 /** Defense decision for this tick: how much SOL to spend buying the dip, and which tranche. null = nothing. */
 export function defense(s: State, m: Market, p: number, now: number, dd: number, sellerConc = 0, p_: Params = P, rnd = Math.random()): { spend: number; level: number } | null {
-  if (now < (s.cooldownUntil || 0) || now - s.lastBuy <= 15000 || stopped(s, p, now, p_)) return null
+  if (now < (s.cooldownUntil || 0) || now - s.lastBuy <= 15000 || stopped(s, p, now, p_) || (s.armedAt && now - s.armedAt < p_.warmupMs)) return null
   const toxic = sellerConc >= p_.toxicSellerShare
   if (s.levelJit == null) s.levelJit = 0
   const levels = toxic ? R.DEFENSE_TRANCHES.slice(0, 2) : R.DEFENSE_TRANCHES
@@ -112,7 +113,7 @@ export function defense(s: State, m: Market, p: number, now: number, dd: number,
 }
 /** Accumulation for a vault that started with less supply than its target (tax-funded launch): buy under VWAP, small, slow. null = nothing. */
 export function accumulate(s: State, m: Market, p: number, now: number, p_: Params = P, rnd = Math.random()): number | null {
-  if (s.chest < p_.accumulateMinChest || now - s.lastBuy < p_.accumulateEveryMs || now < (s.cooldownUntil || 0) || stopped(s, p, now, p_)) return null
+  if (s.chest < p_.accumulateMinChest || now - s.lastBuy < p_.accumulateEveryMs || now < (s.cooldownUntil || 0) || stopped(s, p, now, p_) || (s.armedAt && now - s.armedAt < p_.warmupMs)) return null
   const target = s.pct || 0; if (target <= 0 || vaultedPct(s) >= target * 0.98) return null
   const ref = Math.min(R.vwap(s.samples), R.vwap(s.samplesLong || s.samples)); if (!ref || p > ref * p_.defendBelowVwap) return null
   const dayRoom = Math.max(0, Math.max(s.dayChest0 ?? 0, s.chest) * p_.accumulateDayFrac - (s.dayAccum || 0))
