@@ -264,12 +264,15 @@ export function renounce(id: string, dev: string) { const v = vaults[id]; if (!v
 export async function refund(id: string, auth?: { msg?: string; sig?: string }) {
   const v = vaults[id]; if (!v) throw new Error('no such vault')
   // an armed vault never pays out its chest — unless it never did anything: no tokens, no fills, no tax. Then the dev can still take the stake back and the vault is dropped.
-  const untouched = v.tokens <= 0 && !(v.score && (v.score.captures || v.score.dips || v.score.deskFills)) && !(v.taxClaimed || 0) && !v.activity.some((a) => a.kind === 'buy' || a.kind === 'capture' || a.kind === 'redeem')
+  const untouched = v.tokens <= 0 && !(v.score && (v.score.captures || v.score.dips || v.score.deskFills)) && !v.activity.some((a) => a.kind === 'buy' || a.kind === 'capture' || a.kind === 'redeem')
   if (v.armed && !untouched) throw new Error('an armed vault that has traded never pays out its chest — that is the point of it')
   devAuth(v, 'refund', v.mint || 'none', auth)
-  const sol = +Math.max(0, (v.shared ? v.chest : await balanceSol(v.pub)) - 0.001).toFixed(6); if (sol < 0.001) throw new Error('nothing to refund')
+  // only the stake goes back; tax the chest collected meanwhile belongs to the holders and stays
+  const staked = v.activity.filter((a) => a.kind === 'stake').reduce((a, x) => a + (x.sol || 0), 0) || v.stakeSol
+  const avail = (v.shared ? v.chest : await balanceSol(v.pub)) - 0.001
+  const sol = +Math.max(0, Math.min(staked, avail)).toFixed(6); if (sol < 0.001) throw new Error('nothing to refund')
   const sig = await payFrom(v, v.dev, Math.floor(sol * 1e9), 'refund')
-  v.activity.unshift({ t: Date.now(), kind: 'note', sol, sig, msg: `stake refunded to ${v.dev.slice(0, 4)}… (vault never traded)` }); if (v.shared) v.chest = 0; if (v.armed) { v.armed = false; if (v.deskBid) { try { D.cancelInternal(v.pub, v.mint!) } catch {} v.deskBid = 0 } }
+  v.activity.unshift({ t: Date.now(), kind: 'note', sol, sig, msg: `stake refunded to ${v.dev.slice(0, 4)}… (vault never traded)` }); if (v.shared) v.chest = Math.max(0, +(v.chest - sol).toFixed(9)); if (v.armed && v.chest < 0.05) { v.armed = false; if (v.deskBid) { try { D.cancelInternal(v.pub, v.mint!) } catch {} v.deskBid = 0 } }
   EV.log('vault', `${v.symbol || id} refunded ${sol} SOL to the dev (never armed)`, { id, sig }); save(); return { sig, sol }
 }
 /** admin: drop a vault that never armed (its stake was returned by hand from the shared wallet); refuses armed vaults */
