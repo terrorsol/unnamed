@@ -142,7 +142,8 @@ export async function sellPct(owner: PublicKey, mint: string, pct: number, slipp
 export async function buildClaim(mint: string, platformId: PublicKey | null = PLATFORM_ID): Promise<VersionedTransaction> {
   if (!platformId) throw new Error('no platform')
   const pk = platformKeypair().publicKey
-  const r: any = await withOwner(pk, (r) => r.launchpad.claimPlatformFee({ programId: PROGRAM, platformId, platformClaimFeeWallet: pk, poolId: poolIdOf(mint), mintB: WSOL, txVersion: TxVersion.V0, computeBudgetConfig: { units: 200_000, microLamports: 50_000 } }))
+  const poolId = poolIdOf(mint); const vaultB = getPdaLaunchpadVaultId(PROGRAM, poolId, WSOL).publicKey
+  const r: any = await withOwner(pk, (r) => r.launchpad.claimPlatformFee({ programId: PROGRAM, platformId, platformClaimFeeWallet: pk, poolId, mintB: WSOL, vaultB, txVersion: TxVersion.V0, computeBudgetConfig: { units: 200_000, microLamports: 50_000 } }))
   return r.transaction as VersionedTransaction
 }
 /** unclaimed platform fee sitting in the pool (lamports) */

@@ -230,7 +230,7 @@ export default function App() {
   const content = () => {
     if (page === 'coin' && arg) { const h = ws.tokens.find((t) => t.mint === arg); return <CoinPage mint={arg} coin={byMint[arg]} solPrice={solPrice} holding={h} lot={ledger.lots[arg]} sol={ws.sol} connected={connected} busy={busy} onBuy={onBuy} onSell={onSell} needWallet={needWallet} quickSol={settings.quickBuy} watch={settings.watch} toggleWatch={toggleWatch} trades={allTrades} subscribe={fresh.subscribe} desk={{ owner: ws.owner, connected, bidder, deskUp, busy, takeBid, takeAsk, holdingUi: h?.amount || 0, solPrice }} deskTick={deskTick} vaultV={vaultV} onRenounce={renounce} onRedeem={onRedeem} onDeposit={onDeposit} onMode={onMode} onSwitch={onSwitch} go={go} ordersV={ordersV} bumpOrders={() => setOrdersV((v) => v + 1)} fills={ledger.fills} /> }
     if (page === 'portfolio') return <Portfolio sol={ws.sol} tokens={ws.tokens} coins={byMint} lots={ledger.lots} fills={ledger.fills} solPrice={solPrice} go={go} owner={ws.owner} />
-    if (page === 'settings') return <SettingsPage s={settings} set={setSettings} />
+    if (page === 'settings') return <SettingsPage s={settings} set={setSettings} owner={ws.owner || undefined} signTx={ctx()?.sign} conn={connection} />
     if (page === 'about') return <About />
     if (page === 'compare') return <Compare coins={coins} vaults={vaultList} solPrice={solPrice} go={go} />
     if (page === 'docs') return <Tabs tabs={[['How it works', <About />], ['Simulate', <Simulate />], ['Vaulted vs not', <Compare coins={coins} vaults={vaultList} solPrice={solPrice} go={go} />], ['Leaderboard', <LeaderboardPage owner={ws.owner} />]]} sel={arg} go={(t) => go('docs/' + t)} />

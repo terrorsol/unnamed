@@ -1,11 +1,12 @@
 import * as K from '../lib/desk'
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
+import { Connection, VersionedTransaction } from '@solana/web3.js'
 import type { Coin } from '../lib/dex'
 import type { Holding } from '../lib/rpc'
 import type { Fill, Lot } from '../lib/positions'
 import { Pfp, Mc, Ch, Addr } from './ui'
 import { F, S, ago, short } from '../lib/fmt'
-import { solscan } from '../lib/rpc'
+import { solscan, confirmByPolling } from '../lib/rpc'
 import type { Settings } from '../lib/store'
 import { flipFee, FLIP_WINDOW_MIN } from '../lib/protocol'
 
@@ -52,8 +53,15 @@ export function Portfolio({ sol, tokens, coins, lots, fills, solPrice, go, owner
   </>
 }
 
-export function SettingsPage({ s, set }: { s: Settings; set: (p: Partial<Settings>) => void }) {
+export function SettingsPage({ s, set, owner, signTx, conn }: { s: Settings; set: (p: Partial<Settings>) => void; owner?: string; signTx?: (t: VersionedTransaction) => Promise<VersionedTransaction>; conn?: Connection }) {
   const [rpc, setRpc] = useState(s.rpc)
+  const [llp, setLlp] = useState<K.LLPlatform | null>(null); const [pst, setPst] = useState('')
+  useEffect(() => { K.llPlatform().then(setLlp).catch(() => setLlp(null)) }, [pst])
+  const setupPlatform = async () => {
+    if (!owner || !signTx || !conn) return setPst('connect the admin wallet first')
+    try { setPst('building…'); const { tx } = await K.llPlatformBuild(owner); setPst('sign…'); const signed = await signTx(VersionedTransaction.deserialize(Buffer.from(tx, 'base64'))); setPst('sending…'); const sig = await conn.sendRawTransaction(signed.serialize(), { skipPreflight: false, maxRetries: 3 }); await confirmByPolling(conn, sig); setPst('done · ' + sig.slice(0, 8)) }
+    catch (e: any) { setPst('failed: ' + String(e?.message || e).slice(0, 120)) }
+  }
   const [srv, setSrv] = useState(localStorage.getItem('unnamed_server') || '')
   const [srvState, setSrvState] = useState<string>(''); const [adv, setAdv] = useState(false)
   const testSrv = async (u: string) => { setSrvState('…'); try { const r = await fetch(u.replace(/\/$/, '') + '/health'); const d = await r.json(); setSrvState(d.ok ? `up · ${d.vaults} vaults · desk ${d.desk?.openBids ?? 0} bids` : 'bad response') } catch { setSrvState('unreachable') } }
@@ -63,6 +71,12 @@ export function SettingsPage({ s, set }: { s: Settings; set: (p: Partial<Setting
       <div className="fld"><div className="lbl">Priority fee (SOL)</div><input type="number" step={0.0001} min={0} value={s.priorityFeeSol} onChange={(e) => set({ priorityFeeSol: +e.target.value })} /></div></div>
     <div className="two"><label className="row" style={{ gap: 8, fontSize: 12 }}><input type="checkbox" checked={s.autoFee} onChange={(e) => set({ autoFee: e.target.checked })} /> Auto priority fee (Helius estimate, High)</label><label className="row" style={{ gap: 8, fontSize: 12 }}><input type="checkbox" checked={s.mev} onChange={(e) => set({ mev: e.target.checked })} /> MEV protect: Jito tip on swaps ({s.jitoTipSol} SOL)</label></div>
     <div className="fld"><div className="lbl">Quick-buy size (SOL)</div><input type="number" step={0.05} min={0.01} value={s.quickBuy} onChange={(e) => set({ quickBuy: +e.target.value })} /></div>
+    {llp && <div className="fld"><div className="lbl">Launchpad</div>
+      {llp.chain?.exists ? <div className="nm">live · tax {(llp.chain.feeRate ?? 0).toFixed(2)}% → chests · creator {(llp.chain.creatorFeeRate ?? 0).toFixed(2)}% → dev · platform {llp.platformId?.slice(0, 8)}…</div>
+        : !llp.platformId ? <div className="nm">server has no PLATFORM_ADMIN set — add your wallet address to the server env, then come back here</div>
+        : owner && owner === llp.admin ? <div className="row" style={{ gap: 8 }}><button className="btn pri sm" onClick={setupPlatform} disabled={/…/.test(pst)}>Set up launchpad · 1 signature</button><span className="nm">tax {(llp.taxBps / 100).toFixed(1)}% → chests · creator {(llp.creatorFeeBps / 100).toFixed(2)}% → dev · {pst}</span></div>
+        : <div className="nm">not set up yet · connect the admin wallet ({llp.admin?.slice(0, 6)}…) to create it</div>}
+    </div>}
     <button className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => setAdv(!adv)}>{adv ? 'Hide advanced' : 'Advanced'}</button>
     {adv && <div className="fld"><div className="lbl">RPC endpoint (Helius / Triton / QuickNode)</div><input value={rpc} onChange={(e) => setRpc(e.target.value)} /><div className="nm" style={{ marginTop: 4 }}>Applies after reload.</div></div>}
     <div className="row"><span className="sp" /><button className="btn pri" onClick={() => { set({ rpc }); if (srv.trim()) localStorage.setItem('unnamed_server', srv.trim().replace(/\/$/, '')); else localStorage.removeItem('unnamed_server'); location.reload() }}>Save &amp; reload</button></div>

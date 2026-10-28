@@ -264,7 +264,8 @@ await step('launchlab: platform fee claim tx shape → simulate as that platform
   // build as the pool's real platform (its fee wallet is the signer); simulate with sigVerify off
   const { Raydium, TxVersion, LAUNCHPAD_PROGRAM } = await import('@raydium-io/raydium-sdk-v2')
   const r = await Raydium.load({ connection: conn, owner: pd.platformClaimFeeWallet, disableLoadToken: true, disableFeatureCheck: true, cluster: 'mainnet' })
-  const b: any = await r.launchpad.claimPlatformFee({ programId: LAUNCHPAD_PROGRAM, platformId: new PublicKey(LLX.platformId), platformClaimFeeWallet: pd.platformClaimFeeWallet, poolId: LL.poolIdOf(LLX.mint), mintB: LL.WSOL, txVersion: TxVersion.V0 })
+  const { getPdaLaunchpadVaultId } = await import('@raydium-io/raydium-sdk-v2'); const poolId = LL.poolIdOf(LLX.mint)
+  const b: any = await r.launchpad.claimPlatformFee({ programId: LAUNCHPAD_PROGRAM, platformId: new PublicKey(LLX.platformId), platformClaimFeeWallet: pd.platformClaimFeeWallet, poolId, mintB: LL.WSOL, vaultB: getPdaLaunchpadVaultId(LAUNCHPAD_PROGRAM, poolId, LL.WSOL).publicKey, txVersion: TxVersion.V0 })
   return `${b.transaction.message.compiledInstructions.length} ix · fee wallet ${pd.platformClaimFeeWallet.toBase58().slice(0, 8)}… · ` + (await sim(b.transaction, 'claim').catch((e) => 'simulate: ' + String(e.message).slice(0, 140)))
 })
 await step('launchlab: create platform config tx → simulate', async () => {
