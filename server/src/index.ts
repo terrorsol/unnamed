@@ -72,6 +72,7 @@ const server = createServer(async (req, res) => {
     if (p === '/admin/events' && req.method === 'GET') { if (!process.env.ADMIN_KEY || u.searchParams.get('key') !== process.env.ADMIN_KEY) return json(res, 403, { error: 'admin key' }); return json(res, 200, { stats: EV.stats(), events: EV.since(+(u.searchParams.get('since') || 0)).slice(-300) }) }
     if (p === '/admin/mints' && req.method === 'POST') { if (!process.env.ADMIN_KEY || u.searchParams.get('key') !== process.env.ADMIN_KEY) return json(res, 403, { error: 'admin key' }); const b = await readBody(req); const out: any = { added: [], rejected: [] }; for (const k of (b.keys || [])) { try { out.added.push(MP.add(k)) } catch (e: any) { out.rejected.push(String(e.message).slice(0, 80)) } } return json(res, 200, { ...out, pool: MP.stats() }) }
     if (p === '/admin/vault/retire' && req.method === 'POST') { if (!process.env.ADMIN_KEY || u.searchParams.get('key') !== process.env.ADMIN_KEY) return json(res, 403, { error: 'admin key' }); const b = await readBody(req); return json(res, 200, V.retire(b.id)) }
+    if (p === '/admin/waitlist' && req.method === 'GET') { if (!process.env.ADMIN_KEY || u.searchParams.get('key') !== process.env.ADMIN_KEY) return json(res, 403, { error: 'admin key' }); const f = (process.env.DATA_DIR || './data') + '/waitlist.jsonl'; const rows = existsSync(f) ? readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean) : []; return json(res, 200, { count: rows.length, rows }) }
     if (p === '/admin/wallet' && req.method === 'GET') { if (!process.env.ADMIN_KEY || u.searchParams.get('key') !== process.env.ADMIN_KEY) return json(res, 403, { error: 'admin key' }); return json(res, 200, await V.sharedAudit()) }
     if (p === '/invite/redeemed' && req.method === 'GET') { if (!process.env.ADMIN_KEY || u.searchParams.get('key') !== process.env.ADMIN_KEY) return json(res, 403, { error: 'admin key' }); return json(res, 200, INV.redeemed()) }
     if (p === '/waitlist' && req.method === 'POST') { const b = await readBody(req); const wallet = String(b.wallet || '').trim(); const x = String(b.x || '').trim().replace(/^@/, '').slice(0, 32)
@@ -86,9 +87,9 @@ const server = createServer(async (req, res) => {
     if (p.startsWith('/vault/mint/')) return json(res, 200, V.byMint(p.slice(12)))
     if (p.startsWith('/vault/') && req.method === 'GET') return json(res, 200, V.get(p.slice(7)))
     if (p === '/vault/create' && req.method === 'POST') { const b = await readBody(req); if (!(b.stakeSol > 0)) throw new Error('stake required'); return json(res, 200, V.create(b.dev, +b.stakeSol, b.copyOf, b.mode === 'floor' ? 'floor' : 'mm', b.ceiling != null ? +b.ceiling : undefined, b.venue === 'launchlab' ? 'launchlab' : 'pump', b.vaultBuySol != null ? +b.vaultBuySol : undefined, b.targetPct != null ? +b.targetPct : undefined)) }
-    if (p === '/vault/refund' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.refund(b.id, b.auth)) }
+    if (p === '/vault/refund' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.refund(b.id, { ...(b.auth || {}), sessionWallet })) }
     if (p === '/vault/fund' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.fund(b.id, b.sig)) }
-    if (p === '/vault/arm' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.arm(b.id, b.mint, b.symbol || '', b.name || '', b.auth, b.fundSig)) }
+    if (p === '/vault/arm' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.arm(b.id, b.mint, b.symbol || '', b.name || '', { ...(b.auth || {}), sessionWallet }, b.fundSig)) }
     if (p.startsWith('/import/quote/')) return json(res, 200, await V.importQuote(p.slice(14)))
     if (p === '/import/create' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importCreate(b.owner, b.mint)) }
     if (p === '/import/crowd' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importCrowd(b.owner, b.mint)) }
@@ -102,10 +103,10 @@ const server = createServer(async (req, res) => {
     if (p === '/ll/platform/build' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await LL.buildPlatformTx(new PublicKey(b.admin))) }
     if (p.startsWith('/ll/pool/') && req.method === 'GET') { const pl = await LL.pool(p.slice(9), 0); return json(res, 200, pl ? { ...pl, virtualA: String(pl.virtualA), virtualB: String(pl.virtualB), realA: String(pl.realA), realB: String(pl.realB), totalSellA: String(pl.totalSellA), totalFundRaisingB: String(pl.totalFundRaisingB), platformFee: String(pl.platformFee), ours: LL.isOurs(pl) } : null) }
     if (p === '/ll/quote' && req.method === 'GET') { const pct = u.searchParams.get('pct'); const dev = +(u.searchParams.get('dev') || 0); const vault = pct ? V.solForPct(+pct, dev) : +(u.searchParams.get('vault') || 0); return json(res, 200, { ...LL.blockZero(dev, vault), vaultSol: vault }) }
-    if (p === '/ll/launch/build' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.buildLaunch(b)) }
+    if (p === '/ll/launch/build' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.buildLaunch({ ...b, auth: { ...(b.auth || {}), sessionWallet } })) }
     if (p.startsWith('/ll/permtax/') && req.method === 'GET') return json(res, 200, await LL.permTaxOf(p.slice(12)))
     if (p === '/ll/trade' && req.method === 'POST') { const b = await readBody(req); const tx = await LL.buildTrade(new PublicKey(b.owner), b.action === 'sell' ? 'sell' : 'buy', b.mint, b.amount, { slippageBps: b.slippageBps ? +b.slippageBps : undefined }); return json(res, 200, { tx: Buffer.from(tx.serialize()).toString('base64') }) }
-    if (p === '/vault/bundle-sign' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.signBundleTx(b.id, b.mint, b.tx, +b.maxSol, b.createTx, b.auth)) }
+    if (p === '/vault/bundle-sign' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.signBundleTx(b.id, b.mint, b.tx, +b.maxSol, b.createTx, { ...(b.auth || {}), sessionWallet })) }
     if (p === '/bundle' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, { bundleId: await V.sendBundle(b.txs) }) }
     if (p === '/vault/mode' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, V.setMode(b.id, b.dev, b.mode, b.ceiling != null ? +b.ceiling : undefined)) }
     if (p === '/vault/renounce' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, V.renounce(b.id, b.dev)) }
@@ -151,7 +152,7 @@ setInterval(D.sweep, 10000); setInterval(D.rfqSweep, 5000)
 D.setVaultResponder(V.respondRfq)
 // DESK_ONLY=1: ephemeral/public-tunnel deployments — the desk is non-custodial so it is safe to run anywhere; vaults (server-held keys) stay off.
 export const DESK_ONLY = process.env.DESK_ONLY === '1'
-if (!DESK_ONLY) { V.load(); V.startStream(); setInterval(() => V.tick().catch(() => {}), 5000); setInterval(() => V.crowdSweep().catch(() => {}), 60000); const ep = () => LL.ensurePlatform().catch((e) => console.log('platform setup: ' + String(e.message).slice(0, 120))); setTimeout(ep, 8000); setInterval(ep, 60000) }
+if (!DESK_ONLY) { V.load(); V.startStream(); setInterval(() => V.tick().catch(() => {}), 5000); setInterval(() => V.crowdSweep().catch(() => {}), 60000); setInterval(() => V.autoArm().catch(() => {}), 15000); const ep = () => LL.ensurePlatform().catch((e) => console.log('platform setup: ' + String(e.message).slice(0, 120))); setTimeout(ep, 8000); setInterval(ep, 60000) }
 else console.log('desk-only mode: vault/import routes disabled')
 if (process.env.VAMPS !== '0') VM.start()
 server.listen(PORT, () => console.log(`banker server on :${PORT} · treasury ${TREASURY}`))

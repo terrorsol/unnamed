@@ -191,6 +191,8 @@ export const vaultSetMode = (id: string, dev: string, mode: 'floor' | 'mm', ceil
 export type DevAuth = { msg: string; sig: string }
 /** proves to the server that the dev of a vault is the one asking it to sign a launch (`unnamed:<action>:<vaultId>:<mint>:<minute>`) */
 export async function devAuth(signMsg: (m: Uint8Array) => Promise<Uint8Array>, action: 'launch' | 'bundle' | 'arm' | 'refund', vaultId: string, mint: string): Promise<DevAuth> {
+  // with an invite session the server already knows this wallet (it signed once to redeem the key): no message popup per step
+  if (sessionToken()) return { msg: '', sig: '' }
   const msg = `unnamed:${action}:${vaultId}:${mint}:${Math.floor(Date.now() / 60000)}`
   return { msg, sig: bs58.encode(await signMsg(new TextEncoder().encode(msg))) }
 }

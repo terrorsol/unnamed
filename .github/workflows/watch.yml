@@ -35,6 +35,7 @@ jobs:
               curl -sf "$SERVER/admin/events?key=$ADMIN_KEY" -o events.json || true
               curl -sf "$SERVER/admin/wallet?key=$ADMIN_KEY" -o wallet.json || true
               curl -sf "$SERVER/invite/redeemed?key=$ADMIN_KEY" -o redeemed.json || true
+              curl -sf "$SERVER/admin/waitlist?key=$ADMIN_KEY" -o waitlist.json || true
             else
               echo "$(date -u +%H:%M) server down" >> downtime.log
             fi
