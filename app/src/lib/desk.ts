@@ -169,7 +169,7 @@ export const signLegacyWith = (kp: Keypair) => async (t: Transaction) => { t.par
 
 // ---- vault ----
 export type VaultPub = { id: string; pub: string; crowd?: { goalSol: number; raised: number; backers: number; expiresAt: number; refunded: boolean }; mint?: string; symbol?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; avgCost: number; tokens: number; chest: number; devPaid: number; createdAt: number; copyOf?: string; streamed: number; redeemed: number; supply: number; deskBid: number; name?: string; copies: { mint: string; symbol: string; pub: string }[]; imported?: boolean; feePaid?: number; depositedTokens?: number; funders?: Record<string, number>; mode: 'floor' | 'mm'; ceiling: number; floor: number; score: { captured: number; captures: number; deskBought: number; deskFills: number; dipBought: number; dips: number; redeployed: number; floor0: number }; live: { price: number; vwap30: number; stretch: number; captureNow: number; triggerRate: number; buysPerMin: number; tier: string; tranchesFired: number[]; sigma?: number; skew?: number; deskDisc?: number }; activity: { t: number; kind: string; sol?: number; tokens?: number; price?: number; sig?: string; msg?: string }[] }
-export const vaultCreate = (dev: string, stakeSol: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = 0.3): Promise<VaultPub> => j('/vault/create', { dev, stakeSol, copyOf, mode, ceiling })
+export const vaultCreate = (dev: string, stakeSol: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = 0.3, venue: 'pump' | 'launchlab' = 'launchlab'): Promise<VaultPub> => j('/vault/create', { dev, stakeSol, copyOf, mode, ceiling, venue })
 export const vaultSetMode = (id: string, dev: string, mode: 'floor' | 'mm', ceiling?: number): Promise<VaultPub> => j('/vault/mode', { id, dev, mode, ceiling })
 export const vaultArm = (id: string, mint: string, symbol: string, name = ''): Promise<VaultPub> => j('/vault/arm', { id, mint, symbol, name })
 export const vaultRenounce = (id: string, dev: string): Promise<VaultPub> => j('/vault/renounce', { id, dev })
@@ -249,3 +249,13 @@ export function openSwapFeed(onSwap: (s: SwapEvt) => void) {
   const connect = async () => { await ready; if (closed) return; ws = new WebSocket(WS()); ws.onmessage = (m) => { try { const d = JSON.parse(m.data); if (d.type === 'swap') onSwap(d); else if (d.type === 'book') bookBus.dispatchEvent(new CustomEvent('book', { detail: d.mint })) } catch {} }; ws.onclose = () => { if (!closed) timer = setTimeout(connect, 3000) }; ws.onerror = () => ws?.close() }
   connect(); return () => { closed = true; clearTimeout(timer); ws?.close() }
 }
+
+// ---- LaunchLab (our launchpad) ----
+export type LLPool = { poolId: string; status: number; migrated: boolean; priceSol: number; liqSol: number; soldPct: number; platformId: string; ours: boolean; platformFee: string }
+export type LLPlatform = { venue: string; platformId: string | null; admin: string | null; feeWallet: string; taxBps: number; creatorFeeBps: number; chain: { id: string; exists: boolean; feeRate?: number; creatorFeeRate?: number } | null }
+export const llPlatform = (): Promise<LLPlatform> => j('/ll/platform')
+export const llPlatformBuild = (admin: string): Promise<{ tx: string; platformId: string }> => j('/ll/platform/build', { admin })
+export const llPool = (mint: string): Promise<LLPool | null> => j('/ll/pool/' + mint)
+export const llQuote = (dev: number, vault: number): Promise<{ devPct: number; vaultPct: number; mcapSol: number }> => j(`/ll/quote?dev=${dev}&vault=${vault}`)
+export const llLaunchBuild = (b: { dev: string; name: string; symbol: string; uri: string; devBuySol: number; vaultId?: string; vaultBuySol?: number }): Promise<{ venue: string; mint: string; poolId: string; txs: string[]; vaultTx: string | null; vaultSpend: number; vaultTokens: number; devTokens: number }> => j('/ll/launch/build', b)
+export const llTrade = (owner: string, action: 'buy' | 'sell', mint: string, amount: number, slippageBps?: number): Promise<{ tx: string }> => j('/ll/trade', { owner, action, mint, amount, slippageBps })

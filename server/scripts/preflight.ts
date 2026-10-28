@@ -238,7 +238,9 @@ await step('launchlab: live pool decode vs geckoterminal price', async () => {
     try { const d: any = await (await timeout(fetch(url), 10000)).json(); const rows = d?.data?.rows || d?.data?.data || d?.data || []; if (Array.isArray(rows) && rows.length) { list = rows; break } tried.push(url.slice(36, 60) + ':' + JSON.stringify(d).slice(0, 60)) } catch (e: any) { tried.push(String(e.message).slice(0, 40)) }
   }
   if (!list.length) throw new Error('raydium launch api gave no rows · ' + tried.join(' | '))
-  const d = { data: list.map((x: any) => ({ relationships: { base_token: { data: { id: 'solana_' + (x.mint || x.mintA || x.address) } } }, attributes: { name: x.symbol || x.name || '?', base_token_price_native_currency: String(x.priceSol ?? x.price ?? 0) } })) }
+  const sample = list[0]; const keys = Object.keys(sample).slice(0, 40).join(','); const mintKey = ['mint', 'mintA', 'address', 'tokenMint', 'baseMint'].find((k) => typeof sample[k] === 'string' && sample[k].length > 30) || 'mint'
+  list = list.map((x: any) => ({ ...x, mint: x[mintKey] }))
+  const d = { data: list.map((x: any) => ({ relationships: { base_token: { data: { id: 'solana_' + x.mint } } }, attributes: { name: x.symbol || x.name || '?', base_token_price_native_currency: String(x.priceSol ?? x.price ?? 0) } })) }
   const notes: string[] = []
   for (const p of (d.data || []).slice(0, 8)) {
     const mint = p.relationships.base_token.data.id.replace('solana_', ''); const pl = await LL.pool(mint, 0)
@@ -248,7 +250,7 @@ await step('launchlab: live pool decode vs geckoterminal price', async () => {
     LLX.mint = mint; LLX.platformId = pl.platformId
     return `${p.attributes.name} · pool ${pl.poolId.slice(0, 8)}… status ${pl.status} sold ${pl.soldPct}% · ours ${pl.priceSol.toPrecision(4)} vs gecko ${gpx.toPrecision(4)} (${dev.toFixed(1)}% apart) · liq ${pl.liqSol.toFixed(1)} SOL · platform ${pl.platformId.slice(0, 8)}… fee pending ${(Number(pl.platformFee) / 1e9).toFixed(4)} SOL` + (notes.length ? ' · skipped ' + notes.join('; ') : '')
   }
-  throw new Error('no live (unmigrated) launchlab pool in top 8 · ' + notes.join('; '))
+  throw new Error('no live (unmigrated) launchlab pool in top 8 · ' + notes.join('; ') + ` · row keys ${keys} · sample ${JSON.stringify(sample).slice(0, 300)}`)
 })
 await step('launchlab: buy tx via sdk → simulate', async () => {
   if (!LLX.mint) throw new Error('no pool'); const LL = await import('../src/launchlab.ts')

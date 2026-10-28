@@ -12,7 +12,7 @@ export { dynSlippageBps }
 import { SERVER } from './desk'
 
 export type Signer = (t: VersionedTransaction) => Promise<VersionedTransaction>
-export type Ctx = { conn: Connection; owner: PublicKey; sign: Signer; settings: Settings; onStatus?: (s: string) => void; depthSol?: number }
+export type Ctx = { conn: Connection; owner: PublicKey; sign: Signer; settings: Settings; onStatus?: (s: string) => void; depthSol?: number; venue?: 'pump' | 'launchlab' }
 
 /** Sender tip when MEV protection is on: the tip buys priority routing (validators + SWQOS), the CU price is still set by priorityFee. */
 function fast(ctx: Ctx): Fast | undefined { return ctx.settings.mev ? { rpc: ctx.settings.rpc, payer: ctx.owner, tipLamports: Math.max(MIN_TIP_LAMPORTS, Math.floor(ctx.settings.jitoTipSol * LAMPORTS)) } : undefined }
@@ -24,6 +24,12 @@ export async function buy(ctx: Ctx, mint: string, sol: number, onCurve: boolean)
   const { conn, owner, sign, onStatus } = ctx; const settings = { ...ctx.settings, priorityFeeSol: await fee(ctx), slippageBps: dynSlippageBps(sol, ctx.depthSol, ctx.settings.slippageBps) }
   const pk = owner.toBase58()
   const slipPct = settings.slippageBps / 100
+  if (ctx.venue === 'launchlab') {
+    // our launchpad: the server builds the exact curve tx with the official SDK (no PumpPortal), the wallet signs, Sender lands it
+    onStatus?.('Building buy…'); const { llTrade } = await import('./desk')
+    const tx = VersionedTransaction.deserialize(Buffer.from((await llTrade(pk, 'buy', mint, sol, settings.slippageBps)).tx, 'base64'))
+    return sendAndConfirm(conn, tx, sign, onStatus, fast(ctx))
+  }
   if (onCurve) {
     onStatus?.('Building pump.fun buy…')
     const tx = await P.buildTrade({ publicKey: pk, action: 'buy', mint, amount: sol, denominatedInSol: true, slippage: slipPct, priorityFee: settings.priorityFeeSol, pool: 'auto' })
@@ -51,6 +57,12 @@ export async function sell(ctx: Ctx, mint: string, frac: number, rawAmount: bigi
   const pk = owner.toBase58()
   const slipPct = settings.slippageBps / 100
   const pct = Math.round(frac * 100)
+  if (ctx.venue === 'launchlab') {
+    onStatus?.('Building sell…'); const { llTrade } = await import('./desk')
+    const ui = Number(frac >= 0.999 ? rawAmount : (rawAmount * BigInt(Math.round(frac * 10000))) / 10000n) / 1e6
+    const tx = VersionedTransaction.deserialize(Buffer.from((await llTrade(pk, 'sell', mint, ui, settings.slippageBps)).tx, 'base64'))
+    return sendAndConfirm(conn, tx, sign, onStatus, fast(ctx))
+  }
   if (onCurve) {
     onStatus?.('Building pump.fun sell…')
     const tx = await P.buildTrade({ publicKey: pk, action: 'sell', mint, amount: `${pct}%`, denominatedInSol: false, slippage: slipPct, priorityFee: settings.priorityFeeSol, pool: 'auto' })
@@ -112,3 +124,23 @@ export async function launchBlockZero(ctx: Ctx, meta: P.CreateMeta, devBuySol: n
   }
 }
 async function confirmByPollingB58(conn: Connection, tx: VersionedTransaction) { const { confirmByPolling } = await import('./rpc'); await confirmByPolling(conn, bs58.encode(tx.signatures[0])) }
+
+/** Launch on OUR launchpad (Raydium LaunchLab under our platform config): the server builds create(+dev buy) for the dev to sign and, with a vault, the vault's
+ *  block-zero buy already keeper-signed. Both go out as one Jito bundle; if the bundle path fails before anything is sent, the create goes out alone and
+ *  the vault seeds on arm. Every trade on the coin pays the platform fee into the chest from the first block. */
+export async function launchOurs(ctx: Ctx, meta: P.CreateMeta, devBuySol: number, vault: { id: string } | null, vaultBuySol: number, deps: { sendBundle: (txs: string[]) => Promise<{ bundleId: string }> }): Promise<{ sig: string; mint: string; bundled: boolean }> {
+  const { conn, owner, sign, onStatus } = ctx; const K = await import('./desk')
+  onStatus?.('Uploading metadata…'); const uri = await P.uploadMetadata(meta, SERVER)
+  onStatus?.('Building launch…')
+  const b = await K.llLaunchBuild({ dev: owner.toBase58(), name: meta.name, symbol: meta.symbol, uri, devBuySol, vaultId: vault?.id, vaultBuySol })
+  const txs = b.txs.map((x) => VersionedTransaction.deserialize(Buffer.from(x, 'base64')))
+  onStatus?.(txs.length > 1 ? `Sign ${txs.length} transactions…` : 'Sign the create…')
+  const signed: VersionedTransaction[] = []; for (const t of txs) signed.push(await sign(t))
+  const sig = bs58.encode(signed[0].signatures[0])
+  if (b.vaultTx) {
+    try { onStatus?.('Sending bundle…'); await deps.sendBundle([...signed.map((t) => Buffer.from(t.serialize()).toString('base64')), b.vaultTx]); onStatus?.('Confirming…'); await confirmByPollingB58(conn, signed[0]); return { sig, mint: b.mint, bundled: true } }
+    catch (e: any) { onStatus?.('Bundle unavailable — plain launch…') }
+  }
+  for (const t of signed) { const s2 = await conn.sendRawTransaction(t.serialize(), { skipPreflight: false, maxRetries: 3 }); await confirmByPollingB58(conn, t); void s2 }
+  return { sig, mint: b.mint, bundled: false }
+}

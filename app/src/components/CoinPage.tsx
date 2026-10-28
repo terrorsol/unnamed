@@ -61,7 +61,15 @@ export default function CoinPage(p: Props) {
   useEffect(() => { setCoin(p.coin) }, [p.coin])
   useEffect(() => {
     let on = true; p.subscribe([p.mint])
-    const f = () => D.tokenPairs(p.mint).then((c) => on && c && setCoin(c)).catch(() => {})
+    // our launchpad first: the pool is the exact source and exists before any indexer has the coin
+    const f = async () => {
+      const [c, ll] = await Promise.all([D.tokenPairs(p.mint).catch(() => null), K.llPool(p.mint).catch(() => null)])
+      if (!on) return
+      if (ll && !ll.migrated) {
+        const px = ll.priceSol * (p.solPrice || 0); const base: D.Coin = c || { mint: p.mint, symbol: vault?.symbol || p.mint.slice(0, 4), name: vault?.name || '', dex: 'launchlab', priceUsd: 0, mcap: 0, liq: 0, vol24: 0, vol1h: 0, ch1h: 0, ch24: 0, ch5m: 0, buys24: 0, sells24: 0, createdAt: 0, onCurve: true, depthSol: 0 }
+        setCoin({ ...base, venue: 'launchlab', onCurve: true, dex: 'launchlab', priceUsd: px || base.priceUsd, mcap: px ? ll.priceSol * 1e9 * (p.solPrice || 0) : base.mcap, depthSol: ll.liqSol, liq: ll.liqSol * 2 * (p.solPrice || 0), pair: ll.poolId, raw: { ...(base.raw || ({} as any)), priceNative: String(ll.priceSol) } })
+      } else if (c) setCoin(c)
+    }
     f(); const i = setInterval(f, 4000); return () => { on = false; clearInterval(i) }
   }, [p.mint])
   const c = coin

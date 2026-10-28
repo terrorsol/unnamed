@@ -15,7 +15,7 @@ export type Pair = {
 export type Coin = {
   mint: string; symbol: string; name: string; image?: string; pair?: string; dex: string; url?: string
   priceUsd: number; mcap: number; liq: number; vol24: number; vol1h: number; ch1h: number; ch24: number; ch5m: number
-  buys24: number; sells24: number; createdAt: number; onCurve: boolean; depthSol: number; raw?: Pair
+  buys24: number; sells24: number; createdAt: number; onCurve: boolean; depthSol: number; raw?: Pair; venue?: 'launchlab' | 'pump'
 }
 const BASE = 'https://api.dexscreener.com'
 async function j(url: string) { const r = await fetch(url); if (!r.ok) throw new Error(`dexscreener ${r.status}`); return r.json() }

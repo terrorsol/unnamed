@@ -47,7 +47,7 @@ export default function App() {
   const activeB58 = mode === 'burner' ? (burner ? burner.publicKey.toBase58() : '') : (wallet.publicKey ? wallet.publicKey.toBase58() : '')
   const activeKey = useMemo(() => (activeB58 ? new PublicKey(activeB58) : null), [activeB58])
   const ws = useWalletState(activeKey, rk)
-  const [busy, setBusy] = useState(''); const [launch, setLaunch] = useState(false); const [more, setMore] = useState(false); const [q, setQ] = useState(''); const [results, setResults] = useState<Coin[]>([])
+  const [busy, setBusy] = useState(''); const [launch, setLaunch] = useState(false); const [llp, setLlp] = useState<K.LLPlatform | null>(null); useEffect(() => { K.llPlatform().then(setLlp).catch(() => {}) }, [launch]); const [more, setMore] = useState(false); const [q, setQ] = useState(''); const [results, setResults] = useState<Coin[]>([])
   const [ledgerV, setLedgerV] = useState(0)
   const ledger = useMemo(() => loadLedger(ws.owner), [ws.owner, ledgerV])
   const freshMints = useMemo(() => fresh.list.slice(0, 30).map((t) => t.mint), [fresh.list])
@@ -192,29 +192,29 @@ export default function App() {
 
   const onBuy = async (c: Coin, sol: number) => {
     const x = ctx(); if (!x) return needWallet()
-    try { const sig = await T.buy({ ...x, depthSol: c.depthSol }, c.mint, sol, c.onCurve); recordBuy(ws.owner, c.mint, c.symbol, sol, sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Bought ${c.symbol}`, rows: [['Landed', landing()], ['Spent', S(sol) + ' SOL'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
+    try { const sig = await T.buy({ ...x, depthSol: c.depthSol, venue: c.venue }, c.mint, sol, c.onCurve); recordBuy(ws.owner, c.mint, c.symbol, sol, sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Bought ${c.symbol}`, rows: [['Landed', landing()], ['Spent', S(sol) + ' SOL'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
     catch (e: any) { toast({ kind: 'err', title: 'Buy failed', rows: [['Reason', String(e?.message || e).slice(0, 120)]] }) } finally { setBusy('') }
   }
   const onSell = async (c: Coin, frac: number) => {
     const x = ctx(); if (!x) return needWallet()
     const h = ws.tokens.find((t) => t.mint === c.mint); if (!h) return
-    try { const before = ws.sol || 0; const sig = await T.sell({ ...x, depthSol: c.depthSol }, c.mint, frac, BigInt(h.raw), c.onCurve, (h.amount * (c.raw?.priceNative ? +c.raw.priceNative : 0)) * frac); const after = await connection.getBalance(x.owner).then((b) => b / 1e9).catch(() => before); recordSell(ws.owner, c.mint, c.symbol, frac, Math.max(0, after - before), sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Sold ${Math.round(frac * 100)}% ${c.symbol}`, rows: [['Landed', landing()], ['Received', '≈ ' + S(Math.max(0, after - before)) + ' SOL'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
+    try { const before = ws.sol || 0; const sig = await T.sell({ ...x, depthSol: c.depthSol, venue: c.venue }, c.mint, frac, BigInt(h.raw), c.onCurve, (h.amount * (c.raw?.priceNative ? +c.raw.priceNative : 0)) * frac); const after = await connection.getBalance(x.owner).then((b) => b / 1e9).catch(() => before); recordSell(ws.owner, c.mint, c.symbol, frac, Math.max(0, after - before), sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Sold ${Math.round(frac * 100)}% ${c.symbol}`, rows: [['Landed', landing()], ['Received', '≈ ' + S(Math.max(0, after - before)) + ' SOL'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
     catch (e: any) { toast({ kind: 'err', title: 'Sell failed', rows: [['Reason', String(e?.message || e).slice(0, 120)]] }) } finally { setBusy('') }
   }
-  const onLaunch = async (meta: any, dev: number, stake: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = 0.3) => {
+  const onLaunch = async (meta: any, dev: number, stake: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = 0.3, venue: 'launchlab' | 'pump' = 'launchlab') => {
     const x = ctx(); if (!x) return needWallet()
     try {
       let vault: K.VaultPub | null = null
-      if (stake > 0) { setBusy('Creating vault…'); vault = await K.vaultCreate(ws.owner, stake, copyOf, mode, ceiling).catch((e) => { toast({ kind: 'err', title: 'Vault server unreachable — launching without a vault', rows: [['Error', String(e.message)]] }); return null }) }
+      if (stake > 0) { setBusy('Creating vault…'); vault = await K.vaultCreate(ws.owner, stake, copyOf, mode, ceiling, venue).catch((e) => { toast({ kind: 'err', title: 'Vault server unreachable — launching without a vault', rows: [['Error', String(e.message)]] }); return null }) }
       let sig: string, mint: string, bundled = false
       if (vault) {
         // fund the vault first so it can buy in block zero
         setBusy('Funding vault…'); const t = new Transaction().add(SystemProgram.transfer({ fromPubkey: x.owner, toPubkey: new PublicKey(vault.pub), lamports: Math.floor(stake * 1e9) })); t.feePayer = x.owner; t.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
         const st = await signLegacy(t); const s2 = await connection.sendRawTransaction(st.serialize()); await confirmByPolling(connection, s2)
-        const r = await T.launchBlockZero(x, meta, dev, vault, +(stake * 0.5).toFixed(4), { bundleSign: K.bundleSign, sendBundle: K.sendBundle }); sig = r.sig; mint = r.mint; bundled = r.bundled
-      } else { const r = await T.launch(x, meta, dev); sig = r.sig; mint = r.mint }
+        const r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, vault, +(stake * 0.5).toFixed(4), { sendBundle: K.sendBundle }) : await T.launchBlockZero(x, meta, dev, vault, +(stake * 0.5).toFixed(4), { bundleSign: K.bundleSign, sendBundle: K.sendBundle }); sig = r.sig; mint = r.mint; bundled = r.bundled
+      } else { const r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, null, 0, { sendBundle: K.sendBundle }) : await T.launch(x, meta, dev); sig = r.sig; mint = r.mint }
       recordCreate(ws.owner, mint, meta.symbol, dev, sig); setLedgerV((v) => v + 1); setLaunch(false)
-      toast({ kind: 'ok', title: `${meta.symbol} is live${bundled ? ' · vault in block zero' : ''}`, rows: [['Mint', short(mint, 6)], ['Dev buy', S(dev) + ' SOL']], href: solscan(sig) }); go('coin/' + mint)
+      toast({ kind: 'ok', title: `${meta.symbol} is live${venue === 'launchlab' ? ' on UNNAMED' : ' on pump'}${bundled ? ' · vault in block zero' : ''}`, rows: [['Mint', short(mint, 6)], ['Dev buy', S(dev) + ' SOL']], href: solscan(sig) }); go('coin/' + mint)
       if (vault) {
         try { setBusy('Arming vault…'); const v = await K.vaultArm(vault.id, mint, meta.symbol, meta.name); setVaultV((n) => n + 1); toast({ kind: 'ok', title: `Vault armed · ${v.pct}% supply target`, rows: [['Stake', S(stake) + ' SOL'], ['Vault', short(v.pub, 6)]] }) }
         catch (e: any) { toast({ kind: 'err', title: 'Vault arm failed — coin is live', rows: [['Reason', String(e?.message || e).slice(0, 120)], ['Vault address', vault.pub]] }) }
@@ -269,7 +269,7 @@ export default function App() {
       <div className="row" style={{ marginTop: 6 }}><button className="btn" onClick={() => gateQ.ok(false)}>Hold</button><span className="sp" /><button className="btn pri" onClick={() => gateQ.ok(true)}>Fill at new price</button></div>
     </div></div>}
     {wp && <WalletPanel onClose={() => setWp(false)} burner={burner} setBurner={setBurner} mode={mode} setMode={setMode} sol={ws.sol} onWithdraw={onWithdraw} />}
-    {launch && <Launch onClose={() => setLaunch(false)} onLaunch={onLaunch} busy={busy} connected={connected} sol={ws.sol} needWallet={needWallet} />}
+    {launch && <Launch onClose={() => setLaunch(false)} onLaunch={onLaunch} busy={busy} connected={connected} sol={ws.sol} needWallet={needWallet} taxBps={llp?.taxBps} platformReady={!!llp?.chain?.exists} />}
     <div className="toasts" style={{ bottom: 'auto', top: 64 }}>{pings.map((r) => <RfqPing key={r.id} r={r} bidder={bidder} onRespond={onRespond} onDismiss={() => setPings((l) => l.filter((x) => x.id !== r.id))} busy={busy} />)}</div>
     <Toasts />
   </div>
