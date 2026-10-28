@@ -1,1 +1,1 @@
-{"stats":{"n":0,"seq":0,"kinds":{}},"events":[]}
+{"stats":{"n":1,"seq":1,"kinds":{"error":1}},"events":[{"t":1793208163443,"kind":"error","msg":"/vault/create: stake required","data":{"ip":"76.142.78.54"}}]}
