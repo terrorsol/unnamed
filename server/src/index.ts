@@ -7,6 +7,7 @@ import bs58 from 'bs58'
 import * as D from './desk.ts'
 import * as V from './vault.ts'
 import { TREASURY, RPC } from './chain.ts'
+import * as R from './rules.ts'
 import * as C from './chain.ts'
 import { streamStats } from './stream.ts'
 
@@ -27,13 +28,14 @@ const server = createServer(async (req, res) => {
   try {
     // pubkey-shaped path params only
     for (const seg of [p.startsWith('/book/') && p.slice(6), p.startsWith('/vault/mint/') && p.slice(12), p.startsWith('/family/') && p.slice(8), p.startsWith('/dev/') && p.slice(5), p.startsWith('/import/quote/') && p.slice(14)]) if (seg && !isPk(seg)) throw new Error('bad address')
-    if (p === '/health') return json(res, 200, { ok: true, rpc: RPC.replace(/api-key=.*/, 'api-key=…'), treasury: TREASURY, desk: D.stats(), vaults: V.list().length, stream: streamStats(), beta: { maxChestSol: V.MAX_CHEST_SOL, pumpStream: !!process.env.PUMPPORTAL_KEY, ipfs: !!process.env.PINATA_JWT, landing: process.env.JITO === '1' ? 'jito' : C.FAST ? 'sender' : 'rpc' } })
+    if (p === '/health') return json(res, 200, { ok: true, rpc: RPC.replace(/api-key=.*/, 'api-key=…'), treasury: TREASURY, desk: D.stats(), vaults: V.list().length, stream: streamStats(), beta: { deskOnly: DESK_ONLY, feeBps: R.CROSS_FEE_BPS, maxChestSol: V.MAX_CHEST_SOL, pumpStream: !!process.env.PUMPPORTAL_KEY, ipfs: !!process.env.PINATA_JWT, landing: process.env.JITO === '1' ? 'jito' : C.FAST ? 'sender' : 'rpc' } })
     if (p === '/mybids') { const me = u.searchParams.get('me') || ''; if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(me)) return json(res, 400, { error: 'me' }); return json(res, 200, D.myBids(me)) }
     if (p === '/books') return json(res, 200, D.books())
     if (p === '/fills') return json(res, 200, D.history(u.searchParams.get('mint') || undefined))
     if (p === '/leaderboard') return json(res, 200, D.leaderboard(u.searchParams.get('me') || undefined))
     if (p.startsWith('/family/')) return json(res, 200, await V.family(p.slice(8)))
     if (p.startsWith('/dev/')) return json(res, 200, V.byDev(p.slice(5)))
+    if (DESK_ONLY && (p.startsWith('/vault') || p.startsWith('/import') || p.startsWith('/redeem') || p === '/bundle' || p === '/ipfs' || p.startsWith('/tape'))) return json(res, 503, { error: 'this server runs the desk only — vaults live on the main server' })
     if (p === '/ipfs' && req.method === 'POST') { const b = await readBody(req); try { return json(res, 200, await uploadMetadata(b)) } catch (e: any) { return json(res, e.status || 400, { error: e.message }) } }
     if (p === '/redeem/quote' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, V.redeemQuote(b.mint, +b.tokens)) }
     if (p === '/redeem' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.redeem(b.mint, b.holder, +b.tokens, b.tx)) }
@@ -92,5 +94,8 @@ wss.on('connection', (ws: WebSocket) => {
 })
 setInterval(D.sweep, 10000); setInterval(D.rfqSweep, 5000)
 D.setVaultResponder(V.respondRfq)
-V.load(); V.startStream(); setInterval(() => V.tick().catch(() => {}), 5000); setInterval(() => V.crowdSweep().catch(() => {}), 60000)
+// DESK_ONLY=1: ephemeral/public-tunnel deployments — the desk is non-custodial so it is safe to run anywhere; vaults (server-held keys) stay off.
+export const DESK_ONLY = process.env.DESK_ONLY === '1'
+if (!DESK_ONLY) { V.load(); V.startStream(); setInterval(() => V.tick().catch(() => {}), 5000); setInterval(() => V.crowdSweep().catch(() => {}), 60000) }
+else console.log('desk-only mode: vault/import routes disabled')
 server.listen(PORT, () => console.log(`unnamed server on :${PORT} · treasury ${TREASURY}`))

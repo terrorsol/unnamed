@@ -9,13 +9,23 @@ import bs58 from 'bs58'
 import { S } from './fmt'
 import { confirmByPolling } from './rpc'
 
-export const SERVER = (import.meta as any).env?.VITE_SERVER_URL || localStorage.getItem('unnamed_server') || 'https://unnamed-server.onrender.com'
-const WS = SERVER.replace(/^http/, 'ws')
+/** Server resolution: build-time VITE_SERVER_URL → user override in localStorage → the live pointer the CI desk job publishes → Render default.
+ *  `ready` resolves once discovery is done; every call awaits it, so the first request never races the lookup. */
+const pinned = (import.meta as any).env?.VITE_SERVER_URL || (() => { try { return localStorage.getItem('unnamed_server') } catch { return null } })()
+export let SERVER: string = pinned || 'https://unnamed-server.onrender.com'
+export let SERVER_SOURCE: 'pinned' | 'live' | 'default' = pinned ? 'pinned' : 'default'
+const LIVE_POINTER = 'https://raw.githubusercontent.com/terrorsol/unnamed/reports-live/server.json'
+export const ready: Promise<void> = (async () => {
+  if (pinned) return
+  try { const r = await fetch(LIVE_POINTER + '?t=' + Math.floor(Date.now() / 60000), { cache: 'no-store' }); if (!r.ok) return; const d = await r.json(); if (d?.url && /^https:\/\//.test(d.url)) { const h = await fetch(d.url.replace(/\/$/, '') + '/health').then((x) => x.ok).catch(() => false); if (h) { SERVER = d.url.replace(/\/$/, ''); SERVER_SOURCE = 'live' } } } catch {}
+})()
+const WS = () => SERVER.replace(/^http/, 'ws')
 export type BookBid = { id: string; mint: string; symbol: string; sol: number; discBps: number; placedAt: number; restable: boolean; away?: boolean; status: string; bidder: string; mine: boolean; vault?: boolean; block?: boolean; expiresAt?: number }
 export type Book = { open: boolean; why?: string | null; minBlock: number | null; market: any; bids: BookBid[]; rules: { discMin: number; discMax: number; restMs: number; feeBps: number; gateUsd: number } }
 export type Expect = { mint: string; seller: string; bidder: string; treasury: string; base: string; sellerLamports: string; fee: string; priceSol: number; discBps: number; decimals: number; tokenProgram: string }
 
 async function j(path: string, body?: any) {
+  await ready
   const r = await fetch(SERVER + path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : undefined)
   const d = await r.json().catch(() => ({ error: 'bad response' })); if (!r.ok || d?.error) throw new Error(d?.error || 'server ' + r.status); return d
 }
@@ -51,8 +61,9 @@ export function openBidder(conn: Connection, pubkey: string, signMsg: (m: Uint8A
   const mine = new Map<string, { mint: string; sol: number; discBps: number }>()
   const waiters = new Map<string, { ok: (v: any) => void; no: (e: any) => void }>()
   const send = (o: any) => ws?.readyState === 1 && ws.send(JSON.stringify(o))
-  const connect = () => {
-    ws = new WebSocket(WS); authed = false
+  const connect = async () => {
+    await ready; if (closed) return
+    ws = new WebSocket(WS()); authed = false
     ws.onopen = async () => { const ts = Date.now(); const sig = await signMsg(new TextEncoder().encode(`unnamed-desk:${pubkey}:${ts}`)); send({ type: 'auth', pubkey, ts, sig: bs58.encode(sig) }) }
     ws.onmessage = async (m) => {
       const d = JSON.parse(m.data)
@@ -193,6 +204,6 @@ export const sendBundle = (txs: string[]): Promise<{ bundleId: string }> => j('/
 /** Read-only firehose of vault-pool swaps (no auth). */
 export function openSwapFeed(onSwap: (s: SwapEvt) => void) {
   let ws: WebSocket | null = null, closed = false, timer: any
-  const connect = () => { ws = new WebSocket(WS); ws.onmessage = (m) => { try { const d = JSON.parse(m.data); if (d.type === 'swap') onSwap(d) } catch {} }; ws.onclose = () => { if (!closed) timer = setTimeout(connect, 3000) }; ws.onerror = () => ws?.close() }
+  const connect = async () => { await ready; if (closed) return; ws = new WebSocket(WS()); ws.onmessage = (m) => { try { const d = JSON.parse(m.data); if (d.type === 'swap') onSwap(d) } catch {} }; ws.onclose = () => { if (!closed) timer = setTimeout(connect, 3000) }; ws.onerror = () => ws?.close() }
   connect(); return () => { closed = true; clearTimeout(timer); ws?.close() }
 }

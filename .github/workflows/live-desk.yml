@@ -1,0 +1,45 @@
+name: Live desk (tunnel)
+# Runs the desk server (non-custodial, desk-only mode) on a runner behind a public Cloudflare quick tunnel for ~5h50m,
+# publishes the URL to the reports-live branch, which the app auto-discovers. A scheduled run every 6h keeps one alive.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '7 */6 * * *'
+permissions:
+  contents: write
+concurrency:
+  group: live-desk
+  cancel-in-progress: false
+jobs:
+  desk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+        working-directory: server
+      - name: Start desk server + tunnel, publish URL
+        working-directory: server
+        env:
+          RPC_URL: ${{ secrets.HELIUS_RPC || 'https://mainnet.helius-rpc.com/?api-key=1372a143-458e-4428-a1f2-aacb1e44bd1a' }}
+          TREASURY: ${{ vars.TREASURY || '1nc1nerator11111111111111111111111111111111' }}
+          CROSS_FEE_BPS: ${{ vars.TREASURY && '50' || '0' }}
+          DESK_ONLY: '1'
+          PORT: '8787'
+        run: |
+          set -e
+          node --experimental-strip-types src/index.ts > server.log 2>&1 &
+          curl -sSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && chmod +x cloudflared
+          ./cloudflared tunnel --url http://localhost:8787 --no-autoupdate > tunnel.log 2>&1 &
+          for i in $(seq 1 60); do URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' tunnel.log | head -1); [ -n "$URL" ] && break; sleep 2; done
+          [ -n "$URL" ] || { cat tunnel.log; exit 1 }
+          for i in $(seq 1 30); do curl -sf "$URL/health" >/dev/null && break; sleep 2; done
+          echo "live desk: $URL"; curl -s "$URL/health"; echo
+          mkdir -p /tmp/pub && printf '{ "url": "%s", "startedAt": %s, "run": "%s", "mode": "desk-only" }\n' "$URL" "$(date +%s000)" "${{ github.run_id }}" > /tmp/pub/server.json
+          cd /tmp/pub && git init -q && git checkout -qb reports-live && git config user.name unnamed-ci && git config user.email ci@unnamed.local && git add -A && git commit -qm "live desk ${{ github.run_id }}" && git push -qf https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git reports-live
+          cd "$GITHUB_WORKSPACE/server"
+          # keep alive until the runner limit; the next scheduled run takes over (clients re-place bids on reconnect)
+          end=$(( $(date +%s) + 345*60 )); while [ $(date +%s) -lt $end ]; do sleep 60; curl -sf localhost:8787/health >/dev/null || { echo 'server died'; tail -50 server.log; exit 1; }; done
+          echo 'handing over to the next run'; tail -20 server.log

@@ -10,7 +10,7 @@ export const MIN_BLOCK_OF_RESERVE = 0.02                        // min block = 2
 export const MIN_BLOCK_FLOOR_SOL = 0.2
 export const REST_MS = 60_000                                   // a bid rests 60s before it can be filled
 export const BID_TTL_MS = 30 * 60_000                           // and dies after 30 min unless refreshed
-export const CROSS_FEE_BPS = 50                                 // 0.5% of SOL crossed, paid by bidder → treasury
+export const CROSS_FEE_BPS = process.env.CROSS_FEE_BPS != null ? +process.env.CROSS_FEE_BPS : 50   // 0.5% of SOL crossed, paid by bidder → treasury (0 while no treasury is set)
 export const PRICE_TOL = 0.015                                  // bidder accepts a fill within 1.5% of their discount
 export const COUNTER_MAX_BPS = 800                              // a counter can't lowball past −8%
 export const SELLER_DRIFT = 0.05                                // RFQ auto-fills pause if spot fell >5% since the seller posted
