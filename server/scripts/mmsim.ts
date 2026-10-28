@@ -138,10 +138,12 @@ const scenarios: [string, () => { agents: Agent[]; pnl?: (w: World) => number }]
   ['pump cycler 30 SOL hourly', () => { const a = pumpCycler(30); return { agents: [organic(0), a.agent], pnl: a.pnl } }],
   ['desk dumper 10% bag', () => { const a = deskDumper(10); return { agents: [organic(0), a.agent], pnl: a.pnl } }],
   ['death spiral: 30% bag sold over 6h, volume fades', () => { const a = bleeder(30, 6); return { agents: [organic(-0.3, 0.1, 60), a.agent], pnl: a.pnl } }],
+  ['round trip to launch price: 30% bag + 40 SOL pump, all sold over 6h, no buyers', () => { const a = bleeder(30, 6); return { agents: [organic(-0.8, 0.03, 30), whale(40, 20), a.agent], pnl: a.pnl } }],
   ['slow bleed: 30% bag sold over 48h', () => { const a = bleeder(30, 48); return { agents: [organic(-0.3, 0.06), a.agent], pnl: a.pnl } }],
 ]
 const rows: any[] = []
-for (const [name, mk] of scenarios) for (const [pn, p] of [['no vault', NONE], ['old', OLD], ['new·nostop', NOSTOP], ['new', NEW]] as const) { const sc = mk(); rows.push({ policy: pn, ...run(name, p, sc.agents, sc.pnl) }) }
+const ONLY = (process.argv.find((x) => x.startsWith('only=')) || '').slice(5)
+for (const [name, mk] of scenarios.filter(([n]) => !ONLY || n.includes(ONLY))) for (const [pn, p] of [['no vault', NONE], ['old', OLD], ['new·nostop', NOSTOP], ['new', NEW]] as const) { const sc = mk(); rows.push({ policy: pn, ...run(name, p, sc.agents, sc.pnl) }) }
 const f = (x: number, d = 1) => (Number.isFinite(x) ? x.toFixed(d) : '—')
 console.log(`# mm sim · ${HOURS}h · vault ${PCT}% supply (${f(rows[0].vsol, 1)} SOL) + ${CHEST} SOL chest · seed ${SEED}`)
 console.log('| scenario | policy | chest | tax in | mm own P&L | worst chest | worst NAV | tokens | price | NAV | defenses | accum | captures | desk fills | attacker edge vs hold |')
