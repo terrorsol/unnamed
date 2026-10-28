@@ -49,8 +49,9 @@ export function create(dev: string, stakeSol: number, copyOf?: string, mode: 'fl
   vaults[id].mode = mode; vaults[id].ceiling = Math.min(R.MM_MAX_CAPTURE, Math.max(0.05, ceiling)); save(); return pub(vaults[id])
 }
 /** Step 2 (after the coin exists + dev sent the stake): bind mint, seed the position */
-export async function arm(id: string, mint: string, symbol: string, name = '') {
+export async function arm(id: string, mint: string, symbol: string, name = '', auth?: { msg?: string; sig?: string }) {
   const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) return pub(v)
+  if (!v.imported) devAuth(v, 'arm', mint, auth)
   const bal = await balanceSol(v.pub); if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL`)
   v.mint = mint; v.symbol = symbol; v.name = name; v.armed = true; v.chest = bal; VM.watch(mint); try { const sup = await conn.getTokenSupply(new PublicKey(mint)); v.supply = +(sup.value.uiAmount || 1e9) } catch {} v.activity.unshift({ t: Date.now(), kind: 'stake', sol: bal, msg: 'dev stake received' })
   // seed: spend half the stake on supply at launch, keep half as chest for dips (skipped when the vault already bought in the block-zero bundle)
@@ -352,9 +353,11 @@ export function startStream() {
 import { VersionedTransaction } from '@solana/web3.js'
 import * as L from './launch.ts'
 import * as LL from './launchlab.ts'
+import { devAuth } from './auth.ts'
+export { devAuth }
 import { PublicKey as PK, SystemProgram as SP, Transaction as TX } from '@solana/web3.js'
-export async function signBundleTx(id: string, mint: string, txB64: string, maxSol: number, createB64?: string) {
-  const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('already armed')
+export async function signBundleTx(id: string, mint: string, txB64: string, maxSol: number, createB64?: string, auth?: { msg?: string; sig?: string }) {
+  const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('already armed'); devAuth(v, 'bundle', mint, auth)
   const bal = await balanceSol(v.pub); if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL`)
   const spend = Math.min(maxSol, bal * 0.5); if (spend < 0.05) throw new Error('nothing to spend')
   const tx = VersionedTransaction.deserialize(Buffer.from(txB64, 'base64'))
@@ -381,8 +384,9 @@ export async function sendBundle(txs: string[]) { return C.sendBundle(txs.map((b
 
 /** LaunchLab launch: create(+dev buy) tx(s) for the dev to sign, plus the vault's block-zero buy already keeper-signed, to go out as one Jito bundle.
  *  The vault must be funded first (stake transferred) — same flow as the pump path. Without a vault it is just the create tx(s). */
-export async function buildLaunch(b: { dev: string; name: string; symbol: string; uri: string; devBuySol?: number; vaultId?: string; vaultBuySol?: number }) {
+export async function buildLaunch(b: { dev: string; name: string; symbol: string; uri: string; devBuySol?: number; vaultId?: string; vaultBuySol?: number; auth?: { msg?: string; sig?: string } }) {
   const dev = new PK(b.dev); const devBuy = Math.max(0, +(b.devBuySol || 0))
+  if (b.vaultId) { const v = vaults[b.vaultId]; if (!v) throw new Error('no such vault'); if (v.dev !== b.dev) throw new Error('not your vault'); devAuth(v, 'launch', b.dev, b.auth) }
   const built = await LL.buildLaunch(dev, { name: b.name, symbol: b.symbol, uri: b.uri }, devBuy)
   let vaultTx: string | null = null, vaultSpend = 0, vaultTokens = 0
   if (b.vaultId) {

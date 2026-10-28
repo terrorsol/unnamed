@@ -211,12 +211,12 @@ export default function App() {
         // fund the vault first so it can buy in block zero
         setBusy('Funding vault…'); const t = new Transaction().add(SystemProgram.transfer({ fromPubkey: x.owner, toPubkey: new PublicKey(vault.pub), lamports: Math.floor(stake * 1e9) })); t.feePayer = x.owner; t.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
         const st = await signLegacy(t); const s2 = await connection.sendRawTransaction(st.serialize()); await confirmByPolling(connection, s2)
-        const r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, vault, +(stake * 0.5).toFixed(4), { sendBundle: K.sendBundle }) : await T.launchBlockZero(x, meta, dev, vault, +(stake * 0.5).toFixed(4), { bundleSign: K.bundleSign, sendBundle: K.sendBundle }); sig = r.sig; mint = r.mint; bundled = r.bundled
+        const r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, vault, +(stake * 0.5).toFixed(4), { sendBundle: K.sendBundle, signMsg }) : await T.launchBlockZero(x, meta, dev, vault, +(stake * 0.5).toFixed(4), { bundleSign: K.bundleSign, sendBundle: K.sendBundle, signMsg }); sig = r.sig; mint = r.mint; bundled = r.bundled
       } else { const r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, null, 0, { sendBundle: K.sendBundle }) : await T.launch(x, meta, dev); sig = r.sig; mint = r.mint }
       recordCreate(ws.owner, mint, meta.symbol, dev, sig); setLedgerV((v) => v + 1); setLaunch(false)
       toast({ kind: 'ok', title: `${meta.symbol} is live${venue === 'launchlab' ? ' on UNNAMED' : ' on pump'}${bundled ? ' · vault in block zero' : ''}`, rows: [['Mint', short(mint, 6)], ['Dev buy', S(dev) + ' SOL']], href: solscan(sig) }); go('coin/' + mint)
       if (vault) {
-        try { setBusy('Arming vault…'); const v = await K.vaultArm(vault.id, mint, meta.symbol, meta.name); setVaultV((n) => n + 1); toast({ kind: 'ok', title: `Vault armed · ${v.pct}% supply target`, rows: [['Stake', S(stake) + ' SOL'], ['Vault', short(v.pub, 6)]] }) }
+        try { setBusy('Arming vault…'); const v = await K.vaultArm(vault.id, mint, meta.symbol, meta.name, await K.devAuth(signMsg, 'arm', vault.id, mint)); setVaultV((n) => n + 1); toast({ kind: 'ok', title: `Vault armed · ${v.pct}% supply target`, rows: [['Stake', S(stake) + ' SOL'], ['Vault', short(v.pub, 6)]] }) }
         catch (e: any) { toast({ kind: 'err', title: 'Vault arm failed — coin is live', rows: [['Reason', String(e?.message || e).slice(0, 120)], ['Vault address', vault.pub]] }) }
       }
       setTimeout(() => setRk((k) => k + 1), 1500)

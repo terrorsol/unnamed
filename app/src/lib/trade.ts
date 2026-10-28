@@ -10,6 +10,7 @@ import type { Settings } from './store'
 import { dynSlippageBps } from './slip'
 export { dynSlippageBps }
 import { SERVER } from './desk'
+import * as K from './desk'
 
 export type Signer = (t: VersionedTransaction) => Promise<VersionedTransaction>
 export type Ctx = { conn: Connection; owner: PublicKey; sign: Signer; settings: Settings; onStatus?: (s: string) => void; depthSol?: number; venue?: 'pump' | 'launchlab' }
@@ -105,13 +106,13 @@ export async function collectCreatorFee(ctx: Ctx, mint: string): Promise<string>
 }
 
 /** Launch with the vault in block zero: PumpPortal builds [create+dev buy, vault buy]; dev signs #1 (+mint), the server signs #2 with the vault key; both go to Jito as one bundle. Falls back to a plain launch if the bundle path fails before anything is sent. */
-export async function launchBlockZero(ctx: Ctx, meta: P.CreateMeta, devBuySol: number, vault: { id: string; pub: string }, vaultBuySol: number, deps: { bundleSign: (id: string, mint: string, tx: string, maxSol: number, createTx?: string) => Promise<{ tx: string }>; sendBundle: (txs: string[]) => Promise<{ bundleId: string }> }): Promise<{ sig: string; mint: string; bundled: boolean }> {
+export async function launchBlockZero(ctx: Ctx, meta: P.CreateMeta, devBuySol: number, vault: { id: string; pub: string }, vaultBuySol: number, deps: { bundleSign: (id: string, mint: string, tx: string, maxSol: number, createTx?: string, auth?: K.DevAuth) => Promise<{ tx: string }>; sendBundle: (txs: string[]) => Promise<{ bundleId: string }>; signMsg?: (m: Uint8Array) => Promise<Uint8Array> }): Promise<{ sig: string; mint: string; bundled: boolean }> {
   const { conn, owner, sign, settings, onStatus } = ctx
   onStatus?.('Uploading metadata…'); const uri = await P.uploadMetadata(meta, SERVER)
   try {
     onStatus?.('Building block-zero bundle…')
     const { mint, createTx, vaultTx } = await P.buildLaunchBundle(owner.toBase58(), vault.pub, { name: meta.name, symbol: meta.symbol, uri }, devBuySol, vaultBuySol, settings.slippageBps / 100, settings.priorityFeeSol)
-    onStatus?.('Vault signing…'); const signedVault = await deps.bundleSign(vault.id, mint, Buffer.from(vaultTx.serialize()).toString('base64'), vaultBuySol, Buffer.from(createTx.serialize()).toString('base64'))
+    onStatus?.('Vault signing…'); const auth = deps.signMsg ? await K.devAuth(deps.signMsg, 'bundle', vault.id, mint) : undefined; const signedVault = await deps.bundleSign(vault.id, mint, Buffer.from(vaultTx.serialize()).toString('base64'), vaultBuySol, Buffer.from(createTx.serialize()).toString('base64'), auth)
     onStatus?.('Sign the create…'); const signedCreate = await sign(createTx)
     onStatus?.('Sending bundle…'); await deps.sendBundle([Buffer.from(signedCreate.serialize()).toString('base64'), signedVault.tx])
     onStatus?.('Confirming…'); await confirmByPollingB58(conn, signedCreate)
@@ -128,11 +129,12 @@ async function confirmByPollingB58(conn: Connection, tx: VersionedTransaction) {
 /** Launch on OUR launchpad (Raydium LaunchLab under our platform config): the server builds create(+dev buy) for the dev to sign and, with a vault, the vault's
  *  block-zero buy already keeper-signed. Both go out as one Jito bundle; if the bundle path fails before anything is sent, the create goes out alone and
  *  the vault seeds on arm. Every trade on the coin pays the platform fee into the chest from the first block. */
-export async function launchOurs(ctx: Ctx, meta: P.CreateMeta, devBuySol: number, vault: { id: string } | null, vaultBuySol: number, deps: { sendBundle: (txs: string[]) => Promise<{ bundleId: string }> }): Promise<{ sig: string; mint: string; bundled: boolean }> {
-  const { conn, owner, sign, onStatus } = ctx; const K = await import('./desk')
+export async function launchOurs(ctx: Ctx, meta: P.CreateMeta, devBuySol: number, vault: { id: string } | null, vaultBuySol: number, deps: { sendBundle: (txs: string[]) => Promise<{ bundleId: string }>; signMsg?: (m: Uint8Array) => Promise<Uint8Array> }): Promise<{ sig: string; mint: string; bundled: boolean }> {
+  const { conn, owner, sign, onStatus } = ctx
   onStatus?.('Uploading metadata…'); const uri = await P.uploadMetadata(meta, SERVER)
   onStatus?.('Building launch…')
-  const b = await K.llLaunchBuild({ dev: owner.toBase58(), name: meta.name, symbol: meta.symbol, uri, devBuySol, vaultId: vault?.id, vaultBuySol })
+  const auth = vault && deps.signMsg ? await K.devAuth(deps.signMsg, 'launch', vault.id, owner.toBase58()) : undefined
+  const b = await K.llLaunchBuild({ dev: owner.toBase58(), name: meta.name, symbol: meta.symbol, uri, devBuySol, vaultId: vault?.id, vaultBuySol, auth })
   const txs = b.txs.map((x) => VersionedTransaction.deserialize(Buffer.from(x, 'base64')))
   onStatus?.(txs.length > 1 ? `Sign ${txs.length} transactions…` : 'Sign the create…')
   const signed: VersionedTransaction[] = []; for (const t of txs) signed.push(await sign(t))

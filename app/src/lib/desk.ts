@@ -171,7 +171,13 @@ export const signLegacyWith = (kp: Keypair) => async (t: Transaction) => { t.par
 export type VaultPub = { id: string; pub: string; crowd?: { goalSol: number; raised: number; backers: number; expiresAt: number; refunded: boolean }; mint?: string; symbol?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; avgCost: number; tokens: number; chest: number; devPaid: number; createdAt: number; copyOf?: string; streamed: number; redeemed: number; supply: number; deskBid: number; name?: string; copies: { mint: string; symbol: string; pub: string }[]; imported?: boolean; feePaid?: number; depositedTokens?: number; funders?: Record<string, number>; mode: 'floor' | 'mm'; ceiling: number; floor: number; score: { captured: number; captures: number; deskBought: number; deskFills: number; dipBought: number; dips: number; redeployed: number; floor0: number }; live: { price: number; vwap30: number; stretch: number; captureNow: number; triggerRate: number; buysPerMin: number; tier: string; tranchesFired: number[]; sigma?: number; skew?: number; deskDisc?: number }; activity: { t: number; kind: string; sol?: number; tokens?: number; price?: number; sig?: string; msg?: string }[] }
 export const vaultCreate = (dev: string, stakeSol: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = 0.3, venue: 'pump' | 'launchlab' = 'launchlab'): Promise<VaultPub> => j('/vault/create', { dev, stakeSol, copyOf, mode, ceiling, venue })
 export const vaultSetMode = (id: string, dev: string, mode: 'floor' | 'mm', ceiling?: number): Promise<VaultPub> => j('/vault/mode', { id, dev, mode, ceiling })
-export const vaultArm = (id: string, mint: string, symbol: string, name = ''): Promise<VaultPub> => j('/vault/arm', { id, mint, symbol, name })
+export type DevAuth = { msg: string; sig: string }
+/** proves to the server that the dev of a vault is the one asking it to sign a launch (`unnamed:<action>:<vaultId>:<mint>:<minute>`) */
+export async function devAuth(signMsg: (m: Uint8Array) => Promise<Uint8Array>, action: 'launch' | 'bundle' | 'arm', vaultId: string, mint: string): Promise<DevAuth> {
+  const msg = `unnamed:${action}:${vaultId}:${mint}:${Math.floor(Date.now() / 60000)}`
+  return { msg, sig: bs58.encode(await signMsg(new TextEncoder().encode(msg))) }
+}
+export const vaultArm = (id: string, mint: string, symbol: string, name = '', auth?: DevAuth): Promise<VaultPub> => j('/vault/arm', { id, mint, symbol, name, auth })
 export const vaultRenounce = (id: string, dev: string): Promise<VaultPub> => j('/vault/renounce', { id, dev })
 export const vaultByMint = (mint: string): Promise<VaultPub | null> => j('/vault/mint/' + mint)
 export const vaults = (): Promise<VaultPub[]> => j('/vaults')
@@ -238,7 +244,7 @@ export const rfqGet = (id: string): Promise<Rfq> => j('/rfq/' + id)
 export const rfqCancel = (id: string, seller: string) => j('/rfq/cancel', { id, seller })
 /** constant-product chart impact of selling `sol` worth into a pool with `liqSol` reserve */
 export const poolImpactBps = (sol: number, liqSol: number) => liqSol > 0 ? Math.round((1 - 1 / (1 + sol / liqSol) ** 2) * 10000) : 10000
-export const bundleSign = (id: string, mint: string, tx: string, maxSol: number, createTx?: string): Promise<{ tx: string; spend: number; tokens?: number }> => j('/vault/bundle-sign', { id, mint, tx, maxSol, createTx })
+export const bundleSign = (id: string, mint: string, tx: string, maxSol: number, createTx?: string, auth?: DevAuth): Promise<{ tx: string; spend: number; tokens?: number }> => j('/vault/bundle-sign', { id, mint, tx, maxSol, createTx, auth })
 export const sendBundle = (txs: string[]): Promise<{ bundleId: string }> => j('/bundle', { txs })
 
 /** In-page bus: 'book' events (detail = mint) whenever the server says a book changed. */
@@ -257,5 +263,5 @@ export const llPlatform = (): Promise<LLPlatform> => j('/ll/platform')
 export const llPlatformBuild = (admin: string): Promise<{ tx: string; platformId: string }> => j('/ll/platform/build', { admin })
 export const llPool = (mint: string): Promise<LLPool | null> => j('/ll/pool/' + mint)
 export const llQuote = (dev: number, vault: number): Promise<{ devPct: number; vaultPct: number; mcapSol: number }> => j(`/ll/quote?dev=${dev}&vault=${vault}`)
-export const llLaunchBuild = (b: { dev: string; name: string; symbol: string; uri: string; devBuySol: number; vaultId?: string; vaultBuySol?: number }): Promise<{ venue: string; mint: string; poolId: string; txs: string[]; vaultTx: string | null; vaultSpend: number; vaultTokens: number; devTokens: number }> => j('/ll/launch/build', b)
+export const llLaunchBuild = (b: { dev: string; name: string; symbol: string; uri: string; devBuySol: number; vaultId?: string; vaultBuySol?: number; auth?: DevAuth }): Promise<{ venue: string; mint: string; poolId: string; txs: string[]; vaultTx: string | null; vaultSpend: number; vaultTokens: number; devTokens: number }> => j('/ll/launch/build', b)
 export const llTrade = (owner: string, action: 'buy' | 'sell', mint: string, amount: number, slippageBps?: number): Promise<{ tx: string }> => j('/ll/trade', { owner, action, mint, amount, slippageBps })

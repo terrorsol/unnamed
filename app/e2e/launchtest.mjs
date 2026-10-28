@@ -80,6 +80,8 @@ chk('vault created on the launchlab venue', calls['/vault/create']?.[0]?.venue =
 chk('vault funded first (stake transfer sent)', sent.length >= 1)
 const lb = calls['/ll/launch/build']?.[0]
 chk('server asked to build the launch for the dev', !!lb && lb.dev === addr && lb.symbol === 'OURS' && lb.vaultId === 'v1' && lb.vaultBuySol === 0.5 && lb.devBuySol === 0.5)
+chk('launch build carries a dev signature (unnamed:launch:<vault>:<dev>:<minute>)', !!lb?.auth && lb.auth.msg.startsWith('unnamed:launch:v1:' + addr + ':') && lb.auth.sig.length > 60)
+chk('arm carries a dev signature', !!calls['/vault/arm']?.[0]?.auth && calls['/vault/arm'][0].auth.msg.startsWith('unnamed:arm:v1:' + MINT))
 const bundle = calls['/bundle']?.[0]?.txs || []
 chk('bundle = [create signed by dev, keeper-signed vault buy]', bundle.length === 2 && VersionedTransaction.deserialize(Buffer.from(bundle[0], 'base64')).signatures[0].some((x) => x) && VersionedTransaction.deserialize(Buffer.from(bundle[0], 'base64')).message.staticAccountKeys[0].toBase58() === addr && VersionedTransaction.deserialize(Buffer.from(bundle[1], 'base64')).message.staticAccountKeys[0].toBase58() === vaultKp.publicKey.toBase58())
 chk('vault armed after launch', calls['/vault/arm']?.[0]?.id === 'v1' && calls['/vault/arm'][0].mint === MINT)
