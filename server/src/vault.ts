@@ -280,7 +280,8 @@ async function tickOne(v: Vault) {
       // graduated coins: exact per-swap buys from the pool websocket; reserve-delta only while the stream isn't attached
       if (!m.onCurve && m.pair && !watched.has(v.id)) { watched.set(v.id, watchPool(m.pair, async (sw) => { D.broadcast({ type: 'swap', mint: v.mint, symbol: v.symbol, ...sw }); tape(v.mint!, { t: sw.t, side: sw.side, sol: sw.sol, trader: sw.trader, sig: sw.sig }); if (sw.side !== 'buy' || sw.trader === v.pub) return; try { const mm = await market(v.mint!); if (mm) { await onBuy(v, sw.sol, mm, mm.priceSol, Date.now()); save() } } catch {} })) }
       // reserve-delta fallback when the pool websocket is not delivering (not connected, or no subscription yet)
-      const curveNoStream = m.onCurve && !process.env.PUMPPORTAL_KEY
+      // launchlab coins: no websocket yet — the pool read every tick (exact realB delta) is the buy detector
+      const curveNoStream = m.onCurve && (!process.env.PUMPPORTAL_KEY || m.venue === 'launchlab')
       if (m.liqSol && ((!m.onCurve && (!watched.has(v.id) || !streamStats().connected)) || curveNoStream)) { if (v.lastLiq && now - v.lastLiqT < 20000) { const inflow = m.liqSol - v.lastLiq; if (inflow >= R.MM_MIN_BUY_SOL) await onBuy(v, inflow, m, p, now) } v.lastLiq = m.liqSol; v.lastLiqT = now }
       // defense: three tranches at −20 / −35 / −50 from the 15-min high, each a third of the defense budget (40% of chest in mm, 40% in floor)
       const budget = v.chest * R.VAULT_MAX_CRASH_SPEND * R.inventorySkew(v.supply ? (v.tokens / v.supply) * 100 : 0, v.pct || 5).defend
@@ -403,7 +404,7 @@ export async function claimTax(v: Vault): Promise<number> {
   if (PAPER || v.venue !== 'launchlab' || !v.mint || !LL.PLATFORM_ID) return 0
   const pending = await LL.pendingFee(v.mint); if (pending < 0.005) return 0
   const pk = LL.platformKeypair()
-  const tx = await LL.buildClaim(v.mint); tx.sign([pk])
+  const tx = await LL.buildClaim(v.mint, LL.PLATFORM_ID, kp(v).publicKey); tx.sign([pk]); KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'payout', 0)
   const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 }); await confirm(sig)
   // forward exactly what the pool held to the vault (the claim unwraps to the platform wallet's SOL)
   const fwd = new TX().add(SP.transfer({ fromPubkey: pk.publicKey, toPubkey: new PK(v.pub), lamports: Math.floor(pending * 1e9) }))

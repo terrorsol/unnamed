@@ -139,11 +139,12 @@ export async function sellPct(owner: PublicKey, mint: string, pct: number, slipp
 }
 
 /** claim this pool's accrued platform fee (the tax) to the platform wallet; returns the tx to sign with the platform key */
-export async function buildClaim(mint: string, platformId: PublicKey | null = PLATFORM_ID): Promise<VersionedTransaction> {
+export async function buildClaim(mint: string, platformId: PublicKey | null = PLATFORM_ID, feePayer?: PublicKey): Promise<VersionedTransaction> {
   if (!platformId) throw new Error('no platform')
   const pk = platformKeypair().publicKey
   const poolId = poolIdOf(mint); const vaultB = getPdaLaunchpadVaultId(PROGRAM, poolId, WSOL).publicKey
-  const r: any = await withOwner(pk, (r) => r.launchpad.claimPlatformFee({ programId: PROGRAM, platformId, platformClaimFeeWallet: pk, poolId, mintB: WSOL, vaultB, txVersion: TxVersion.V0, computeBudgetConfig: { units: 200_000, microLamports: 50_000 } }))
+  // the coin's own vault pays the claim fee (keeper co-signs, 0 SOL out), so the platform wallet never needs funding
+  const r: any = await withOwner(pk, (r) => r.launchpad.claimPlatformFee({ programId: PROGRAM, platformId, platformClaimFeeWallet: pk, poolId, mintB: WSOL, vaultB, feePayer, txVersion: TxVersion.V0, computeBudgetConfig: { units: 200_000, microLamports: 50_000 } }))
   return r.transaction as VersionedTransaction
 }
 /** unclaimed platform fee sitting in the pool (lamports) */

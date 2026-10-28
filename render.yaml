@@ -31,3 +31,9 @@ services:
         sync: false   # optional: pumpportal api key (token-trade stream for curve coins; metered)
       - key: JITO
         value: "0"    # 1 = vault trades as Jito bundles via PumpPortal bundle mode (default: Helius Sender)
+      - key: PLATFORM_ADMIN
+        sync: false   # YOUR wallet pubkey: admin of our Raydium LaunchLab platform (signs the one-time setup in Settings)
+      - key: TAX_BPS
+        value: "200"  # platform fee on every curve trade of a coin launched here → that coin's chest (max 500)
+      - key: CREATOR_FEE_BPS
+        value: "50"   # creator fee → the dev, on-chain (max 50)
