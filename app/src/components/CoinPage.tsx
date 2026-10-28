@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useFlash } from '../hooks'
 import * as D from '../lib/dex'
 import { Pfp, Ch, Mc, Status, Addr } from './ui'
 import { F, S, ago, pct } from '../lib/fmt'
-import { flipFee, FLIP_WINDOW_MIN, vaultPct, deskOpen, deskMinBlock } from '../lib/protocol'
+import { deskOpen, deskMinBlock } from '../lib/protocol'
 import type { Holding } from '../lib/rpc'
 import type { Lot, Fill } from '../lib/positions'
 import type { TradeEvt } from '../lib/pumpportal'
@@ -35,7 +35,7 @@ function Orders({ c, owner, held, ordersV, bump }: { c: D.Coin; owner: string; h
 export default function CoinPage(p: Props) {
   const [coin, setCoin] = useState<D.Coin | undefined>(p.coin)
   const [side, setSide] = useState<'buy' | 'sell'>('buy'); const [amt, setAmt] = useState(String(p.quickSol)); const [frac, setFrac] = useState(1)
-  const flash = useFlash(coin?.priceUsd)
+  const flash = useFlash(coin?.priceUsd); const mountedAt = useMemo(() => Date.now(), [])
   const [tab, setTab] = useState<'trades' | 'desk' | 'vault' | 'protocol'>(location.hash.endsWith('/desk') ? 'desk' : location.hash.endsWith('/vault') ? 'vault' : 'trades');
   useEffect(() => { const f = () => { if (location.hash.endsWith('/desk')) setTab('desk'); else if (location.hash.endsWith('/vault')) setTab('vault') }; addEventListener('hashchange', f); return () => removeEventListener('hashchange', f) }, []); const [sb, setSb] = useState(false); const [route, setRoute] = useState('')
   // Smart sell: if a resting desk bid beats the chart impact and fits inside the size, take it first; the rest goes to the pool.
@@ -71,7 +71,6 @@ export default function CoinPage(p: Props) {
   const cost = p.lot?.costSol || 0; const pnl = cost ? valSol - cost : 0
   const heldMin = p.lot ? (Date.now() - p.lot.t) / 60000 : 999
   const sellSol = valSol * frac; const sellProfit = cost ? (valSol - cost) * frac : 0
-  const fee = flipFee(sellProfit, heldMin)
   const n = parseFloat(amt) || 0
   const myTrades = p.trades.filter((t) => t.mint === p.mint)
   const stake = c.onCurve ? 0 : 0
@@ -93,19 +92,16 @@ export default function CoinPage(p: Props) {
         <div className="row" style={{ marginBottom: 10 }}><span className="seg"><button className={tab === 'trades' ? 'on' : ''} onClick={() => setTab('trades')}>Chart</button><button className={tab === 'desk' ? 'on' : ''} onClick={() => setTab('desk')}>Desk / OTC</button><button className={tab === 'vault' ? 'on' : ''} onClick={() => setTab('vault')}>Vault {vault && <span className="tag live" style={{ marginLeft: 4 }}>ON</span>}</button><button className={tab === 'protocol' ? 'on' : ''} onClick={() => setTab('protocol')}>Rules</button></span></div>
         {tab === 'trades' && <Chart coin={c} solPrice={p.solPrice} vault={vault} fills={p.fills} lot={p.lot} orders={loadOrders(p.desk.owner)} trades={p.trades} owner={p.desk.owner} />}
         <div className="card" style={{ marginTop: tab === 'trades' ? 12 : 0 }}>
-          {tab === 'trades' ? <div className="feed">{myTrades.map((t, i) => <div className="it" key={i}><span className={t.txType === 'buy' ? 'up' : 'dn'} style={{ width: 40, fontWeight: 600 }}>{t.txType.toUpperCase()}</span><span className="num" style={{ width: 90 }}>{S(t.sol, 3)} SOL</span><span className="num dim" style={{ width: 110 }}>{F(t.mcapSol * p.solPrice)} mc</span><span className="dim num" style={{ flex: 1 }}>{t.trader.slice(0, 4)}…{t.trader.slice(-4)}</span><span className="nm">{ago(t.ts)}</span></div>)}
+          {tab === 'trades' ? <div className="feed">{myTrades.map((t, i) => <div className={'it' + (t.ts > mountedAt ? ' new' : '')} key={t.ts + ':' + t.trader + ':' + i}><span className={t.txType === 'buy' ? 'up' : 'dn'} style={{ width: 40, fontWeight: 600 }}>{t.txType.toUpperCase()}</span><span className="num" style={{ width: 90 }}>{S(t.sol, 3)} SOL</span><span className="num dim" style={{ width: 110 }}>{F(t.mcapSol * p.solPrice)} mc</span><span className="dim num" style={{ flex: 1 }}>{t.trader.slice(0, 4)}…{t.trader.slice(-4)}</span><span className="nm">{ago(t.ts)}</span></div>)}
             {!myTrades.length && <div className="empty" style={{ padding: 24 }}>{c.onCurve ? 'Streaming curve trades… (pump.fun live feed)' : 'Live trade stream covers bonding-curve coins. Graduated: see dexscreener ↗'}</div>}</div>
             : tab === 'desk' ? <CoinDesk mint={p.mint} symbol={c.symbol} d={{ ...p.desk, onShop: () => setSb(true), needWallet: p.needWallet }} key={p.deskTick} />
             : tab === 'vault' ? <><CoinVault mint={p.mint} v={vault} isDev={!!vault && vault.dev === p.desk.owner} onRenounce={() => vault && p.onRenounce(vault)} solPrice={p.solPrice} onMode={(m, c) => vault && p.onMode(vault, m, c)} />{vault && <div className="panel" style={{ paddingTop: 0 }}><VaultDeposit v={vault} owner={p.desk.owner} holdingUi={held} busy={p.busy} connected={p.connected} needWallet={p.needWallet} onDeposit={(s, t) => p.onDeposit(vault, s, t, p.holding?.decimals ?? 6)} /><VaultExtras mint={p.mint} v={vault} holdingUi={held} decimals={p.holding?.decimals ?? 6} connected={p.connected} busy={p.busy} onRedeem={(t) => p.onRedeem(c, t, p.holding?.decimals ?? 6)} go={p.go} solPrice={p.solPrice} needWallet={p.needWallet} /></div>}</>
             : <div className="panel" style={{ gap: 8 }}>
-              <div className="nm">Green = enforced now. Amber = on-chain program, next.</div>
-              <div className="kv"><span><span className="tag live">LIVE</span> Desk</span><b>{deskOpen(!c.onCurve, c.mcap) ? `open · min block ${S(deskMinBlock(c.liq / 2 / (p.solPrice || 1)), 2)} SOL · bids −3–5% · 60s rest · all-or-none` : 'closed until graduated + $100K mc'}</b></div>
-              <div className="kv"><span><span className={vault ? 'tag live' : 'tag'}>{vault ? 'LIVE' : 'NONE'}</span> Vault</span><b>{vault ? `${S(vault.chest)} SOL chest · ${vault.pct}% supply target · dip buys ≤40%/crash · trims above cost+VWAP` : 'not launched with a stake'}</b></div>
-              <div className="kv"><span><span className={vault ? 'tag live' : 'tag'}>{vault ? 'LIVE' : 'NONE'}</span> Burn-to-redeem</span><b>{vault ? 'pro-rata on chest · 7% haircut · max 25%/redeem' : '—'}</b></div>
-              <div className="kv"><span><span className={vault ? 'tag live' : 'tag'}>{vault ? 'LIVE' : 'NONE'}</span> Copies</span><b>{vault ? (vault.copyOf ? 'copy · half of cut streams to original' : `original · ${vault.copies?.length || 0} copies`) : '—'}</b></div>
-              <div className="kv"><span><span className="tag pre">PREVIEW</span> Early-flip fee</span><b className="num">{p.lot ? `${pct((8 * Math.max(0, 1 - heldMin / FLIP_WINDOW_MIN)))} of profit · ${Math.max(0, FLIP_WINDOW_MIN - heldMin).toFixed(0)} min left` : '8% → 0 over 30 min, losses free'}</b></div>
-              <div className="kv"><span><span className="tag pre">PREVIEW</span> Wallet cap</span><b>2.5% of supply during curve (own curve, v1)</b></div>
-              <div className="kv"><span><span className="tag pre">PREVIEW</span> Stake pricing</span><b className="num">1 SOL → {S(vaultPct(1), 1)}% · 3.1 SOL → 10% cap</b></div>
+              <div className="kv"><span>Desk</span><b>{deskOpen(!c.onCurve, c.mcap) ? `open · bids 1–15% under · sell offers ±15% · min block ${S(deskMinBlock(c.liq / 2 / (p.solPrice || 1)), 2)} SOL · partial fills` : 'closed until graduated + $100K mc'}</b></div>
+              <div className="kv"><span>Vault</span><b>{vault ? `${S(vault.chest)} SOL chest · ${vault.pct}% supply target · dip buys ≤40%/crash · counters stretched buys · never withdraws` : 'no vault on this coin'}</b></div>
+              <div className="kv"><span>Burn-to-redeem</span><b>{vault ? 'pro-rata on chest · 7% haircut · max 25%/redeem' : '—'}</b></div>
+              <div className="kv"><span>Copies</span><b>{vault ? (vault.copyOf ? 'copy · half of cut streams to original' : `original · ${vault.copies?.length || 0} copies`) : '—'}</b></div>
+              <div className="kv"><span>Holding</span><b className="num">{p.lot ? `${heldMin.toFixed(0)} min · cost ${S(p.lot.costSol)} SOL` : 'none'}</b></div>
             </div>}
         </div>
       </div>

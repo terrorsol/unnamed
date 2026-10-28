@@ -107,6 +107,9 @@ th.r,td.r{text-align:right}td{padding:9px 12px;border-bottom:1px solid var(--lin
 @keyframes flashUp{0%{background:rgba(62,207,142,.28)}100%{background:transparent}}
 @keyframes flashDn{0%{background:rgba(240,85,107,.28)}100%{background:transparent}}
 .flash-up{animation:flashUp .9s ease-out}.flash-dn{animation:flashDn .9s ease-out}
+.cell{display:inline-block;border-radius:4px;padding:0 3px;margin:0 -3px}
+@keyframes rowIn{0%{background:rgba(227,182,79,.22);transform:translateX(-4px)}100%{background:transparent;transform:none}}
+.feed .it.new{animation:rowIn .7s ease-out}
 @keyframes slideIn{0%{transform:translateY(-6px);opacity:0;background:rgba(62,207,142,.12)}100%{transform:none;opacity:1;background:transparent}}
 .feed .it{animation:slideIn .35s ease-out}
 .btn.pri{box-shadow:0 0 0 1px rgba(62,207,142,.25),0 6px 20px rgba(62,207,142,.18)}.btn.pri:hover{box-shadow:0 0 0 1px rgba(62,207,142,.4),0 8px 26px rgba(62,207,142,.28);transform:translateY(-1px)}.btn.pri:active{transform:translateY(0)}

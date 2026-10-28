@@ -14,7 +14,16 @@ export function flipFee(profit: number, heldMin: number): number {
   return profit * FLIP_MAX_RATE * (1 - heldMin / FLIP_WINDOW_MIN)
 }
 /** Vault supply% from SOL staked: exponential-ish pricing, 10% cap reached at ≈3.1 SOL */
-export function vaultPct(stakeSol: number): number { return Math.min(VAULT_CAP * 100, (stakeSol / (stakeSol + 1)) * 13.3) }
+// pump.fun curve at creation: virtual 30 SOL × 1.073e9 tokens, 1e9 supply, 1% fee on the SOL side. Same math as server/src/launch.ts (checked against PumpPortal's own build in CI preflight).
+export const CURVE0 = { vSol: 30, vTok: 1_073_000_000, supply: 1_000_000_000, feeBps: 100 }
+export function curveBuy(s: { vSol: number; vTok: number }, sol: number) { const net = sol * (1 - CURVE0.feeBps / 1e4); const vSol = s.vSol + net; const vTok = (s.vSol * s.vTok) / vSol; return { tokens: s.vTok - vTok, after: { vSol, vTok } } }
+/** Block zero: dev buys inside the create tx, the vault buys half its stake right after in the same bundle. */
+export function blockZero(devSol: number, stakeSol: number) {
+  const dev = curveBuy(CURVE0, devSol); const vault = curveBuy(dev.after, stakeSol * 0.5)
+  const price = vault.after.vSol / vault.after.vTok
+  return { devPct: dev.tokens / CURVE0.supply * 100, vaultPct: Math.min(VAULT_CAP * 100, vault.tokens / CURVE0.supply * 100), mcapSol: price * CURVE0.supply, chestSol: stakeSol * 0.5 }
+}
+export function vaultPct(stakeSol: number, devSol = 0): number { return blockZero(devSol, stakeSol).vaultPct }
 /** Cost-weighted clock when adding to a position */
 export function mergeClock(oldT: number, oldCost: number, newCost: number, now: number): number { return Math.round((oldT * oldCost + now * newCost) / (oldCost + newCost)) }
 /** Vault dip-buy budget for a given drawdown: ≤40% of chest per crash */

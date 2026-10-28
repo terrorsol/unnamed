@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { deskEligible } from '../lib/dex'
 import type { Coin } from '../lib/dex'
 import * as K from '../lib/desk'
-import { Pfp, Ch, Mc, Addr } from './ui'
+import { Pfp, Ch, Mc, Addr, Live } from './ui'
 import { F, S, ago, short } from '../lib/fmt'
 import { classify, featsFromCoin, labelTone } from '../lib/signal'
 import { solscan } from '../lib/rpc'
@@ -24,6 +24,7 @@ export default function Home(p: Props) {
   const movers = useMemo(() => p.coins.map((c) => ({ c, s: classify(featsFromCoin(c, null, p.vaults.some((v) => v.mint === c.mint))) })).filter((x) => x.s.label !== 'DEAD' && x.s.label !== 'RUG RISK').sort((a, b) => b.s.score - a.s.score).slice(0, 14), [p.coins, p.vaults])
   const fills24 = fills.filter((f) => Date.now() - f.t < 86400000)
   // one compact row per event; fills and vault moves merged, newest first, capped
+  const mountedAt = useMemo(() => Date.now(), [])
   const tapeRows = useMemo(() => [
     ...fills.slice(0, 20).map((f) => ({ k: f.sig, t: f.t, mint: f.mint, symbol: f.symbol, sol: f.sol, px: (f.discBps < 0 ? '+' : '−') + (Math.abs(f.discBps) / 100).toFixed(1) + '%', what: f.vault ? 'vault bought' : 'desk fill', tone: f.discBps < 0 ? 'up' : 'dn' })),
     ...tape.filter((a: any) => a.kind === 'buy' || a.kind === 'capture' || a.kind === 'redeem').slice(0, 20).map((a: any) => ({ k: a.sig || a.t, t: a.t, mint: a.mint, symbol: a.symbol, sol: a.sol || 0, px: a.kind === 'capture' ? 'sold' : a.kind === 'buy' ? 'dip' : 'redeem', what: a.kind === 'capture' ? 'into a pump' : a.kind === 'buy' ? 'bought the dip' : 'holder redeemed', tone: a.kind === 'capture' ? 'dn' : 'up' })),
@@ -35,9 +36,9 @@ export default function Home(p: Props) {
       const avg = (xs: number[]) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null
       const vaultedCh = avg(ours.filter((x) => x.c).map((x) => x.c!.ch24)); const marketCh = avg(p.coins.map((c) => c.ch24))
       return <div className="tiles" style={{ marginBottom: 12, gridTemplateColumns: 'repeat(4,1fr)' }}>
-        <div className="tile"><div className="l">Desks live</div><div className="v num">{desksLive}<span className="dim" style={{ fontSize: 13 }}> / {desks.length} open</span></div><div className="s status"><i className={p.deskUp ? '' : 'off'} />{p.deskUp ? 'desk online' : 'desk offline'}</div></div>
-        <div className="tile"><div className="l">Vaults live</div><div className="v num">{p.vaults.filter((v) => v.armed).length}</div><div className="s num">{chest > 0 ? `${S(chest, 1)} SOL in chests · ${ours.filter((x) => x.sg?.label === 'RUNNER').length} running` : 'holder-owned market makers'}</div></div>
-        <div className="tile"><div className="l">Off-chart volume today</div><div className="v num">{S(offChartToday, 1)} SOL</div><div className="s num">{fills24.length} desk fills · ${S(offChartToday * p.solPrice, 0)}</div></div>
+        <div className="tile"><div className="l">Desks live</div><div className="v num"><Live v={desksLive}>{desksLive}</Live><span className="dim" style={{ fontSize: 13 }}> / {desks.length} open</span></div><div className="s status"><i className={p.deskUp ? '' : 'off'} />{p.deskUp ? 'desk online' : 'desk offline'}</div></div>
+        <div className="tile"><div className="l">Vaults live</div><div className="v num"><Live v={p.vaults.filter((v) => v.armed).length}>{p.vaults.filter((v) => v.armed).length}</Live></div><div className="s num">{chest > 0 ? `${S(chest, 1)} SOL in chests · ${ours.filter((x) => x.sg?.label === 'RUNNER').length} running` : 'holder-owned market makers'}</div></div>
+        <div className="tile"><div className="l">Off-chart volume today</div><div className="v num"><Live v={offChartToday}>{S(offChartToday, 1)} SOL</Live></div><div className="s num">{fills24.length} desk fills · ${S(offChartToday * p.solPrice, 0)}</div></div>
         <div className="tile"><div className="l">24h · vaulted vs market</div><div className="v num">{vaultedCh == null ? <span className="dim">—</span> : <span className={vaultedCh >= 0 ? 'up' : 'dn'}>{vaultedCh >= 0 ? '+' : ''}{vaultedCh.toFixed(1)}%</span>}<span className="dim" style={{ fontSize: 13 }}> vs {marketCh == null ? '—' : (marketCh >= 0 ? '+' : '') + marketCh.toFixed(1) + '%'}</span></div><div className="s"><a href="#/docs/vaulted-vs-not" style={{ textDecoration: 'underline' }}>vaulted vs not →</a></div></div>
       </div> })()}
     <div className="row" style={{ marginBottom: 10 }}>
@@ -52,7 +53,7 @@ export default function Home(p: Props) {
           {ours.map(({ v, c, sg }) => <tr key={v.id} onClick={() => p.go('coin/' + v.mint)}>
             <td><div className="row"><Pfp c={c} mint={v.mint} /><div><div className="tk">{v.symbol} <span className={'tag ' + (v.mode === 'mm' ? 'live' : '')} style={{ marginLeft: 4 }}>{v.mode === 'mm' ? 'MM' : 'FLOOR'}</span></div></div></div></td>
             <td className="r">{c ? <Mc v={c.mcap} /> : '—'}</td><td className="r">{c ? <Ch v={c.ch1h} /> : '—'}</td>
-            <td className="r num">{S(v.chest, 2)} SOL</td><td className="r num">${(v.floor * p.solPrice) ? (v.floor * p.solPrice).toPrecision(2) : '—'}</td><td className="r num">{S(v.score?.captured || 0, 2)}</td>
+            <td className="r num"><Live v={v.chest}>{S(v.chest, 2)} SOL</Live></td><td className="r num">${(v.floor * p.solPrice) ? (v.floor * p.solPrice).toPrecision(2) : '—'}</td><td className="r num">{S(v.score?.captured || 0, 2)}</td>
             <td className="r">{sg ? <span className={'tag ' + labelTone(sg.label)} title={sg.reasons.join(' · ')}>{sg.label}</span> : <span className="dim">—</span>}</td>
             <td className="r">{c && <button className="btn sm pri" onClick={(e) => { e.stopPropagation(); p.quick(c) }}>⚡ {p.quickSol}</button>}</td></tr>)}
         </tbody></table></div>}
@@ -71,13 +72,13 @@ export default function Home(p: Props) {
             {!desks.length && <div className="empty" style={{ padding: 16 }}>{p.deskUp ? 'No eligible coins loaded yet' : 'Desk offline'}</div>}</div></div>
         <div className="card"><h3>Off-chart <span className="nm">live</span></h3>
           <div className="feed tape" style={{ maxHeight: 320 }}>
-            {tapeRows.map((x, i) => <div className="it" key={x.k || i} style={{ cursor: 'pointer' }} onClick={() => p.go('coin/' + x.mint)}><span className={'dot ' + x.tone} /><span className="tk">{x.symbol}</span><span className="num">{S(x.sol, 2)} SOL</span><span className={'num ' + x.tone}>{x.px}</span><span className="dim what">{x.what}</span><span className="dim num">{ago(x.t)}</span></div>)}
+            {tapeRows.map((x, i) => <div className={'it' + (x.t > mountedAt ? ' new' : '')} key={x.k || i} style={{ cursor: 'pointer' }} onClick={() => p.go('coin/' + x.mint)}><span className={'dot ' + x.tone} /><span className="tk">{x.symbol}</span><span className="num">{S(x.sol, 2)} SOL</span><span className={'num ' + x.tone}>{x.px}</span><span className="dim what">{x.what}</span><span className="dim num">{ago(x.t)}</span></div>)}
             {!tapeRows.length && <div className="empty" style={{ padding: 16 }}>Every desk fill, capture and dip buy shows here</div>}</div></div>
       </div>
     </div>}
     {tab === 'market' && <MarketTable coins={p.coins} go={p.go} quick={p.quick} quickSol={p.quickSol} vaults={p.vaults} err={p.err} />}
     {tab === 'stream' && <div className="lay"><div className="card"><h3><span className="status"><i className={p.live ? '' : 'off'} /></span>New pump.fun launches</h3><div className="feed" style={{ maxHeight: 600 }}>{p.fresh.slice(0, 40).map((t) => <div className="it" key={t.mint} style={{ cursor: 'pointer' }} onClick={() => p.go('coin/' + t.mint)}><Pfp mint={t.mint} c={p.freshCoins[t.mint]} /><div style={{ flex: 1, minWidth: 0 }}><div className="tk">{t.symbol}</div><div className="nm">{t.name.slice(0, 20)} · dev {short(t.creator || '', 3)}</div></div><div style={{ textAlign: 'right' }}><div className="num">{((t.mcapSol || 0) * p.solPrice) ? F((t.mcapSol || 0) * p.solPrice) : '—'}</div><div className="nm">{ago(t.ts)}</div></div></div>)}{!p.fresh.length && <div className="empty">Listening…</div>}</div></div>
-      <div className="card"><h3>Live trades</h3><div className="feed" style={{ maxHeight: 600 }}>{p.trades.slice(0, 40).map((t, i) => <div className="it" key={i}><span className={t.txType === 'buy' ? 'up' : 'dn'} style={{ width: 34, fontWeight: 600 }}>{t.txType.toUpperCase()}</span><span className="num" style={{ width: 70 }}>{S(t.sol, 2)} SOL</span><span className="dim num" style={{ flex: 1 }}>{short(t.trader, 3)}</span><span className="nm">{ago(t.ts)}</span></div>)}{!p.trades.length && <div className="empty">Trades on tracked launches appear here</div>}</div></div></div>}
+      <div className="card"><h3>Live trades</h3><div className="feed" style={{ maxHeight: 600 }}>{p.trades.slice(0, 40).map((t, i) => <div className={'it' + (t.ts > mountedAt ? ' new' : '')} key={t.ts + ':' + t.trader + ':' + i}><span className={t.txType === 'buy' ? 'up' : 'dn'} style={{ width: 34, fontWeight: 600 }}>{t.txType.toUpperCase()}</span><span className="num" style={{ width: 70 }}>{S(t.sol, 2)} SOL</span><span className="dim num" style={{ flex: 1 }}>{short(t.trader, 3)}</span><span className="nm">{ago(t.ts)}</span></div>)}{!p.trades.length && <div className="empty">Trades on tracked launches appear here</div>}</div></div></div>}
   </>
 }
 

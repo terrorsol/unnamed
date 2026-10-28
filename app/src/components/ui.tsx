@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import type { Coin } from '../lib/dex'
 import { onToast, type Toast } from '../lib/store'
 import { F, pct, short } from '../lib/fmt'
+import { useFlash } from '../hooks'
 
 const EMO = ['🐸', '🐶', '🐱', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐵', '🐔', '🐧', '🐙', '🦄', '🐲', '👻', '🤖', '👽', '🍌', '🍕', '🚀', '💎', '🔥', '⚡', '🌙', '☀️', '🪐', '🧠']
 const GR = ['linear-gradient(135deg,#ff7a59,#ffd166)', 'linear-gradient(135deg,#6a5cff,#43d4ff)', 'linear-gradient(135deg,#ff4fd8,#7a5cff)', 'linear-gradient(135deg,#3ecf8e,#1f7a8c)', 'linear-gradient(135deg,#ffb347,#ff3d81)', 'linear-gradient(135deg,#00d2ff,#3a7bd5)', 'linear-gradient(135deg,#f5576c,#f093fb)', 'linear-gradient(135deg,#a8ff78,#78ffd6)']
@@ -13,8 +14,11 @@ export function Pfp({ c, mint, lg }: { c?: Coin; mint?: string; lg?: boolean }) 
   const h = hash(k)
   return <span className={'pfp' + (lg ? ' lg' : '')} style={{ background: GR[h % GR.length] }}>{EMO[(h >> 4) % EMO.length]}</span>
 }
-export function Ch({ v }: { v: number }) { return <span className={'num ' + (v >= 0 ? 'up' : 'dn')}>{pct(v)}</span> }
-export function Mc({ v }: { v: number }) { return <span className="num">{F(v)}</span> }
+/** every live number cell ticks like a terminal: green flash up, red flash down, keyed on the value itself */
+export function Ch({ v }: { v: number }) { const fl = useFlash(v); return <span className={'num cell ' + (v >= 0 ? 'up' : 'dn') + (fl ? ' ' + fl : '')}>{pct(v)}</span> }
+export function Mc({ v }: { v: number }) { const fl = useFlash(v); return <span className={'num cell' + (fl ? ' ' + fl : '')}>{F(v)}</span> }
+/** wrap any rendered value; flashes when `v` moves */
+export function Live({ v, children, className = '' }: { v: number | null | undefined; children: React.ReactNode; className?: string }) { const fl = useFlash(v); return <span className={('cell ' + className + (fl ? ' ' + fl : '')).trim()}>{children}</span> }
 export function Status({ c }: { c: Coin }) {
   return c.onCurve ? <span className="tag curve">CURVE</span> : <span className="tag">{c.dex.toUpperCase().replace('PUMPSWAP', 'PUMP AMM')}</span>
 }

@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import * as K from '../lib/desk'
 import { Spark } from './Chart'
+import { Live } from './ui'
 import { F, S, ago, short } from '../lib/fmt'
 import { solscan } from '../lib/rpc'
 
@@ -38,8 +39,8 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
       <span className="sp" /><span className={'tag ' + (book.open ? 'live' : '')}>{book.open ? 'open' : 'closed'}</span><button className="btn sm" onClick={togglePro}>Pro</button>
     </div>
     <div className="card pricestrip"><div className="row" style={{ gap: 14, padding: '8px 12px' }}>
-      <div><div className="l">Price</div><div className="v num">{px ? '$' + (px * d.solPrice).toPrecision(3) : '—'} <span className="dim" style={{ fontSize: 11 }}>{px ? px.toPrecision(3) + ' SOL' : ''}</span></div></div>
-      <div><div className="l">Mcap</div><div className="v num">{mk?.mcapUsd ? F(mk.mcapUsd) : '—'}</div></div>
+      <div><div className="l">Price</div><div className="v num"><Live v={px}>{px ? '$' + (px * d.solPrice).toPrecision(3) : '—'}</Live> <span className="dim" style={{ fontSize: 11 }}>{px ? px.toPrecision(3) + ' SOL' : ''}</span></div></div>
+      <div><div className="l">Mcap</div><div className="v num"><Live v={mk?.mcapUsd}>{mk?.mcapUsd ? F(mk.mcapUsd) : '—'}</Live></div></div>
       <div><div className="l">Min block</div><div className="v num">{S(book.minBlock || 0, 2)} SOL</div></div>
       <div style={{ flex: 1, minWidth: 120 }}><Spark pool={mk?.pair} tone={''} /></div>
     </div></div>
@@ -50,7 +51,7 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
     {true && <>
       {best ? <div className="card" style={{ padding: 14 }}>
         <div className="lbl">Best offer right now</div>
-        <div style={{ fontSize: 19, fontWeight: 600 }} className="num">{S(best.sol, 2)} SOL <span className="dim" style={{ fontSize: 14, fontWeight: 500 }}>at {best.discBps < 0 ? `${(Math.abs(best.discBps) / 100).toFixed(1)}% above` : `${(best.discBps / 100).toFixed(1)}% under`} the price</span></div>
+        <div style={{ fontSize: 19, fontWeight: 600 }} className="num"><Live v={best.sol}>{S(best.sol, 2)} SOL</Live> <span className="dim" style={{ fontSize: 14, fontWeight: 500 }}>at {best.discBps < 0 ? `${(Math.abs(best.discBps) / 100).toFixed(1)}% above` : `${(best.discBps / 100).toFixed(1)}% under`} the price</span></div>
         <div className="nm" style={{ marginTop: 4 }}>{d.holdingUi <= 0 ? `You don't hold ${symbol}.` : myValSol >= best.sol ? `You'd get ≈ ${S(best.sol * (1 - book.rules.feeBps / 10000), 2)} SOL for ${(best.sol / px).toLocaleString(undefined, { maximumFractionDigits: 0 })} ${symbol}. Nothing prints on the chart.` : canSellTo(best) ? `Your bag is smaller than the offer — you'd sell all of it for ≈ ${S(takeOf(best) * (1 - book.rules.feeBps / 10000), 2)} SOL.` : `Your bag (${S(myValSol, 2)} SOL) is under this desk's minimum (${S(book.minBlock || 0, 2)} SOL) — use the normal Sell button instead.`}</div>
         <div className="row" style={{ marginTop: 10, gap: 8 }}>{!d.connected ? <Wallet /> : <button className="btn pri big" disabled={!canSellTo(best) || !!d.busy} onClick={() => d.takeBid(best.id, takeOf(best) < best.sol - 1e-9 ? +takeOf(best).toFixed(4) : undefined)}>{d.busy || `Sell ${myValSol >= best.sol ? 'into this offer' : 'my bag'}`}</button>}{offers.length > 1 && <span className="nm">{offers.length - 1} more offer{offers.length > 2 ? 's' : ''} in Pro</span>}</div>
       </div> : <div className="card" style={{ padding: 14 }}><div className="lbl">No offers yet</div><div className="nm">Nobody is bidding for {symbol} on the desk right now.</div></div>}
@@ -74,7 +75,7 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
     {true && <>
       {asksOpen[0] && (() => { const a = asksOpen[0]; return <div className="card" style={{ padding: 14 }}>
         <div className="lbl">Best sell offer right now</div>
-        <div style={{ fontSize: 19, fontWeight: 600 }} className="num">{S(a.sol, 2)} SOL <span className="dim" style={{ fontSize: 14, fontWeight: 500 }}>of {symbol} at {a.discBps <= 0 ? `${(Math.abs(a.discBps) / 100).toFixed(1)}% over` : `${(a.discBps / 100).toFixed(1)}% under`} the price</span></div>
+        <div style={{ fontSize: 19, fontWeight: 600 }} className="num"><Live v={a.sol}>{S(a.sol, 2)} SOL</Live> <span className="dim" style={{ fontSize: 14, fontWeight: 500 }}>of {symbol} at {a.discBps <= 0 ? `${(Math.abs(a.discBps) / 100).toFixed(1)}% over` : `${(a.discBps / 100).toFixed(1)}% under`} the price</span></div>
         <div className="nm" style={{ marginTop: 4 }}>You'd get ≈ {px ? (a.sol / (px * (1 - a.discBps / 10000))).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'} {symbol} for {S(a.sol * (1 + book.rules.feeBps / 10000), 2)} SOL. Nothing prints on the chart.{asksOpen.length > 1 ? ` ${asksOpen.length - 1} more in Pro.` : ''}</div>
         <div className="row" style={{ marginTop: 10 }}>{!d.connected ? <Wallet /> : <button className="btn pri big" disabled={!book.open || !!d.busy} onClick={() => d.takeAsk?.(a.id)}>{d.busy || 'Buy this block'}</button>}</div>
       </div> })()}
@@ -169,7 +170,7 @@ export function DeskPage({ go, coins = [], owner = '', bidder = null }: { go: (p
     </tbody></table></div>}
     <div className="tiles" style={{ marginBottom: 14, gridTemplateColumns: 'repeat(3,1fr)' }}>
       <div className="tile"><div className="l">Books with bids</div><div className="v num">{list ? list.length : '—'}</div></div>
-      <div className="tile"><div className="l">SOL bid</div><div className="v num">{list ? S(list.reduce((a, b) => a + b.sol, 0), 2) : '—'}</div></div>
+      <div className="tile"><div className="l">SOL bid</div><div className="v num"><Live v={list ? list.reduce((a, b) => a + b.sol, 0) : null}>{list ? S(list.reduce((a, b) => a + b.sol, 0), 2) : '—'}</Live></div></div>
       <div className="tile"><div className="l">Status</div><div className="v status" style={{ fontSize: 13 }}><i className={err ? 'off' : ''} />{err ? 'offline' : 'live'}</div></div>
     </div>
     <div className="card"><h3>Open books</h3><table><thead><tr><th>Coin</th><th className="r">Bids</th><th className="r">SOL resting</th><th className="r">Best discount</th></tr></thead><tbody>
@@ -182,9 +183,9 @@ export function DeskPage({ go, coins = [], owner = '', bidder = null }: { go: (p
 
 /** Vault panel for one coin */
 export function CoinVault({ mint, v, isDev, onRenounce, solPrice, onMode }: { mint: string; v: K.VaultPub | null | undefined; isDev: boolean; onRenounce: () => void; solPrice: number; onMode?: (m: 'floor' | 'mm', c: number) => void }) {
+  const mountedAt = useMemo(() => Date.now(), []); const [more, setMore] = useState(false)
   if (v === undefined) return <div className="empty" style={{ padding: 18 }}>Loading vault…</div>
   if (!v) return <div className="panel"><div className="note">No vault on this coin yet. Launch through UNNAMED with a stake and it's free — or <a href={'#/import/' + mint} style={{ textDecoration: 'underline' }}>import this coin and activate a vault</a> for 15 SOL (5 seeds the chest). Then vault your bag.</div></div>
-  const [more, setMore] = useState(false)
   const last = v.activity.find((a) => ['capture', 'buy', 'bid', 'redeem', 'trim'].includes(a.kind))
   const floorUsd = v.floor * solPrice
   return <div className="panel" style={{ gap: 10 }}>
@@ -192,8 +193,8 @@ export function CoinVault({ mint, v, isDev, onRenounce, solPrice, onMode }: { mi
       <div style={{ fontSize: 15, fontWeight: 600 }}>This coin has a vault</div>
       <div className="nm" style={{ marginTop: 4, fontSize: 12.5, lineHeight: 1.5 }}>A pile of SOL and {v.symbol} that belongs to the holders. It buys the dips, catches sellers off the chart, and never cashes out — so the floor under the price only goes up.</div>
       <div className="tiles" style={{ marginTop: 10, gridTemplateColumns: 'repeat(3,1fr)' }}>
-        <div className="tile"><div className="l">Floor</div><div className="v num">{floorUsd ? '$' + floorUsd.toPrecision(2) : '—'}</div><div className="s">what every {v.symbol} is backed by right now</div></div>
-        <div className="tile"><div className="l">In the chest</div><div className="v num">{S(v.chest, 1)} SOL</div><div className="s">${S(v.chest * solPrice, 0)} · never withdrawn</div></div>
+        <div className="tile"><div className="l">Floor</div><div className="v num"><Live v={floorUsd}>{floorUsd ? '$' + floorUsd.toPrecision(2) : '—'}</Live></div><div className="s">what every {v.symbol} is backed by right now</div></div>
+        <div className="tile"><div className="l">In the chest</div><div className="v num"><Live v={v.chest}>{S(v.chest, 1)} SOL</Live></div><div className="s">${S(v.chest * solPrice, 0)} · never withdrawn</div></div>
         <div className="tile"><div className="l">Last move</div><div className="v" style={{ fontSize: 14 }}>{last ? (last.kind === 'buy' ? 'bought the dip' : last.kind === 'capture' ? 'sold into a pump' : last.kind === 'bid' ? 'bidding on the desk' : last.kind === 'redeem' ? 'paid a redeem' : 'trimmed') : 'watching'}</div><div className="s">{last ? ago(last.t) : v.mode === 'mm' ? 'market maker mode' : 'floor mode'}</div></div>
       </div>
       <div className="row" style={{ marginTop: 8 }}><span className="sp" /><button className="btn sm" onClick={() => setMore(!more)}>{more ? 'Less' : 'Details'}</button></div>
@@ -201,16 +202,16 @@ export function CoinVault({ mint, v, isDev, onRenounce, solPrice, onMode }: { mi
     {more && <>
     <VaultScore v={v} solPrice={solPrice} />
     <div className="tiles" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>
-      <div className="tile"><div className="l">Chest</div><div className="v num">{S(v.chest)} SOL</div><div className="s">buys dips, never withdraws</div></div>
-      <div className="tile"><div className="l">Vault supply</div><div className="v num">{v.tokens.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div><div className="s">{v.pct}% target · avg {v.avgCost ? (v.avgCost * solPrice).toPrecision(3) : '—'} USD</div></div>
+      <div className="tile"><div className="l">Chest</div><div className="v num"><Live v={v.chest}>{S(v.chest)} SOL</Live></div><div className="s">buys dips, never withdraws</div></div>
+      <div className="tile"><div className="l">Vault supply</div><div className="v num"><Live v={v.tokens}>{v.tokens.toLocaleString(undefined, { maximumFractionDigits: 0 })}</Live></div><div className="s">{v.pct}% target · avg {v.avgCost ? (v.avgCost * solPrice).toPrecision(3) : '—'} USD</div></div>
       <div className="tile"><div className="l">Dev cut</div><div className="v num">{v.renounced ? '0% · renounced' : v.cut + '%'}</div><div className="s">paid {S(v.devPaid, 3)} SOL</div></div>
       <div className="tile"><div className="l">Stake</div><div className="v num">{S(v.stakeSol)} SOL</div><div className="s">{v.armed ? 'armed' : 'awaiting funds'} · <a href={`https://solscan.io/account/${v.pub}`} target="_blank" rel="noreferrer">vault ↗</a></div></div>
     </div>
     <div className="lbl">Activity</div>
-    <div className="feed" style={{ maxHeight: 260 }}>{v.activity.map((a, i) => <div className="it" key={i}><span className={a.kind === 'buy' || a.kind === 'seed' ? 'up' : a.kind === 'trim' ? 'dn' : a.kind === 'cut' ? 'gold' : 'dim'} style={{ width: 46, fontWeight: 600 }}>{a.kind.toUpperCase()}</span><span className="num" style={{ width: 90 }}>{a.sol != null ? S(a.sol, 3) + ' SOL' : ''}</span><span className="dim" style={{ flex: 1 }}>{a.msg}</span>{a.sig && <a className="dim" href={solscan(a.sig)} target="_blank" rel="noreferrer">↗</a>}<span className="nm">{ago(a.t)}</span></div>)}
+    <div className="feed" style={{ maxHeight: 260 }}>{v.activity.map((a, i) => <div className={'it' + (a.t > mountedAt ? ' new' : '')} key={a.t + ':' + i}><span className={a.kind === 'buy' || a.kind === 'seed' ? 'up' : a.kind === 'trim' ? 'dn' : a.kind === 'cut' ? 'gold' : 'dim'} style={{ width: 46, fontWeight: 600 }}>{a.kind.toUpperCase()}</span><span className="num" style={{ width: 90 }}>{a.sol != null ? S(a.sol, 3) + ' SOL' : ''}</span><span className="dim" style={{ flex: 1 }}>{a.msg}</span>{a.sig && <a className="dim" href={solscan(a.sig)} target="_blank" rel="noreferrer">↗</a>}<span className="nm">{ago(a.t)}</span></div>)}
       {!v.activity.length && <div className="empty" style={{ padding: 16 }}>Nothing yet</div>}</div>
     {isDev && <div className="row" style={{ alignItems: 'flex-start' }}><div style={{ flex: 1 }}><div className="lbl">Mode (owner)</div><ModePicker mode={v.mode} ceiling={v.ceiling} onChange={(m, c) => onMode?.(m, c)} compact /></div>{!v.renounced && <button className="btn sm" style={{ marginTop: 18 }} onClick={onRenounce}>Renounce cut</button>}</div>}
-    <div className="nm">Bot-run in beta (on-chain program next). Rules: dip buys ≤40% of chest per crash · trims only above cost + 30-min VWAP, ≤2%/trim · 5%/day · 10% of vol · no withdrawals.</div>
+    <div className="nm">Bot-run in beta. Rules: dip buys ≤40% of chest per crash · trims only above cost + 30-min VWAP, ≤2%/trim · 5%/day · 10% of vol · no withdrawals.</div>
     </>}
     <div className="nm" style={{ display: 'none' }}></div>
   </div>
@@ -223,7 +224,7 @@ export function VaultPage({ go, solPrice }: { go: (p: string) => void; solPrice:
   return <>
     <div className="tiles" style={{ marginBottom: 14, gridTemplateColumns: 'repeat(3,1fr)' }}>
       <div className="tile"><div className="l">Vaults armed</div><div className="v num">{list ? list.length : '—'}</div></div>
-      <div className="tile"><div className="l">Chests total</div><div className="v num">{S(chest, 2)} SOL</div><div className="s">${S(chest * solPrice, 0)}</div></div>
+      <div className="tile"><div className="l">Chests total</div><div className="v num"><Live v={chest}>{S(chest, 2)} SOL</Live></div><div className="s">${S(chest * solPrice, 0)}</div></div>
       <div className="tile"><div className="l">Status</div><div className="v status" style={{ fontSize: 13 }}><i className={err ? 'off' : ''} />{err ? 'vault server offline' : 'running'}</div></div>
     </div>
     <div className="card"><h3>Vaults</h3><table><thead><tr><th>Coin</th><th className="r">Mode</th><th className="r">Chest</th><th className="r">Captured</th><th className="r">Off-chart buys</th><th className="r">Floor</th><th className="r">Last action</th></tr></thead><tbody>
@@ -282,14 +283,14 @@ export function MinePage({ owner, go, solPrice, onRenounce, onClaim, busy }: { o
 }
 
 export function LeaderboardPage({ owner }: { owner: string }) {
-  const [list, setList] = useState<Awaited<ReturnType<typeof K.leaderboard>> | null>(null); const [fl, setFl] = useState<K.FillRec[]>([]); const [err, setErr] = useState('')
+  const [list, setList] = useState<Awaited<ReturnType<typeof K.leaderboard>> | null>(null); const [fl, setFl] = useState<K.FillRec[]>([]); const [err, setErr] = useState(''); const mountedAt = useMemo(() => Date.now(), [])
   useEffect(() => { const f = () => Promise.all([K.leaderboard(owner || undefined), K.fills()]).then(([l, f]) => { setList(l); setFl(f); setErr('') }).catch((e) => setErr(String(e.message || e))); f(); const i = setInterval(f, 15000); return () => clearInterval(i) }, [])
   return <div className="lay" style={{ gridTemplateColumns: '1fr 1fr' }}>
     <div className="card"><h3>Desk leaderboard <span className="dim" style={{ fontWeight: 500 }}>· volume crossed off-pool</span></h3><table><thead><tr><th>#</th><th>Wallet</th><th className="r">Sold blocks</th><th className="r">Bought blocks</th><th className="r">Fills</th><th className="r">Saved vs chart</th></tr></thead><tbody>
       {(!list || !list.length) && <tr><td colSpan={6} className="empty">{err ? 'Server unreachable' : 'No desk fills yet'}</td></tr>}
       {list?.map((r, i) => <tr key={r.wallet} className={r.mine ? 'on' : ''}><td className="dim num">{i + 1}</td><td className="num">{r.wallet}{r.mine && <span className="tag live" style={{ marginLeft: 6 }}>YOU</span>}</td><td className="r num">{S(r.soldSol, 2)} SOL</td><td className="r num">{S(r.boughtSol, 2)} SOL</td><td className="r num">{r.fills}</td><td className="r num up">≈{S(r.saved, 3)} SOL</td></tr>)}
     </tbody></table></div>
-    <div className="card"><h3>Recent desk fills</h3><div className="feed">{fl.map((f) => <div className="it" key={f.sig}><span className="tk" style={{ width: 70 }}>{f.symbol}</span><span className="num" style={{ width: 80 }}>{S(f.sol, 2)} SOL</span><span className="num dn" style={{ width: 50 }}>−{(f.discBps / 100).toFixed(1)}%</span><span className="dim" style={{ flex: 1 }}>{f.vault ? 'vault bid' : short(f.bidder, 3)} ← {short(f.seller, 3)}</span><a className="dim" href={solscan(f.sig)} target="_blank" rel="noreferrer">↗</a><span className="nm">{ago(f.t)}</span></div>)}{!fl.length && <div className="empty">Nothing yet</div>}</div></div>
+    <div className="card"><h3>Recent desk fills</h3><div className="feed">{fl.map((f) => <div className={'it' + (f.t > mountedAt ? ' new' : '')} key={f.sig}><span className="tk" style={{ width: 70 }}>{f.symbol}</span><span className="num" style={{ width: 80 }}>{S(f.sol, 2)} SOL</span><span className="num dn" style={{ width: 50 }}>−{(f.discBps / 100).toFixed(1)}%</span><span className="dim" style={{ flex: 1 }}>{f.vault ? 'vault bid' : short(f.bidder, 3)} ← {short(f.seller, 3)}</span><a className="dim" href={solscan(f.sig)} target="_blank" rel="noreferrer">↗</a><span className="nm">{ago(f.t)}</span></div>)}{!fl.length && <div className="empty">Nothing yet</div>}</div></div>
   </div>
 }
 

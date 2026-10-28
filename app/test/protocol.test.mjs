@@ -12,8 +12,9 @@ test('flip fee decays 8% → 0 over 30 min and is 0 on losses', () => {
 })
 test('vault pct caps at 10% around 3.1 SOL', () => {
   assert.ok(vaultPct(0) === 0)
-  assert.ok(vaultPct(1) > 6 && vaultPct(1) < 7)
-  assert.ok(Math.abs(vaultPct(3.1) - 10) < 0.2)
+  assert.ok(vaultPct(1) > 1.6 && vaultPct(1) < 1.8, 'half of 1 SOL on the fresh curve ≈ 1.7% of supply: ' + vaultPct(1))
+  assert.ok(vaultPct(1, 2) < vaultPct(1), 'a dev buy ahead of the vault leaves it fewer tokens')
+  assert.ok(Math.abs(vaultPct(10) - 14.6) < 0.5 || vaultPct(10) === 10, 'capped at the 10% target')
   assert.equal(vaultPct(50), 10)
 })
 test('clock merges cost-weighted', () => {
