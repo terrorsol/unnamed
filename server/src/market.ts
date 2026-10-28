@@ -6,6 +6,6 @@ export async function market(mint: string, maxAgeMs = 5000): Promise<(Market & {
   const pairs: any[] = await r.json()
   const p = pairs.filter((x) => x.chainId === 'solana').sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0]
   if (!p) return null
-  const m = { mcapUsd: p.marketCap || p.fdv || 0, liqSol: p.liquidity?.quote || 0, onCurve: p.dexId === 'pumpfun', priceSol: +(p.priceNative || 0), symbol: p.baseToken.symbol, pair: p.pairAddress, vol1h: p.volume?.h1 || 0 }
-  (m as any).t = Date.now(); cache.set(mint, { t: Date.now(), m }); return m
+  const m = { mcapUsd: p.marketCap || p.fdv || 0, liqSol: p.liquidity?.quote || 0, onCurve: p.dexId === 'pumpfun', priceSol: +(p.priceNative || 0), symbol: p.baseToken.symbol, pair: p.pairAddress, vol1h: p.volume?.h1 || 0, t: Date.now() }
+  cache.set(mint, { t: m.t, m }); return m
 }
