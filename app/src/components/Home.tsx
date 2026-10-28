@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { deskEligible } from '../lib/dex'
 import type { Coin } from '../lib/dex'
 import * as K from '../lib/desk'
 import { Pfp, Ch, Mc, Addr } from './ui'
@@ -15,35 +16,50 @@ export default function Home(p: Props) {
   const runners = useMemo(() => p.coins.map((c) => ({ c, s: classify(featsFromCoin(c, null, p.vaults.some((v) => v.mint === c.mint))) })).filter((x) => x.s.label === 'RUNNER').sort((a, b) => b.s.score - a.s.score).slice(0, 6), [p.coins, p.vaults])
   const tape = useMemo(() => p.vaults.flatMap((v) => v.activity.filter((a) => ['capture', 'buy', 'redeem', 'bid', 'stream'].includes(a.kind)).map((a) => ({ ...a, symbol: v.symbol, mint: v.mint }))).sort((a, b) => b.t - a.t).slice(0, 30), [p.vaults])
   const chest = p.vaults.reduce((a, v) => a + v.chest, 0), captured = p.vaults.reduce((a, v) => a + (v.score?.captured || 0), 0), offChart = p.vaults.reduce((a, v) => a + (v.score?.deskBought || 0), 0)
+  const [fills, setFills] = useState<K.FillRec[]>([]); const [books, setBooks] = useState<Record<string, { bids: number; sol: number; bestDisc: number }>>({})
+  useEffect(() => { if (!p.deskUp) return; const f = () => { K.fills().then(setFills).catch(() => {}); K.getBooks().then((l) => setBooks(Object.fromEntries(l.map((b) => [b.mint, b])))).catch(() => {}) }; f(); const i = setInterval(f, 10000); K.bookBus.addEventListener('book', f); return () => { clearInterval(i); K.bookBus.removeEventListener('book', f) } }, [p.deskUp])
+  const desks = useMemo(() => p.coins.filter(deskEligible).sort((a, b) => (books[b.mint]?.sol || 0) - (books[a.mint]?.sol || 0) || b.vol1h - a.vol1h).slice(0, 12), [p.coins, books])
+  const movers = useMemo(() => p.coins.map((c) => ({ c, s: classify(featsFromCoin(c, null, p.vaults.some((v) => v.mint === c.mint))) })).filter((x) => x.s.label !== 'DEAD' && x.s.label !== 'RUG RISK').sort((a, b) => b.s.score - a.s.score).slice(0, 14), [p.coins, p.vaults])
+  const fills24 = fills.filter((f) => Date.now() - f.t < 86400000)
   return <>
-    <div className="tiles" style={{ marginBottom: 14 }}>
-      <div className="tile"><div className="l">Vaulted coins</div><div className="v num">{p.vaults.length}</div><div className="s">{ours.filter((x) => x.sg?.label === 'RUNNER').length} running</div></div>
-      <div className="tile"><div className="l">Chests</div><div className="v num">{S(chest, 1)} SOL</div><div className="s num">${S(chest * p.solPrice, 0)} holder-owned</div></div>
-      <div className="tile"><div className="l">Captured → floors</div><div className="v num">{S(captured, 2)} SOL</div><div className="s">from stretched buys</div></div>
-      <div className="tile"><div className="l">Absorbed off-chart</div><div className="v num">{S(offChart, 2)} SOL</div><div className="s">desk fills</div></div>
-      <div className="tile"><div className="l">SOL</div><div className="v num">${S(p.solPrice, 2)}</div><div className="s status"><i className={p.deskUp ? '' : 'off'} />{p.deskUp ? 'vault + desk live' : 'vault server offline'}</div></div>
+    <div className="row" style={{ marginBottom: 12, gap: 14, fontSize: 12, flexWrap: 'wrap' }}>
+      <span className="status"><i className={p.deskUp ? '' : 'off'} />{p.deskUp ? 'desk live' : 'desk offline'}</span>
+      <span><b className="num">{desks.length}</b> <span className="dim">desks open</span></span>
+      <span><b className="num">{fills24.length}</b> <span className="dim">blocks off-chart today</span>{fills24.length > 0 && <span className="dim num"> · {S(fills24.reduce((a, f) => a + f.sol, 0), 1)} SOL</span>}</span>
+      <span><b className="num">{p.vaults.length}</b> <span className="dim">vaulted</span>{chest > 0 && <span className="dim num"> · {S(chest, 1)} SOL in chests</span>}</span>
+      <span className="dim num">SOL ${S(p.solPrice, 2)}</span>
+      <span className="sp" /><button className="btn pri sm" onClick={p.onLaunch}>Launch with a vault</button>
     </div>
     <div className="row" style={{ marginBottom: 10 }}>
-      <div className="seg"><button className={tab === 'ours' ? 'on' : ''} onClick={() => setTab('ours')}>Vaulted</button><button className={tab === 'market' ? 'on' : ''} onClick={() => setTab('market')}>Market</button><button className={tab === 'stream' ? 'on' : ''} onClick={() => setTab('stream')}>Stream</button></div>
-      <span className="sp" /><button className="btn pri" onClick={p.onLaunch}>Launch with a vault</button>
+      <div className="seg"><button className={tab === 'ours' ? 'on' : ''} onClick={() => setTab('ours')}>Now</button><button className={tab === 'market' ? 'on' : ''} onClick={() => setTab('market')}>Market</button><button className={tab === 'stream' ? 'on' : ''} onClick={() => setTab('stream')}>Stream</button></div>
     </div>
     {tab === 'ours' && <div className="lay">
-      <div className="card"><table><thead><tr><th>Coin</th><th className="r">MC</th><th className="r">1h</th><th className="r">Chest</th><th className="r">Floor</th><th className="r">Captured</th><th className="r">Signal</th><th className="r"></th></tr></thead><tbody>
-        {!ours.length && <tr><td colSpan={8} className="empty">{p.deskUp ? <>Nothing vaulted yet. <a href="#/vault/import" style={{ textDecoration: 'underline' }}>Import a coin</a> or launch one — the vault, desk and floor come with it.</> : 'Vault server offline — vaulted coins appear here when it\'s up.'}</td></tr>}
-        {ours.map(({ v, c, sg }) => <tr key={v.id} onClick={() => p.go('coin/' + v.mint)}>
-          <td><div className="row"><Pfp c={c} mint={v.mint} /><div><div className="tk">{v.symbol} <span className={'tag ' + (v.mode === 'mm' ? 'live' : '')} style={{ marginLeft: 4 }}>{v.mode === 'mm' ? 'MM' : 'FLOOR'}</span> {p.watch.includes(v.mint!) && <span className="gold">★</span>}</div><div className="nm">{v.name || c?.name || ''} · <Addr a={v.mint!} /></div></div></div></td>
-          <td className="r">{c ? <Mc v={c.mcap} /> : '—'}</td><td className="r">{c ? <Ch v={c.ch1h} /> : '—'}</td>
-          <td className="r num">{S(v.chest, 2)} SOL</td><td className="r num">${(v.floor * p.solPrice) ? (v.floor * p.solPrice).toPrecision(2) : '—'}</td><td className="r num">{S(v.score?.captured || 0, 2)}</td>
-          <td className="r">{sg ? <span className={'tag ' + labelTone(sg.label)} title={sg.reasons.join(' · ')}>{sg.label}</span> : <span className="dim">—</span>}</td>
-          <td className="r">{c && <button className="btn sm pri" onClick={(e) => { e.stopPropagation(); p.quick(c) }}>⚡ {p.quickSol}</button>}</td></tr>)}
-      </tbody></table></div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div className="card"><h3>Runners <span className="dim" style={{ fontWeight: 500 }}>· structure, not candles</span></h3>
-          <div className="feed" style={{ maxHeight: 260 }}>{runners.map(({ c, s }, i) => <div className="it" key={c.mint} style={{ cursor: 'pointer' }} onClick={() => p.go('coin/' + c.mint)} title={s.reasons.join(' · ')}><span className="dim num" style={{ width: 16 }}>{i + 1}</span><Pfp c={c} /><div style={{ flex: 1, minWidth: 0 }}><div className="tk">{c.symbol} {p.vaults.some((v) => v.mint === c.mint) && <span className="tag live">VAULTED</span>}</div><div className="nm">{F(c.mcap)} · run {s.score}</div></div><div style={{ textAlign: 'right' }}><div className="num up">+{c.ch1h.toFixed(0)}%</div><div className="nm">{F(c.vol1h)} 1h</div></div></div>)}
-            {!runners.length && <div className="empty" style={{ padding: 16 }}>No runners right now</div>}</div></div>
-        <div className="card"><h3>Vault tape</h3>
-          <div className="feed" style={{ maxHeight: 300 }}>{tape.map((a, i) => <div className="it" key={i} style={{ cursor: 'pointer' }} onClick={() => p.go('coin/' + a.mint)}><span className={a.kind === 'capture' ? 'dn' : a.kind === 'buy' ? 'up' : a.kind === 'redeem' ? 'gold' : 'dim'} style={{ width: 54, fontWeight: 600 }}>{a.kind === 'capture' ? 'CAPTURE' : a.kind === 'buy' ? (a.msg?.includes('desk') ? 'OTC' : 'DIP') : a.kind.toUpperCase()}</span><span className="tk" style={{ width: 64 }}>{a.symbol}</span><span className="num" style={{ width: 80 }}>{a.sol != null ? S(a.sol, 3) + ' SOL' : ''}</span><span className="dim" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.msg}</span>{a.sig && <a className="dim" href={solscan(a.sig)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>↗</a>}<span className="nm">{ago(a.t)}</span></div>)}
-            {!tape.length && <div className="empty" style={{ padding: 16 }}>Every capture, dip buy, desk fill and redeem shows here as it happens</div>}</div></div>
+        {ours.length > 0 && <div className="card"><h3>Vaulted <span className="nm">holder-owned market maker on every one</span></h3><table><thead><tr><th>Coin</th><th className="r">MC</th><th className="r">1h</th><th className="r">Chest</th><th className="r">Floor</th><th className="r">Captured</th><th className="r">Signal</th><th className="r"></th></tr></thead><tbody>
+          {ours.map(({ v, c, sg }) => <tr key={v.id} onClick={() => p.go('coin/' + v.mint)}>
+            <td><div className="row"><Pfp c={c} mint={v.mint} /><div><div className="tk">{v.symbol} <span className={'tag ' + (v.mode === 'mm' ? 'live' : '')} style={{ marginLeft: 4 }}>{v.mode === 'mm' ? 'MM' : 'FLOOR'}</span></div></div></div></td>
+            <td className="r">{c ? <Mc v={c.mcap} /> : '—'}</td><td className="r">{c ? <Ch v={c.ch1h} /> : '—'}</td>
+            <td className="r num">{S(v.chest, 2)} SOL</td><td className="r num">${(v.floor * p.solPrice) ? (v.floor * p.solPrice).toPrecision(2) : '—'}</td><td className="r num">{S(v.score?.captured || 0, 2)}</td>
+            <td className="r">{sg ? <span className={'tag ' + labelTone(sg.label)} title={sg.reasons.join(' · ')}>{sg.label}</span> : <span className="dim">—</span>}</td>
+            <td className="r">{c && <button className="btn sm pri" onClick={(e) => { e.stopPropagation(); p.quick(c) }}>⚡ {p.quickSol}</button>}</td></tr>)}
+        </tbody></table></div>}
+        <div className="card"><h3>Runners <span className="nm">ranked by structure, not candles · tap a row for the why</span></h3><table><thead><tr><th>Coin</th><th className="r">MC</th><th className="r">5m</th><th className="r">1h</th><th className="r">Vol 1h</th><th className="r">Signal</th><th className="r"></th></tr></thead><tbody>
+          {!movers.length && <tr><td colSpan={7} className="empty">{p.err || 'Loading the market…'}</td></tr>}
+          {movers.map(({ c, s }) => <tr key={c.mint} onClick={() => p.go('coin/' + c.mint)} title={s.reasons.join(' · ')}>
+            <td><div className="row"><Pfp c={c} /><div><div className="tk">{c.symbol} {p.vaults.some((v) => v.mint === c.mint) && <span className="tag live" style={{ marginLeft: 4 }}>VAULTED</span>}{books[c.mint] && <span className="tag" style={{ marginLeft: 4 }}>DESK</span>}</div><div className="nm">{s.reasons[0]}</div></div></div></td>
+            <td className="r"><Mc v={c.mcap} /></td><td className="r"><Ch v={c.ch5m} /></td><td className="r"><Ch v={c.ch1h} /></td><td className="r num"><Mc v={c.vol1h} /></td>
+            <td className="r"><span className={'tag ' + labelTone(s.label)}>{s.label}</span></td>
+            <td className="r"><button className="btn sm pri" onClick={(e) => { e.stopPropagation(); p.quick(c) }}>⚡ {p.quickSol}</button></td></tr>)}
+        </tbody></table></div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="card"><h3>Desks open <span className="nm">trade a block off-chart</span></h3>
+          <div className="feed" style={{ maxHeight: 300 }}>{desks.map((c) => <div className="it" key={c.mint} style={{ cursor: 'pointer' }} onClick={() => p.go('coin/' + c.mint + '/desk')}><span className="tk">{c.symbol}</span><span className="dim num"><Mc v={c.mcap} /></span><span className="num">{books[c.mint] ? `${books[c.mint].bids} bid${books[c.mint].bids === 1 ? '' : 's'} · ${S(books[c.mint].sol, 1)} SOL` : <span className="dim">no bids yet</span>}</span></div>)}
+            {!desks.length && <div className="empty" style={{ padding: 16 }}>{p.deskUp ? 'No eligible coins loaded yet' : 'Desk offline'}</div>}</div></div>
+        <div className="card"><h3>Off-chart <span className="nm">fills + vault moves, as they happen</span></h3>
+          <div className="feed" style={{ maxHeight: 320 }}>
+            {[...fills.slice(0, 15).map((f) => ({ t: f.t, mint: f.mint, node: <><span className="tk">{f.symbol}</span><span className="num">{S(f.sol, 2)} SOL</span><span className={'num ' + (f.discBps < 0 ? 'up' : 'dn')}>{f.discBps < 0 ? '+' : '−'}{(Math.abs(f.discBps) / 100).toFixed(1)}%</span><span className="dim">{f.vault ? 'vault' : 'desk'} fill</span></> })), ...tape.slice(0, 15).map((a: any) => ({ t: a.t, mint: a.mint, node: <><span className="tk">{a.symbol}</span><span className={a.kind === 'capture' ? 'dn' : 'up'}>{a.kind}</span><span className="dim" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.msg}</span></> }))].sort((a, b) => b.t - a.t).slice(0, 20).map((x, i) => <div className="it" key={i} style={{ cursor: 'pointer' }} onClick={() => p.go('coin/' + x.mint)}>{x.node}<span className="dim">{ago(x.t)}</span></div>)}
+            {!fills.length && !tape.length && <div className="empty" style={{ padding: 16 }}>Every desk fill, capture and dip buy shows here</div>}</div></div>
       </div>
     </div>}
     {tab === 'market' && <MarketTable coins={p.coins} go={p.go} quick={p.quick} quickSol={p.quickSol} vaults={p.vaults} err={p.err} />}

@@ -55,15 +55,16 @@ export function Portfolio({ sol, tokens, coins, lots, fills, solPrice, go, owner
 export function SettingsPage({ s, set }: { s: Settings; set: (p: Partial<Settings>) => void }) {
   const [rpc, setRpc] = useState(s.rpc)
   const [srv, setSrv] = useState(localStorage.getItem('unnamed_server') || '')
-  const [srvState, setSrvState] = useState<string>('')
+  const [srvState, setSrvState] = useState<string>(''); const [adv, setAdv] = useState(false)
   const testSrv = async (u: string) => { setSrvState('…'); try { const r = await fetch(u.replace(/\/$/, '') + '/health'); const d = await r.json(); setSrvState(d.ok ? `up · ${d.vaults} vaults · desk ${d.desk?.openBids ?? 0} bids` : 'bad response') } catch { setSrvState('unreachable') } }
   return <div className="card" style={{ maxWidth: 560 }}><h3>Settings</h3><div className="panel">
-    <div className="fld"><div className="lbl">Desk / vault server</div><div className="row" style={{ gap: 6 }}><input placeholder={K.SERVER} value={srv} onChange={(e) => setSrv(e.target.value)} /><button className="btn sm" onClick={() => testSrv(srv || K.SERVER)}>Test</button></div><div className="nm" style={{ marginTop: 4 }}>{srvState || `Using ${K.SERVER}${K.SERVER_SOURCE === 'live' ? ' (auto-discovered live desk)' : ''}`}</div></div>
-    <div className="fld"><div className="lbl">RPC endpoint (Helius / Triton / QuickNode recommended for speed)</div><input value={rpc} onChange={(e) => setRpc(e.target.value)} /><div className="nm" style={{ marginTop: 4 }}>Applies after reload.</div></div>
+    <div className="fld"><div className="lbl">Server</div><div className="row" style={{ gap: 6 }}><input placeholder={K.SERVER} value={srv} onChange={(e) => setSrv(e.target.value)} /><button className="btn sm" onClick={() => testSrv(srv || K.SERVER)}>Test</button></div><div className="nm" style={{ marginTop: 4 }}>{srvState || `Using ${K.SERVER}${K.SERVER_SOURCE === 'live' ? ' (auto-discovered live desk)' : ''}`}</div></div>
     <div className="two"><div className="fld"><div className="lbl">Slippage %</div><input type="number" step={0.5} min={0.1} max={50} value={s.slippageBps / 100} onChange={(e) => set({ slippageBps: Math.round(+e.target.value * 100) })} /></div>
       <div className="fld"><div className="lbl">Priority fee (SOL)</div><input type="number" step={0.0001} min={0} value={s.priorityFeeSol} onChange={(e) => set({ priorityFeeSol: +e.target.value })} /></div></div>
     <div className="two"><label className="row" style={{ gap: 8, fontSize: 12 }}><input type="checkbox" checked={s.autoFee} onChange={(e) => set({ autoFee: e.target.checked })} /> Auto priority fee (Helius estimate, High)</label><label className="row" style={{ gap: 8, fontSize: 12 }}><input type="checkbox" checked={s.mev} onChange={(e) => set({ mev: e.target.checked })} /> MEV protect: Jito tip on swaps ({s.jitoTipSol} SOL)</label></div>
     <div className="fld"><div className="lbl">Quick-buy size (SOL)</div><input type="number" step={0.05} min={0.01} value={s.quickBuy} onChange={(e) => set({ quickBuy: +e.target.value })} /></div>
+    <button className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => setAdv(!adv)}>{adv ? 'Hide advanced' : 'Advanced'}</button>
+    {adv && <div className="fld"><div className="lbl">RPC endpoint (Helius / Triton / QuickNode)</div><input value={rpc} onChange={(e) => setRpc(e.target.value)} /><div className="nm" style={{ marginTop: 4 }}>Applies after reload.</div></div>}
     <div className="row"><span className="sp" /><button className="btn pri" onClick={() => { set({ rpc }); if (srv.trim()) localStorage.setItem('unnamed_server', srv.trim().replace(/\/$/, '')); else localStorage.removeItem('unnamed_server'); location.reload() }}>Save &amp; reload</button></div>
   </div></div>
 }

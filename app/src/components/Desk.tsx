@@ -18,13 +18,13 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
   return <div className="panel" style={{ gap: 12 }}>
     <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
       <span className={'tag ' + (book.open ? 'live' : '')}>{book.open ? 'DESK OPEN' : 'DESK CLOSED'}</span>
-      <span className="dim" style={{ fontSize: 11 }}>{book.open ? `min block ${S(book.minBlock || 0, 2)} SOL · bids ${book.rules.discMin / 100}–${book.rules.discMax / 100}% under spot · partial fills ≥ min block · ${book.rules.feeBps / 100}% cross fee` : `closed: ${book.why || `opens at ${F(book.rules.gateUsd)} mc`}`}</span>
+      <span className="dim" style={{ fontSize: 11 }}>{book.open ? `min block ${S(book.minBlock || 0, 2)} SOL${book.rules.feeBps ? ` · ${book.rules.feeBps / 100}% fee` : ' · no fee'}` : `closed: ${book.why || `opens at ${F(book.rules.gateUsd)} mc`}`}</span>
       <span className="sp" /><span className="status"><i className={d.deskUp && (d.bidder?.connected() ?? false) ? '' : 'off'} />{d.bidder?.connected() ? 'bidder link live' : d.connected ? 'bidder link off' : 'no wallet'}</span>
     </div>
     <div className="lay" style={{ gridTemplateColumns: '1fr 1fr', gap: 12 }}>
       <div>
-        <div className="lbl">Block bids resting</div>
-        <div className="card"><table><thead><tr><th className="r">Bid</th><th className="r">Disc</th><th className="r">Takes ≈</th><th className="r">Age</th><th className="r"></th></tr></thead><tbody>
+        <div className="lbl">Bids on {symbol}</div>
+        <div className="card"><table><thead><tr><th className="r">Bid</th><th className="r">Price</th><th className="r">Takes ≈</th><th className="r"></th><th className="r"></th></tr></thead><tbody>
           {book.bids.length === 0 && <tr><td colSpan={5} className="empty" style={{ padding: 18 }}>No bids resting</td></tr>}
           {book.bids.map((b) => { const px = book.market?.priceSol * (1 - b.discBps / 10000); const tokens = px ? b.sol / px : 0
             // partial fill: take what you hold if it is at least the min block
@@ -32,7 +32,7 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
             return <tr key={b.id}><td className="r num">{S(b.sol, 2)} SOL</td><td className="r num">{b.block && <span className="tag live" style={{ marginRight: 4 }}>BLOCK BUY</span>}<span className={b.discBps < 0 ? 'up' : 'dn'}>{b.discBps < 0 ? '+' : '−'}{(Math.abs(b.discBps) / 100).toFixed(1)}%</span></td><td className="r num dim">{tokens ? tokens.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' ' + symbol : '—'}</td><td className="r num dim">{b.away ? <span className="gold">away</span> : b.block && b.expiresAt ? `${Math.max(0, Math.round((b.expiresAt - Date.now()) / 1000))}s left` : ago(b.placedAt)}{!b.restable && !b.away && <span className="gold"> · resting</span>}</td>
               <td className="r">{b.mine ? <button className="btn sm" onClick={() => cancel(b.id)}>Cancel</button> : <button className="btn sm pri" disabled={!canTake || !!d.busy} title={b.away ? 'bidder reconnecting' : !b.restable ? 'resting' : !canTake ? `you hold less than the min block (${S(book.minBlock || 0, 2)} SOL)` : `fills at ${px ? px.toPrecision(3) : '?'} SOL/token, spot at signing`} onClick={() => d.takeBid(b.id, partial ? +take.toFixed(4) : undefined)}>Sell {partial ? S(take, 2) + ' of ' : ''}→ {S((partial ? take : b.sol) * (1 - book.rules.feeBps / 10000), 2)} SOL</button>}</td></tr> })}
         </tbody></table></div>
-        <div className="nm" style={{ marginTop: 6 }}>Price = spot at the moment you sign (reference ≤1.5s old) minus the bid's discount. Both browsers verify it independently; if either disagrees by &gt;1.5% nothing is sent. If spot fell &gt;5% since you posted a request, we ask before filling.</div>
+        <div className="nm" style={{ marginTop: 6 }}>Sell → fills at spot minus the discount, one tx both sides sign. Holding less than a block? You sell what you have.</div>
       </div>
       <div>
         <div className="row" style={{ gap: 8 }}><div className="lbl" style={{ margin: 0 }}>{mode === 'rest' ? 'Place a resting bid' : 'Buy a block now'}</div><span className="sp" /><span className="seg"><button className={mode === 'rest' ? 'on' : ''} onClick={() => setMode('rest')}>Bid under</button><button className={mode === 'block' ? 'on' : ''} onClick={() => setMode('block')}>Buy block</button></span></div>
@@ -45,7 +45,7 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
         <div className="kv"><span>You receive ≈</span><b className="num">{book.market?.priceSol ? (+sol / (book.market.priceSol * (1 - eff / 10000))).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'} {symbol}</b></div></> })()}
         <button className="btn pri big" style={{ marginTop: 10 }} disabled={!book.open || !d.connected || !d.bidder?.connected() || !(+sol >= (book.minBlock || 0))} onClick={place}>{!d.connected ? 'Connect wallet' : !d.bidder?.connected() ? 'Linking bidder…' : +sol < (book.minBlock || 0) ? `Min block ${S(book.minBlock || 0, 2)} SOL` : mode === 'block' ? `Buy block · up to +${(prem / 100).toFixed(1)}%` : 'Place bid'}</button>
         {msg && <div className="nm" style={{ marginTop: 6 }}>{msg}</div>}
-        <div className="nm" style={{ marginTop: 8 }}>{mode === 'block' ? 'Holders of this coin get pinged and can fill you off-chart at that price — zero impact on the chart on your way in. Fillable immediately, expires on its own.' : 'SOL stays in your wallet. Bid lives while this tab is open; your browser verifies every fill before signing.'}</div>
+        <div className="nm" style={{ marginTop: 8 }}>{mode === 'block' ? 'Holders get pinged and fill you off-chart. No chart impact.' : 'SOL stays in your wallet until someone fills you. Rests 60s first.'}</div>
       </div>
     </div>
   </div>

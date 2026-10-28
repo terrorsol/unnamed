@@ -34,6 +34,8 @@ function bestPair(pairs: Pair[]): Pair | undefined {
 }
 /** Batch: up to 30 mints → best pair each */
 /** SOL depth for impact math. DexScreener has no liquidity for bonding-curve coins; pump's curve is a virtual constant product (30 SOL × 1.073e9), depth = sqrt(k·p). */
+/** Client mirror of the server's desk gate (rules.deskWhy): graduated ≥ $100K or curve ≥ $50K, trading, with depth. */
+export const deskEligible = (c: Coin) => c.priceUsd > 0 && (c.onCurve ? c.mcap >= 50_000 : c.mcap >= 100_000) && c.vol1h >= 5_000 && c.depthSol >= 10
 export function depthSol(p: any): number { const q = p?.liquidity?.quote; if (q) return q; const px = +(p?.priceNative || 0); return p?.dexId === 'pumpfun' && px ? Math.sqrt(30 * 1.073e9 * px) : 0 }
 export async function tokensByMint(mints: string[]): Promise<Record<string, Coin>> {
   const out: Record<string, Coin> = {}

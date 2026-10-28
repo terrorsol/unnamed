@@ -234,7 +234,7 @@ export default function App() {
   return <div className="app">
     <div className="top">
       <a className="logo" href="#/">UNNAMED<span>beta · mainnet</span></a>
-      <div className="search"><span className="dim">⌕</span><input placeholder="Search name, ticker or mint" value={q} onChange={(e) => { setQ(e.target.value); if (page !== 'home') go('') }} /><kbd>/</kbd></div>
+      <div className="search"><span className="dim">⌕</span><input placeholder="CA or ticker" value={q} onChange={(e) => { setQ(e.target.value); if (page !== 'home') go('') }} /><kbd>/</kbd></div>
       <div className="qb"><span>⚡ Quick buy</span>{[0.1, 0.5, 1, 2].map((v) => <button key={v} className={settings.quickBuy === v ? 'on' : ''} onClick={() => setSettings({ quickBuy: v })}>{v}</button>)}</div>
       <span className="sp" />
       <button className="btn" onClick={() => setWp(true)}>{connected ? <><span className="status"><i /></span><span className="num">{ws.sol == null ? '…' : S(ws.sol) + ' SOL'}</span><span className="dim num">{short(activeKey!.toBase58(), 3)}</span>{mode === 'burner' && <span className="tag live">1-CLICK</span>}</> : (mode === 'burner' && B.hasBurner() ? 'Unlock wallet' : 'Connect wallet')}</button>
