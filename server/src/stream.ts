@@ -27,8 +27,25 @@ function connect() {
     const [pool, s] = entry
     try { const sw = await decode(conn, pool, sig, context.slot); if (sw) s.handlers.forEach((h) => h(sw)) } catch {}
   }
-  ws.onclose = () => { if (!closed) setTimeout(connect, 3000) }
-  ws.onerror = () => { try { ws.close() } catch {} }
+  ws.onclose = (e: any) => { lastClose = `${e?.code || ''} ${e?.reason || ''}`.trim(); if (!closed) setTimeout(connect, 3000) }
+  ws.onerror = (e: any) => { lastError = String(e?.message || e?.error?.message || 'error').slice(0, 120); try { ws.close() } catch {} }
+}
+let lastClose = '', lastError = ''
+// Polling fallback (any RPC, no websocket): new signatures on the pool every few seconds, decoded the same way. Runs for every watched
+// pool while the websocket is not open; the `seen` set keeps the two paths from double-counting.
+const pollers = new Map<string, any>(); const lastSig = new Map<string, string>()
+function startPoll(pool: string) {
+  if (pollers.has(pool)) return
+  pollers.set(pool, setInterval(async () => {
+    if (ws?.readyState === 1) return
+    const s = subs.get(pool); if (!s) { clearInterval(pollers.get(pool)); pollers.delete(pool); return }
+    try {
+      const sigs = await conn.getSignaturesForAddress(new PublicKey(pool), { limit: 15, until: lastSig.get(pool) }, 'confirmed')
+      if (!sigs.length) return; if (!lastSig.has(pool)) { lastSig.set(pool, sigs[0].signature); return } // first poll just sets the cursor
+      lastSig.set(pool, sigs[0].signature)
+      for (const x of sigs.reverse()) { if (x.err || seen.has(x.signature)) continue; seen.add(x.signature); const sw = await decode(conn, pool, x.signature, x.slot).catch(() => null); if (sw) s.handlers.forEach((h) => h(sw)) }
+    } catch {}
+  }, 4000))
 }
 /** Read the pool's WSOL delta from the tx: + = buy (SOL into pool), − = sell. Works for PumpSwap, Raydium, Meteora pools. */
 export async function decode(c: Connection, pool: string, sig: string, slot: number): Promise<Swap | null> {
@@ -49,6 +66,6 @@ export async function decode(c: Connection, pool: string, sig: string, slot: num
 export function watchPool(pool: string, h: Handler) {
   if (!ws) { closed = false; connect() }
   let s = subs.get(pool); if (!s) { s = { id: null, subId: null, handlers: new Set() }; subs.set(pool, s); if (ws?.readyState === 1) s.id = subscribe(pool) }
-  s.handlers.add(h); return () => { s!.handlers.delete(h); if (!s!.handlers.size) { if (s!.subId != null) send({ jsonrpc: '2.0', id: nextId++, method: 'logsUnsubscribe', params: [s!.subId] }); subs.delete(pool) } }
+  s.handlers.add(h); startPoll(pool); return () => { s!.handlers.delete(h); if (!s!.handlers.size) { if (s!.subId != null) send({ jsonrpc: '2.0', id: nextId++, method: 'logsUnsubscribe', params: [s!.subId] }); subs.delete(pool) } }
 }
-export const streamStats = () => ({ pools: subs.size, connected: ws?.readyState === 1 })
+export const streamStats = () => ({ pools: subs.size, connected: ws?.readyState === 1, polling: pollers.size, lastClose, lastError })
