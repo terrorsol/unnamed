@@ -20,7 +20,7 @@ const mock = createServer(async (req, res) => {
   if (q.method === 'getSignatureStatuses') return reply({ context: { slot: 1 }, value: [{ slot: 1, confirmations: 10, err: null, confirmationStatus: 'confirmed' }] })
   reply(null)
 }).listen(4390)
-const proc = spawn('node', ['--experimental-strip-types', 'src/index.ts'], { cwd: process.env.E2E_SERVER || __r(HERE, '../../server'), env: { ...process.env, DEV_AUTH: '0', PORT: '4192', RPC_URL: 'http://localhost:4390', DEX_URL: 'http://localhost:4390', TREASURY, DATA_DIR: SC + '/vdata6', PUMPPORTAL_URL: 'http://localhost:4390' }, stdio: ['ignore', 'pipe', 'pipe'] })
+const proc = spawn('node', ['--experimental-strip-types', 'src/index.ts'], { cwd: process.env.E2E_SERVER || __r(HERE, '../../server'), env: { ...process.env, MM_WARMUP_MS: '0', DEV_AUTH: '0', PORT: '4192', RPC_URL: 'http://localhost:4390', DEX_URL: 'http://localhost:4390', TREASURY, DATA_DIR: SC + '/vdata6', PUMPPORTAL_URL: 'http://localhost:4390' }, stdio: ['ignore', 'pipe', 'pipe'] })
 proc.stderr.on('data', (d) => { const s = String(d); if (!s.includes('bigint')) process.stdout.write('[srv!] ' + s) })
 await new Promise((r) => setTimeout(r, 2500))
 const chk = (n, ok) => console.log((ok ? 'PASS ' : 'FAIL ') + n)

@@ -18,7 +18,7 @@ const mock = createServer(async (req, res) => {
   if (q.method === 'getTokenSupply') return reply({ context: { slot: 1 }, value: { amount: '1000000000000000', decimals: 6, uiAmount: 1e9 } })
   if (q.method === 'getTokenAccountsByOwner') { const amt = owner === vaultPub ? (tokDeposited ? '100000000000' : '0') : '500000000000'; return reply({ context: { slot: 1 }, value: amt === '0' ? [] : [{ pubkey: '7UX2i7SucgLMQcfZ75s3VXmZZY4YRUyJN9X1RgfMoDUi', account: { executable: false, owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', lamports: 2039280, rentEpoch: 0, space: 165, data: { program: 'spl-token', space: 165, parsed: { type: 'account', info: { mint: MINT, owner, isNative: false, state: 'initialized', tokenAmount: { amount: amt, decimals: 6, uiAmount: +amt / 1e6, uiAmountString: String(+amt / 1e6) } } } } } }] }) }
   if (q.method === 'getLatestBlockhash') return reply({ context: { slot: 1 }, value: { blockhash: '11111111111111111111111111111111', lastValidBlockHeight: 999999999 } })
-  if (q.method === 'sendTransaction') { sent.push(q.params[0]); if (sent.length === 2) tokDeposited = true; return reply('5'.repeat(87)) }
+  if (q.method === 'sendTransaction') { sent.push(q.params[0]); if (sent.length === 2) tokDeposited = true; return reply('5'.repeat(86) + String(sent.length)) } // unique sig per tx: the server refuses to book one signature twice
   if (q.method === 'getSignatureStatuses') return reply({ context: { slot: 1 }, value: [{ slot: 1, confirmations: 10, err: null, confirmationStatus: 'confirmed' }] })
   if (q.method === 'getTransaction') { // reconstruct the fee tx: decode last sent tx, compute balance deltas
     const tx = Transaction.from(Buffer.from(sent[sent.length - 1], 'base64')); const keys = [...new Set([tx.feePayer.toBase58(), ...tx.instructions.flatMap((i) => i.keys.map((k) => k.pubkey.toBase58()))])]; const pre = keys.map(() => 50e9); const post = [...pre]
@@ -27,7 +27,7 @@ const mock = createServer(async (req, res) => {
   reply(null)
 }).listen(4390)
 const srv = createServer((req, res) => { let p = join(DIST, req.url.split('?')[0]); if (!existsSync(p) || p.endsWith('/')) p = join(DIST, 'index.html'); res.setHeader('content-type', MIME[extname(p)] || 'application/octet-stream'); res.end(readFileSync(p)) }).listen(4191)
-const proc = spawn('node', ['--experimental-strip-types', 'src/index.ts'], { cwd: process.env.E2E_SERVER || __r(HERE, '../../server'), env: { ...process.env, DEV_AUTH: '0', PORT: '4192', RPC_URL: 'http://localhost:4390', DEX_URL: 'http://localhost:4390', TREASURY, DATA_DIR: SC + '/vdata4' }, stdio: ['ignore', 'pipe', 'pipe'] })
+const proc = spawn('node', ['--experimental-strip-types', 'src/index.ts'], { cwd: process.env.E2E_SERVER || __r(HERE, '../../server'), env: { ...process.env, MM_WARMUP_MS: '0', DEV_AUTH: '0', PORT: '4192', RPC_URL: 'http://localhost:4390', DEX_URL: 'http://localhost:4390', TREASURY, DATA_DIR: SC + '/vdata4' }, stdio: ['ignore', 'pipe', 'pipe'] })
 proc.stderr.on('data', (d) => { const s = String(d); if (!s.includes('bigint')) process.stdout.write('[srv!] ' + s) })
 await new Promise((r) => setTimeout(r, 2500))
 const errs = []; const chk = (n, ok) => { console.log((ok ? 'PASS ' : 'FAIL ') + n); if (!ok) errs.push(n) }

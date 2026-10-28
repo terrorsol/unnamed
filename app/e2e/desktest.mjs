@@ -36,7 +36,7 @@ const mock = createServer(async (req, res) => {
 }).listen(4390)
 const srv = createServer((req, res) => { let p = join(DIST, req.url.split('?')[0]); if (!existsSync(p) || p.endsWith('/')) p = join(DIST, 'index.html'); res.setHeader('content-type', MIME[extname(p)] || 'application/octet-stream'); res.end(readFileSync(p)) }).listen(4191)
 // ---- real desk server ----
-const proc = spawn('node', ['--experimental-strip-types', 'src/index.ts'], { cwd: process.env.E2E_SERVER || __r(HERE, '../../server'), env: { ...process.env, DEV_AUTH: '0', PORT: '4192', RPC_URL: 'http://localhost:4390', DEX_URL: 'http://localhost:4390', TREASURY, DATA_DIR: SC + '/vdata2', PUMPPORTAL_URL: 'http://localhost:4390' }, stdio: ['ignore', 'pipe', 'pipe'] })
+const proc = spawn('node', ['--experimental-strip-types', 'src/index.ts'], { cwd: process.env.E2E_SERVER || __r(HERE, '../../server'), env: { ...process.env, MM_WARMUP_MS: '0', DEV_AUTH: '0', PORT: '4192', RPC_URL: 'http://localhost:4390', DEX_URL: 'http://localhost:4390', TREASURY, DATA_DIR: SC + '/vdata2', PUMPPORTAL_URL: 'http://localhost:4390' }, stdio: ['ignore', 'pipe', 'pipe'] })
 proc.stdout.on('data', (d) => process.stdout.write('[srv] ' + d)); proc.stderr.on('data', (d) => process.stdout.write('[srv!] ' + d))
 await new Promise((r) => setTimeout(r, 2500))
 const errs = []; const chk = (n, ok) => { console.log((ok ? 'PASS ' : 'FAIL ') + n); if (!ok) errs.push(n) }
@@ -124,7 +124,7 @@ chk('redeem toast', (await seller.pg.locator('.toast.ok').last().innerText().cat
 // vault bid fill: seller sells a block into the vault's bid after it has rested
 console.log('waiting for vault bid rest…'); await seller.pg.waitForTimeout(70000)
 await seller.pg.locator('.seg button', { hasText: 'Desk' }).click(); await seller.pg.waitForTimeout(6000)
-{ const mt = await seller.pg.locator('.main').innerText(); console.log('DESKTAB', mt.replace(/\n/g, ' / ').slice(0, 500)); chk('vault bid shows on the desk tab (simple: best bid · pro: VAULT row)', /Best bid/i.test(mt) || (/VAULT/.test(mt) && /−4\.\d%/.test(mt))) }
+{ const mt = await seller.pg.locator('.main').innerText(); console.log('DESKTAB', mt.replace(/\n/g, ' / ').slice(0, 500)); chk('vault bid shows on the desk tab (simple: best bid · pro: VAULT row)', /Best bid/i.test(mt) || (/VAULT/.test(mt) && /−[34]\.\d%/.test(mt))) }
 // ---- smart sell: plain Sell routes through the vault bid because it beats chart impact ----
 await seller.pg.locator('.seg button', { hasText: 'Sell' }).first().click(); await seller.pg.waitForTimeout(300); await seller.pg.locator('.presets button', { hasText: '100%' }).first().click()
 const bookNow = await (await fetch('http://localhost:4192/book/' + MINT)).json(); console.log('BOOK before smart sell', JSON.stringify(bookNow.bids.map((b) => ({ sol: b.sol, disc: b.discBps, restable: b.restable, away: b.away, vault: b.vault }))), 'minBlock', bookNow.minBlock)

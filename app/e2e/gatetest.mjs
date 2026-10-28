@@ -17,7 +17,7 @@ const mock = createServer(async (req, res) => { let body = ''; for await (const 
   res.end(JSON.stringify({ jsonrpc: '2.0', id, result: null })) }).listen(4390)
 const SRV = process.env.E2E_SERVER || __r(HERE, '../../server'); const DATA = SC + '/gate-data'
 const keys = execFileSync('node', ['--experimental-strip-types', 'scripts/invites.ts', '2', 'e2e'], { cwd: SRV, env: { ...process.env, DATA_DIR: DATA }, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim().split('\n')
-const proc = spawn('node', ['--experimental-strip-types', 'src/index.ts'], { cwd: SRV, env: { ...process.env, DEV_AUTH: '0', GATE: '1', PORT: '4292', RPC_URL: 'http://localhost:4390', DEX_URL: 'http://localhost:4390', DATA_DIR: DATA, VAMPS: '0' }, stdio: ['ignore', 'pipe', 'pipe'] })
+const proc = spawn('node', ['--experimental-strip-types', 'src/index.ts'], { cwd: SRV, env: { ...process.env, MM_WARMUP_MS: '0', DEV_AUTH: '0', GATE: '1', PORT: '4292', RPC_URL: 'http://localhost:4390', DEX_URL: 'http://localhost:4390', DATA_DIR: DATA, VAMPS: '0' }, stdio: ['ignore', 'pipe', 'pipe'] })
 proc.stderr.on('data', (d) => { const s = String(d); if (!s.includes('bigint')) process.stdout.write('[srv!] ' + s) })
 await new Promise((r) => setTimeout(r, 3000))
 const chk = (n, ok) => console.log((ok ? 'PASS ' : 'FAIL ') + n)

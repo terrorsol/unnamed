@@ -14,7 +14,17 @@
 - Private beta gate: invite keys (`npm run invites -- 10 "wave 1"` on the server), bound to the first wallet that signs, 30-day sessions; every write route and the bidder socket require one while `GATE=1`; reads stay open. Gate screen in the app, "have a key?" on banker.cash. 15-check e2e.
 - Brand: BANKER everywhere, black/white/green, bank mark; investor deck (`BANKER-deck.pdf`, source in `deck/`); waitlist landing live on banker.cash (repo `terrorsol/google`, gh-pages); `/waitlist` endpoint on the server.
 - Live: server on Render (`unnamed-server.onrender.com`, helius, gate on, 2 SOL chest cap, 1 SOL import tier), app at `app.banker.cash`, landing at `banker.cash`. One brand wallet `BANKY…` is every vault (top holder on every coin) with per-vault chest ledgers booked from tx deltas; launched mints end in `…BANK` from a pre-ground pool; launch metadata self-hosted. Drawdown stop on the mm leg. Paper vault runs on CI against live coins (`paper.yml`).
-- Tests: server 32/32, app 20/20, e2e launch 21 (+21 in shared-wallet mode) · gate 15 · desk 50 · app 22 · import 16 · mm 10; mainnet: platform config created, platform fee claim (1.16 SOL) landed, a holder sell simulates clean. See POSTMORTEM.md for the first live launch.
+- Tests: server 33/33, app 20/20, e2e launch 21 (+21 in shared-wallet mode) · gate 15 · desk 50 · app 22 · import 16 · mm 10; mainnet: platform config created, platform fee claim (1.16 SOL) landed, a holder sell simulates clean. See POSTMORTEM.md for the first live launch.
+
+## Handoff (2026-10-28 evening) — read this first
+
+State: **everything is paused on purpose.** No scheduled tasks run. Server on Render is the last pushed build; the commits below are **local only, not pushed** (a push to `main` redeploys Render — J said pause until he says go). TEST vault (`itkQy1XKM54`) still holds his 1.1 SOL stake; `MM_BUYS=0` on Render until he taps **Refund stake** (Vault page, his signature).
+
+Just finished: the MM backtest he asked for. Verdict + all numbers in `BACKTEST.md`. Three policy changes + one real accounting bug fix in `server/src/mm.ts` (leg take-profit, desk bid gated by VWAP/warmup/pool-liq, 25 SOL per-buy cap, `bookSell`/`mmCost`). Tests after the change: server 33/33 · e2e mm 10 · desk 50 · import 16 · gate 15 · launch 21.
+
+When he says go, in order: `git push` (redeploys) → he taps Refund → flip `MM_BUYS: "1"` in `render.yaml` + push → then the list below.
+
+Working copies: app source lives at `/home/claude/unnamed-app` and is synced into this repo's `app/` with `cp -r src e2e public index.html package.json vite.config.ts /home/claude/unnamed-pkg/app/` (check what differs with `diff -rq`). Run e2e suites one at a time; kill a stale server by PID (`ps -eo pid,args | grep src/index.ts`), never with a pkill pattern (kills the shell). Scratch data (89 real-coin JSONs for the replay) is in the session scratchpad `real/`; regenerate with `app/scripts/scrape.mjs` or the `reports-backtest` branch.
 
 ## Left, in order (tight)
 

@@ -76,3 +76,20 @@ test('pool impact cap: a vault buy never exceeds 10% of the pool SOL', () => {
   let d; for (const p of [0.78e-7, 0.78e-7]) { t += 5000; const { dd } = MM.observe(s, p, t); d = MM.defense(s, { ...m(p), liqSol: 20 }, p, t, dd, 0, MM.P, 0.5); s.ddPrev = dd }
   assert.ok(d && d.spend <= 2 + 1e-9, `spend ${d && d.spend}`)
 })
+
+test('drawdown stop books the leg correctly: selling block-zero inventory then buying a desk block is not a loss', () => {
+  const s = mk(10, 3e8); const p = 1e-7
+  // vault sells 1e7 of its own inventory into a pump for 1.2 SOL — pure proceeds, leg untouched
+  MM.onCaptured(s, 1e7, 1000, 1.2)
+  assert.equal(s.mmTok || 0, 0); assert.equal(s.mmGot || 0, 0); assert.ok(Math.abs(s.invGot - 1.2) < 1e-9)
+  // desk buys a 1 SOL block at −4%: the leg now holds those tokens, marked at p it is ≈ +4%, not −100%
+  const tok = 1 / (p * 0.96); MM.onDeskFill(s, 1, tok, p, 2000, 'x'); s.tokens += tok
+  assert.ok(MM.mmPnl(s, p) > 0, `leg should be in profit at mark, got ${MM.mmPnl(s, p)}`)
+  assert.equal(MM.stopped(s, p, 3000), false)
+  // selling half of what the leg bought books half the proceeds to the leg
+  MM.onCaptured(s, tok / 2, 4000, 0.55)
+  assert.ok(Math.abs(s.mmTok - tok / 2) < 1e-6); assert.ok(Math.abs(s.mmGot - 0.55) < 1e-9)
+  // a real 40% drawdown on the leg still stops it
+  assert.equal(MM.stopped(s, p * 0.5, 5000), false) // leg: 0.55 got − 1 spent + 0.26 held = −19%, under the 35% stop
+  assert.equal(MM.stopped(s, p * 0.1, 6000), true) // −40%: stop
+})
