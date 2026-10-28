@@ -120,9 +120,13 @@ wss.on('connection', (ws: WebSocket) => {
     let m: any; try { m = JSON.parse(String(raw)) } catch { return }
     try {
       if (m.type === 'auth') {
-        const msg = `unnamed-desk:${m.pubkey}:${m.ts}`; if (Math.abs(Date.now() - m.ts) > 120000) throw new Error('stale auth')
-        if (!nacl.sign.detached.verify(new TextEncoder().encode(msg), bs58.decode(m.sig), bs58.decode(m.pubkey))) throw new Error('bad signature')
-        if (INV.GATE && INV.session(m.session) !== m.pubkey) throw new Error('invite key required')
+        // an invite session token is an HMAC bound to the wallet that signed to get it: with one, no fresh signature per reconnect (no wallet popup every restart)
+        const viaSession = !!m.session && INV.session(m.session) === m.pubkey
+        if (!viaSession) {
+          const msg = `unnamed-desk:${m.pubkey}:${m.ts}`; if (Math.abs(Date.now() - m.ts) > 120000) throw new Error('stale auth')
+          if (!m.sig || !nacl.sign.detached.verify(new TextEncoder().encode(msg), bs58.decode(m.sig), bs58.decode(m.pubkey))) throw new Error('bad signature')
+          if (INV.GATE) throw new Error('invite key required')
+        }
         who = m.pubkey; const back = D.reattach(ws, who); return send({ type: 'authed', pubkey: who, rfqs: D.rfqOpenFor(), reattached: back })
       }
       if (!who) throw new Error('auth first')

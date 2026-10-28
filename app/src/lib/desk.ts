@@ -83,7 +83,8 @@ export function openBidder(conn: Connection, pubkey: string, signMsg: (m: Uint8A
   const connect = async () => {
     await ready; if (closed) return
     ws = new WebSocket(WS()); authed = false
-    ws.onopen = async () => { const ts = Date.now(); const sig = await signMsg(new TextEncoder().encode(`unnamed-desk:${pubkey}:${ts}`)); send({ type: 'auth', pubkey, ts, sig: bs58.encode(sig), session: sessionToken() }) }
+    // with an invite session the server trusts the token (it was minted from a signature by this wallet) — no wallet popup on every reconnect
+    ws.onopen = async () => { const ts = Date.now(); const session = sessionToken(); if (session) return send({ type: 'auth', pubkey, ts, session }); const sig = await signMsg(new TextEncoder().encode(`unnamed-desk:${pubkey}:${ts}`)); send({ type: 'auth', pubkey, ts, sig: bs58.encode(sig), session }) }
     ws.onmessage = async (m) => {
       const d = JSON.parse(m.data)
       if (d.type === 'authed') { authed = true; onEvent(d); hb = setInterval(() => send({ type: 'refresh' }), 20000)
