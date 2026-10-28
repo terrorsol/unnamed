@@ -53,15 +53,23 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
 export function DeskPage({ go }: { go: (p: string) => void }) {
   const [list, setList] = useState<Awaited<ReturnType<typeof K.getBooks>> | null>(null); const [err, setErr] = useState('')
   useEffect(() => { const f = () => K.getBooks().then((l) => { setList(l); setErr('') }).catch((e) => setErr(String(e.message || e))); f(); const i = setInterval(f, 8000); return () => clearInterval(i) }, [])
+  const [open, setOpen] = useState(''); const [fl, setFl] = useState<K.FillRec[]>([])
+  useEffect(() => { const f = () => K.fills().then(setFl).catch(() => {}); f(); const i = setInterval(f, 10000); return () => clearInterval(i) }, [])
+  const openMint = () => { const m = open.trim(); if (m.length >= 32) go('coin/' + m + '/desk') }
   return <>
+    <div className="card" style={{ marginBottom: 14 }}><div className="panel" style={{ gap: 6 }}>
+      <div className="lbl" style={{ margin: 0 }}>Trade a block off-chart on any coin</div>
+      <div className="row" style={{ gap: 6 }}><input value={open} onChange={(e) => setOpen(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && openMint()} placeholder="paste any mint — graduated, ≥ $100K" style={{ flex: 1 }} /><button className="btn pri" onClick={openMint} disabled={open.trim().length < 32}>Open desk</button></div>
+      <div className="nm">Sell a block to resting bids or shop it with a max loss · buy a block at a premium with zero chart impact · pseudonymous book, one on-chain tx per fill.</div>
+    </div></div>
     <div className="tiles" style={{ marginBottom: 14, gridTemplateColumns: 'repeat(3,1fr)' }}>
       <div className="tile"><div className="l">Books with bids</div><div className="v num">{list ? list.length : '—'}</div></div>
       <div className="tile"><div className="l">SOL bid</div><div className="v num">{list ? S(list.reduce((a, b) => a + b.sol, 0), 2) : '—'}</div></div>
-      <div className="tile"><div className="l">Status</div><div className="v status" style={{ fontSize: 13 }}><i className={err ? 'off' : ''} />{err ? 'desk server offline' : 'live'}</div></div>
+      <div className="tile"><div className="l">Status</div><div className="v status" style={{ fontSize: 13 }}><i className={err ? 'off' : ''} />{err ? 'offline' : 'live'}</div></div>
     </div>
     <div className="card"><h3>Open books</h3><table><thead><tr><th>Coin</th><th className="r">Bids</th><th className="r">SOL resting</th><th className="r">Best discount</th></tr></thead><tbody>
       {(!list || !list.length) && <tr><td colSpan={4} className="empty">{err ? 'Desk server unreachable: ' + err : 'No bids resting anywhere yet. Open any graduated coin ≥ $100K and place one.'}</td></tr>}
-      {list?.map((b) => <tr key={b.mint} onClick={() => go('coin/' + b.mint)}><td className="tk">{b.symbol} <span className="nm">{short(b.mint, 4)}</span></td><td className="r num">{b.bids}</td><td className="r num">{S(b.sol, 2)}</td><td className="r num dn">−{(b.bestDisc / 100).toFixed(1)}%</td></tr>)}
+      {list?.map((b) => <tr key={b.mint} onClick={() => go('coin/' + b.mint + '/desk')}><td className="tk">{b.symbol} <span className="nm">{short(b.mint, 4)}</span></td><td className="r num">{b.bids}</td><td className="r num">{S(b.sol, 2)}</td><td className="r num dn">−{(b.bestDisc / 100).toFixed(1)}%</td></tr>)}
     </tbody></table></div>
     <div className="nm" style={{ marginTop: 12 }}>Blocks trade off-pool 3–5% under spot · all-or-none · 60s rest · min block 2% of reserve · opens at $100K mc graduated · 0.5% cross fee · settled by one tx both sides sign.</div>
   </>
