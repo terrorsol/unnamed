@@ -34,6 +34,8 @@ export async function creatorOf(mint: string): Promise<string | null> {
   if (creators.has(mint)) return creators.get(mint)!
   let c: string | null = null
   try { const info = await conn.getAccountInfo(curvePda(mint)); if (info && info.data.length >= 81) c = new PublicKey(info.data.subarray(49, 81)).toBase58() } catch {}
+  // not a pump coin → maybe one of ours (or any LaunchLab coin): the pool state carries the creator
+  if (!c) { try { const { pool } = await import('./launchlab.ts'); const p = await pool(mint, 60000); if (p) c = p.creator } catch {} }
   creators.set(mint, c); return c
 }
 /** Extra mints the detector should always include (vaulted coins, coins clients are looking at). */
