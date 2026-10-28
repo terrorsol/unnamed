@@ -295,7 +295,7 @@ export default function App() {
       <div className="row" style={{ marginTop: 6 }}><button className="btn" onClick={() => gateQ.ok(false)}>Hold</button><span className="sp" /><button className="btn pri" onClick={() => gateQ.ok(true)}>Fill at new price</button></div>
     </div></div>}
     {wp && <WalletPanel onClose={() => setWp(false)} burner={burner} setBurner={setBurner} mode={mode} setMode={setMode} sol={ws.sol} onWithdraw={onWithdraw} />}
-    {launch && <Launch onClose={() => setLaunch(false)} onLaunch={onLaunch} busy={busy} connected={connected} sol={ws.sol} needWallet={needWallet} taxBps={llp?.taxBps} permTaxBps={llp?.permTaxBps} platformReady={!!llp?.chain?.exists} />}
+    {launch && <Launch onClose={() => setLaunch(false)} onLaunch={onLaunch} busy={busy} connected={connected} sol={ws.sol} wallet={ws.owner} walletKind={mode === 'burner' ? 'in-app' : (wallet.wallet?.adapter?.name?.toLowerCase() as any) || 'wallet'} needWallet={needWallet} taxBps={llp?.taxBps} permTaxBps={llp?.permTaxBps} platformReady={!!llp?.chain?.exists} />}
     <div className="toasts" style={{ bottom: 'auto', top: 64 }}>{pings.map((r) => <RfqPing key={r.id} r={r} bidder={bidder} onRespond={onRespond} onDismiss={() => setPings((l) => l.filter((x) => x.id !== r.id))} busy={busy} />)}</div>
     <Toasts />
   </div>

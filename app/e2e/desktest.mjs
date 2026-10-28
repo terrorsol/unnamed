@@ -119,7 +119,7 @@ console.log('VT:', (await seller.pg.locator('.card').nth(1).innerText()).slice(0
 const sentBefore = sent.length
 await seller.pg.locator('.btn.big', { hasText: 'Burn & redeem' }).click(); await seller.pg.waitForTimeout(6000)
 chk('redeem tx sent', sent.length === sentBefore + 1)
-if (sent.length > sentBefore) { const tx = Transaction.from(Buffer.from(sent.at(-1), 'base64')); const ks = tx.signatures.map((s) => s.publicKey.toBase58()); chk('redeem signed by holder AND vault', tx.signatures.every((x) => x.signature) && ks.includes(seller.addr) && ks.includes(v.pub) && tx.instructions.length === 3) }
+if (sent.length > sentBefore) { const tx = Transaction.from(Buffer.from(sent.at(-1), 'base64')); const ks = tx.signatures.map((s) => s.publicKey.toBase58()); console.log('REDEEM TX', JSON.stringify({ ks: ks.map((k) => k.slice(0, 6)), signed: tx.signatures.map((x) => !!x.signature), ixs: tx.instructions.length, seller: seller.addr.slice(0, 6), vault: v.pub.slice(0, 6), sentN: sent.length - sentBefore })); chk('redeem signed by holder AND vault', tx.signatures.every((x) => x.signature) && ks.includes(seller.addr) && ks.includes(v.pub) && tx.instructions.length === 3) }
 chk('redeem toast', (await seller.pg.locator('.toast.ok').last().innerText().catch(() => '')).includes('Redeemed'))
 // vault bid fill: seller sells a block into the vault's bid after it has rested
 console.log('waiting for vault bid rest…'); await seller.pg.waitForTimeout(70000)
@@ -168,7 +168,9 @@ chk('book is pseudonymous (no pubkeys)', bookJson.bids.every((b) => /^desk-[0-9a
 // ---- sell offers (asks): seller posts one in the simple view, buyer takes it; seller's browser co-signs
 await seller.pg.evaluate((m) => { location.hash = '#/coin/' + m + '/desk' }, MINT); await seller.pg.waitForTimeout(1500)
 if (await seller.pg.locator('.btn.sm', { hasText: 'Simple view' }).count()) { await seller.pg.locator('.btn.sm', { hasText: 'Simple view' }).click(); await seller.pg.waitForTimeout(800) }
-console.log('SELLER DESK:', (await seller.pg.locator('.main').innerText()).slice(0, 400).replace(/\n/g, ' / ')); const askCard = seller.pg.locator('.desk2 .card', { hasText: 'post a sell offer' }).last()
+console.log('SELLER DESK:', (await seller.pg.locator('.main').innerText()).slice(0, 400).replace(/\n/g, ' / ')); // simple view: with a best bid on the book the offer form sits behind a 'Post a sell offer' toggle
+if (await seller.pg.locator('.panel .btn', { hasText: 'Post a sell offer' }).count()) { await seller.pg.locator('.panel .btn', { hasText: 'Post a sell offer' }).first().click(); await seller.pg.waitForTimeout(400) }
+const askCard = seller.pg.locator('.panel .card', { hasText: 'Your sell offer' }).last()
 await askCard.locator('.presets button', { hasText: '2 SOL' }).click(); await seller.pg.waitForTimeout(200)
 await askCard.locator('.btn.pri.big', { hasText: 'Offer 2 SOL' }).click(); await seller.pg.waitForTimeout(3000)
 let bk = await (await fetch('http://localhost:4192/book/' + MINT)).json()
@@ -176,6 +178,9 @@ chk('sell offer posted (pseudonymous)', bk.asks.length === 1 && bk.asks[0].sol =
 await bidder.pg.evaluate((m) => { location.hash = '#/coin/' + m + '/desk' }, MINT); await bidder.pg.waitForTimeout(1500)
 if (await bidder.pg.locator('.btn.sm', { hasText: 'Simple view' }).count()) { await bidder.pg.locator('.btn.sm', { hasText: 'Simple view' }).click(); await bidder.pg.waitForTimeout(800) }
 
+// simple view opens on the side that fits the wallet; the buyer wants the Buy side
+if (await bidder.pg.locator('.panel .seg button', { hasText: 'Buy' }).count()) { await bidder.pg.locator('.panel .seg button', { hasText: 'Buy' }).first().click(); await bidder.pg.waitForTimeout(500) }
+console.log('BIDDER DESK:', (await bidder.pg.locator('.panel').first().innerText()).slice(0, 300).replace(/\n/g, ' / '))
 chk('buyer sees the best sell offer', /BEST SELL OFFER/i.test(await bidder.pg.locator('.panel').first().innerText()))
 const sentB2 = sent.length
 await bidder.pg.locator('.btn.pri.big', { hasText: 'Buy this block' }).click(); await bidder.pg.waitForTimeout(9000)

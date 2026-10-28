@@ -6,7 +6,7 @@ import * as D from '../lib/dex'
 import { ModePicker } from './Desk'
 
 export type Venue = 'launchlab' | 'pump'
-type Props = { onClose: () => void; onLaunch: (m: CreateMeta, devBuy: number, stake: number, copyOf?: string, mode?: 'floor' | 'mm', ceiling?: number, venue?: Venue, permTax?: boolean, vaultBuy?: number, targetPct?: number) => void; taxBps?: number; permTaxBps?: number; platformReady?: boolean; busy: string; connected: boolean; sol: number | null; needWallet: () => void }
+type Props = { wallet?: string; walletKind?: 'in-app' | 'phantom' | 'wallet'; onClose: () => void; onLaunch: (m: CreateMeta, devBuy: number, stake: number, copyOf?: string, mode?: 'floor' | 'mm', ceiling?: number, venue?: Venue, permTax?: boolean, vaultBuy?: number, targetPct?: number) => void; taxBps?: number; permTaxBps?: number; platformReady?: boolean; busy: string; connected: boolean; sol: number | null; needWallet: () => void }
 export default function Launch(p: Props) {
   const [name, setName] = useState(''); const [symbol, setSymbol] = useState(''); const [desc, setDesc] = useState(''); const [file, setFile] = useState<File | undefined>()
   const [tw, setTw] = useState(''); const [tg, setTg] = useState(''); const [web, setWeb] = useState('')
@@ -54,7 +54,7 @@ export default function Launch(p: Props) {
       {adv && <div style={{ marginTop: 8 }}><ModePicker mode={mode} ceiling={ceiling} onChange={(m, c) => { setMode(m); setCeiling(c) }} compact /></div>}{!adv && <div className="nm">Market maker · capture ceiling {Math.round(ceiling * 100)}%</div>}</div>
     <div className="kv"><span>Cost now</span><b className="num">{S(total, 2)} SOL</b></div>
     <div className="nm">dev buy {S(dev, 2)}{vaultBuy ? ` + vault buy ${S(vaultBuy, 2)}` : ''} + chest {S(chest, 2)} + {venue === 'launchlab' ? '0.1 pool rent' : '0.02 fees'}</div>
-    <div className="kv"><span>Wallet</span><b className="num">{p.sol == null ? '—' : S(p.sol) + ' SOL'}</b></div>
+    <div className="kv"><span>Launching from</span><b className="num">{p.wallet ? p.wallet.slice(0, 4) + '…' + p.wallet.slice(-4) + (p.walletKind ? ' · ' + p.walletKind : '') : '—'} · {p.sol == null ? '—' : S(p.sol) + ' SOL'}</b></div>
     <div className="nm">{chest > 0 ? 'Two signatures: the vault stake, then the create. The vault arms itself once the coin is on chain. ' : 'One signature. '}Phantom may show a "new domain" warning on this site — it is reputation, not the transaction.</div>
     <div className="row"><button className="btn" onClick={p.onClose}>Cancel</button><span className="sp" />
       <button className="btn pri" disabled={!!p.busy || (p.connected && (!ok || (p.sol != null && total > p.sol)))} onClick={() => !p.connected ? p.needWallet() : p.onLaunch({ name: name.trim(), symbol: symbol.trim(), description: desc.trim(), file, twitter: tw || undefined, telegram: tg || undefined, website: web || undefined }, dev, stake, copyOf?.mint, mode, ceiling, venue, venue === 'launchlab' && permTax, vaultBuy, pct)}>{p.busy || (!p.connected ? 'Connect wallet' : 'Create coin')}</button></div>
