@@ -10,8 +10,13 @@ Real mainnet, small amounts. Three things: a launchpad where every trade feeds t
 2. Fund it: tap the balance → address → send 0.5–2 SOL.
 3. Home shows what's live: desks open, vaults running, the off-chart tape, runners and vamps.
 
+## Read first
+- **Pick one wallet and stay in it.** The in-app wallet and Phantom are two different wallets; a coin launched from one is held by that one. The launch modal shows which wallet is launching.
+- Phantom shows "this domain is new / could be malicious" on app.banker.cash for now — reputation, not the transaction. Proceed. (Review requested.)
+- A launch is 2 signatures (stake, create). The vault arms itself when the coin is on chain; nothing else to click. If the bundle route is down the vault buys its supply a few blocks later instead of block zero.
+
 ## Things to try (in this order)
-- **Launch a coin** (≈1.1 SOL: 0.5 dev buy + 0.5 chest + 0.1 pool rent): Launch → name, ticker, image → leave *BANKER launchpad* selected → Create. Two signatures (chest funding, then the create). Leave *Tax builds it* on: the vault starts empty and every buy and sell pays **2% into its chest**; it buys under VWAP until it holds your supply target (default 20%). Or pick *Buy at launch* to give it the supply in the launch block (20% ≈ 7 SOL). Watch the Vault tab: `tax → chest` shows up within ~4 min of the first trades, then `accumulating`, then bids under price and dip buys.
+- **Launch a coin** (≈1.1 SOL: 0.5 dev buy + 0.5 chest + 0.1 pool rent): Launch → name, ticker, image → leave *BANKER launchpad* selected → Create. Two signatures (chest funding, then the create); the vault arms itself. Leave *Tax builds it* on: the vault starts empty and every buy and sell pays **2% into its chest**; it buys under VWAP until it holds your supply target (default 20%). Or pick *Buy at launch* to give it the supply in the launch block (20% ≈ 7 SOL). Watch the Vault tab: `tax → chest` shows up within ~4 min of the first trades, then `accumulating`, then bids under price and dip buys.
 - **Buy and sell your coin** from a second wallet. Trades route through the pool directly; the price on the coin page comes from the pool, not an indexer.
 - **Rest a bid**: Desk → pick a coin → bid 1–15% under → Place. Anyone holding that coin can sell into it, off-chart, no candle. Your SOL stays in your wallet until it fills.
 - **Post a sell offer**: on a coin you hold → Desk / OTC → *post a sell offer* up to 15% either side. Active bidders get pinged.
