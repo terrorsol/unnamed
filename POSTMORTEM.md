@@ -28,3 +28,7 @@ Money: nothing lost. 0.5 SOL dev buy → 17.2M TEST (sold back from the in-app w
 - Helius: free tier is fine for rpc; bundles now go to jito directly.
 - Pinata JWT if you want IPFS permanence for metadata (self-hosted works).
 - A real re-test: tax-funded launch, 0.3 chest, 0.1 dev buy, from ONE wallet (phantom, after importing nothing — just use phantom end to end).
+
+## Before the next launch (me, after your refund tap)
+- flip `MM_BUYS` to 1 in render.yaml (left at 0 so the armed TEST vault can't spend your 1.1 while it waits for the refund).
+- flip `MAX_CHEST_SOL` from 2 to whatever you want the beta cap to be.
