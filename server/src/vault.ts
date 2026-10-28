@@ -11,6 +11,7 @@ import * as C from './chain.ts'
 import * as D from './desk.ts'
 import { watchPool, streamStats } from './stream.ts'
 import * as KEEP from './keeper.ts'
+import * as VM from './vamp.ts'
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
 
@@ -25,7 +26,7 @@ const enc = (u: Uint8Array) => { const iv = randomBytes(12); const c = createCip
 const dec = (s: string) => { const b = Buffer.from(s, 'base64'); const d = createDecipheriv('aes-256-gcm', key, b.subarray(0, 12)); d.setAuthTag(b.subarray(12, 28)); return new Uint8Array(Buffer.concat([d.update(b.subarray(28)), d.final()])) }
 
 export type Act = { t: number; kind: 'stake' | 'seed' | 'buy' | 'trim' | 'cut' | 'note' | 'redeem' | 'stream' | 'bid' | 'capture'; sol?: number; tokens?: number; price?: number; sig?: string; msg?: string }
-export type Vault = { venue?: 'pump' | 'launchlab'; taxClaimed?: number; nextClaimAt?: number; holders?: any; ddPrev?: number; nextCaptureAt?: number; levelJit?: number; bidRefreshAt?: number; nextTickAt?: number; paper?: boolean; crowd?: { goalSol: number; raised: number; contributors: Record<string, number>; expiresAt: number; refunded?: boolean }; id: string; pub: string; sk: string; mint?: string; symbol?: string; name?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; createdAt: number; copyOf?: string; streamed: number; redeemed: number; supply: number; deskBid: number; imported?: boolean; feePaid?: number; trimmedToday: number; trimDay: number; depositedTokens: number; funders: Record<string, number>; mode: 'floor' | 'mm'; ceiling: number; lastLiq: number; lastLiqT: number; buyTimes: number[]; tranchesFired: number[]; score: { captured: number; captures: number; deskBought: number; deskFills: number; dipBought: number; dips: number; redeployed: number; floor0: number }; lastCapture: number
+export type Vault = { venue?: 'pump' | 'launchlab'; taxClaimed?: number; nextClaimAt?: number; vampChecked?: number; holders?: any; ddPrev?: number; nextCaptureAt?: number; levelJit?: number; bidRefreshAt?: number; nextTickAt?: number; paper?: boolean; crowd?: { goalSol: number; raised: number; contributors: Record<string, number>; expiresAt: number; refunded?: boolean }; id: string; pub: string; sk: string; mint?: string; symbol?: string; name?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; createdAt: number; copyOf?: string; streamed: number; redeemed: number; supply: number; deskBid: number; imported?: boolean; feePaid?: number; trimmedToday: number; trimDay: number; depositedTokens: number; funders: Record<string, number>; mode: 'floor' | 'mm'; ceiling: number; lastLiq: number; lastLiqT: number; buyTimes: number[]; tranchesFired: number[]; score: { captured: number; captures: number; deskBought: number; deskFills: number; dipBought: number; dips: number; redeployed: number; floor0: number }; lastCapture: number
   avgCost: number; tokens: number; chest: number; spentEpisode: number; high15: { t: number; p: number }[]; samples: { t: number; p: number; v: number }[]; ema5: number | null; ema15: number | null; lastBuy: number; lastTrim: number; activity: Act[]; devPaid: number }
 let vaults: Record<string, Vault> = {}
 const watched = new Map<string, () => void>()
@@ -221,8 +222,15 @@ export async function onBuy(v: Vault, solIn: number, m: any, p: number, now: num
     v.score.captured += got; v.score.captures++
     v.activity.unshift({ t: now, kind: 'capture', sol: got, tokens, price: p, sig, msg: `countered a ${solIn.toFixed(2)} SOL buy · ${Math.round(frac * 100)}% · stretch +${Math.round((p / R.vwap(v.samples) - 1) * 100)}%` })
     const profit = got - v.avgCost * tokens; const cut = v.cut > 0 ? Math.max(0, profit) * (v.cut / 100) : 0
-    if (cut > 0.001 && !PAPER) { try { const s2 = await payFrom(v, v.dev, Math.floor(cut * 1e9)); v.devPaid += cut; v.activity.unshift({ t: now, kind: 'cut', sol: cut, sig: s2, msg: `dev cut ${v.cut}% of capture profit` }) } catch {} }
+    await payCut(v, cut, now, 'capture profit')
   } catch (e: any) { v.activity.unshift({ t: now, kind: 'note', msg: 'capture failed: ' + String(e.message).slice(0, 80) }) }
+}
+/** the dev cut on realized profit. A copy (declared at launch, or flagged by the vamp detector) streams half of every cut to the original's chest. */
+async function payCut(v: Vault, cut: number, now: number, why: string) {
+  if (!(cut > 0.001) || PAPER) return
+  let devShare = cut
+  if (v.copyOf) { const orig = Object.values(vaults).find((x) => x.mint === v.copyOf && x.armed); if (orig) { try { const half = cut / 2; const s3 = await payFrom(v, orig.pub, Math.floor(half * 1e9)); v.streamed = (v.streamed || 0) + half; devShare = cut - half; v.activity.unshift({ t: now, kind: 'stream', sol: half, sig: s3, msg: `half of cut → original ${orig.symbol}` }); orig.activity.unshift({ t: now, kind: 'stream', sol: half, sig: s3, msg: `received from copy ${v.symbol}` }); orig.chest += half } catch {} } }
+  try { const s2 = await payFrom(v, v.dev, Math.floor(devShare * 1e9)); v.devPaid += devShare; v.activity.unshift({ t: now, kind: 'cut', sol: devShare, sig: s2, msg: `dev cut ${v.cut}% of ${why}` }) } catch {}
 }
 function trimAllowed(v: Vault, m: any, p: number, now: number) {
   const day = Math.floor(now / 86400000); if (day !== v.trimDay) { v.trimDay = day; v.trimmedToday = 0 }
@@ -258,6 +266,8 @@ async function tickOne(v: Vault) {
     try {
       const m = await market(v.mint); if (!m || !m.priceSol) return
       const now = Date.now(), p = m.priceSol
+      // vamp feeding runners: when the detector is sure this coin copies a vaulted runner, it becomes a copy — half of every cut streams to the original
+      if (!v.copyOf && !v.vampChecked || now > (v.vampChecked || 0)) { v.vampChecked = now + 300000; try { const vf = VM.forMint(v.mint); if (vf.vamp && vf.vamp.score >= 0.8 && Object.values(vaults).some((x) => x.mint === vf.vamp!.original && x.armed)) { v.copyOf = vf.vamp.original; v.activity.unshift({ t: now, kind: 'note', msg: `flagged as a copy of ${vf.vamp.originalSymbol} (${vf.vamp.reasons.join(', ')}) — half of every cut now streams to its chest` }) } } catch {} }
       if (v.venue === 'launchlab' && now > (v.nextClaimAt || 0)) { v.nextClaimAt = now + 120000 + Math.random() * 120000; claimTax(v).catch((e) => v.activity.unshift({ t: now, kind: 'note', msg: 'tax claim failed: ' + String(e.message).slice(0, 80) })) }
       v.samples.push({ t: now, p, v: 1 }); v.samples = v.samples.filter((s) => now - s.t < 30 * 60_000)
       v.high15.push({ t: now, p }); v.high15 = v.high15.filter((s) => now - s.t < 15 * 60_000)
@@ -295,9 +305,7 @@ async function tickOne(v: Vault) {
         const sold = v.tokens * frac; await sync(v); const got = v.chest - before; v.lastTrim = now; v.trimmedToday += sold
         v.activity.unshift({ t: now, kind: 'trim', sol: got, price: p, sig, msg: 'above cost + VWAP' })
         const profit = got - v.avgCost * (v.tokens * frac / (1 - frac)); const cut = v.cut > 0 ? Math.max(0, profit) * (v.cut / 100) : 0
-        // copies stream half their cut to the original's vault
-        if (v.copyOf && cut > 0.002 && !PAPER) { const orig = Object.values(vaults).find((x) => x.mint === v.copyOf && x.armed); if (orig) { try { const half = cut / 2; const s3 = await payFrom(v, orig.pub, Math.floor(half * 1e9)); v.streamed = (v.streamed || 0) + half; v.activity.unshift({ t: now, kind: 'stream', sol: half, sig: s3, msg: `half of cut → original ${orig.symbol}` }); orig.activity.unshift({ t: now, kind: 'stream', sol: half, sig: s3, msg: `from copy ${v.symbol}` }) } catch {} } }
-        if (cut > 0.001 && !PAPER) { try { const s2 = await payFrom(v, v.dev, Math.floor(cut * (v.copyOf ? 0.5 : 1) * 1e9)); v.devPaid += cut * (v.copyOf ? 0.5 : 1); v.activity.unshift({ t: now, kind: 'cut', sol: cut, sig: s2, msg: `dev cut ${v.cut}%` }) } catch {} }
+        await payCut(v, cut, now, 'trim profit')
       }
       // standing vault bid on the desk: −5%, ≈35% of chest, only when the desk is open for this coin
       try {
