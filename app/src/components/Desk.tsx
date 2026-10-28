@@ -53,10 +53,10 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
     {!book.open && <div className="note">Closed: {book.why || 'not enough market'}.</div>}
     {side === 'sell' ? <>
       {best ? <div className="card" style={{ padding: 14 }}>
-        <div className="lbl">Best bid</div>
+        <div className="lbl">Best bid{offers.length > 1 ? <span className="nm" style={{ marginLeft: 8 }}>+{offers.length - 1} more in Pro</span> : null}</div>
         <div style={{ fontSize: 19, fontWeight: 600 }} className="num"><Live v={best.sol}>{S(best.sol, 2)} SOL</Live> <span className="dim" style={{ fontSize: 14, fontWeight: 500 }}>{pct(best.discBps)}</span></div>
         <div className="nm" style={{ marginTop: 4 }}>{d.holdingUi <= 0 ? `No ${symbol} in wallet.` : myValSol >= best.sol ? `You get ≈ ${S(best.sol * (1 - book.rules.feeBps / 10000), 2)} SOL.` : canSellTo(best) ? `Whole bag → ≈ ${S(takeOf(best) * (1 - book.rules.feeBps / 10000), 2)} SOL.` : `Your bag (${S(myValSol, 2)} SOL) is under the ${S(book.minBlock || 0, 2)} SOL minimum.`}</div>
-        <div className="row" style={{ marginTop: 10, gap: 8 }}>{!d.connected ? <Wallet /> : <button className="btn pri big" disabled={!canSellTo(best) || !!d.busy} onClick={() => d.takeBid(best.id, takeOf(best) < best.sol - 1e-9 ? +takeOf(best).toFixed(4) : undefined)}>{d.busy || 'Sell into it'}</button>}{offers.length > 1 && <span className="nm">+{offers.length - 1} more in Pro</span>}</div>
+        <div className="row" style={{ marginTop: 10, gap: 8 }}>{!d.connected ? <Wallet /> : <button className="btn pri big" disabled={!canSellTo(best) || !!d.busy} onClick={() => d.takeBid(best.id, takeOf(best) < best.sol - 1e-9 ? +takeOf(best).toFixed(4) : undefined)}>{d.busy || 'Sell into it'}</button>}</div>
       </div> : offerForm}
       <div className="row" style={{ gap: 8 }}>{best && <button className={'btn' + (sub === 'offer' ? ' on' : '')} onClick={() => setSub(sub === 'offer' ? '' : 'offer')}>{myAsk ? 'Your offer' : 'Post a sell offer'}</button>}{d.connected && d.holdingUi > 0 && book.open && <button className="btn" onClick={() => d.onShop?.()}>Ask buyers</button>}</div>
       {best && sub === 'offer' && offerForm}
@@ -71,9 +71,20 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
       {bestAsk && sub === 'bid' && bidForm}
     </>}
     {msg && <div className="note">{msg}</div>}
+    <FillTape mint={mint} />
   </div>
 }
 
+/** Off-chart tape: desk fills, newest first. One coin or all. */
+export function FillTape({ mint, go, limit = 12 }: { mint?: string; go?: (p: string) => void; limit?: number }) {
+  const [fills, setFills] = useState<K.FillRec[]>([]); const mountedAt = useMemo(() => Date.now(), [])
+  useEffect(() => { let on = true; const f = () => K.fills(mint).then((l) => on && setFills(l)).catch(() => {}); f(); const i = setInterval(f, 8000); const onBook = () => f(); K.bookBus.addEventListener('book', onBook); return () => { on = false; clearInterval(i); K.bookBus.removeEventListener('book', onBook) } }, [mint])
+  const rows = fills.slice().sort((a, b) => b.t - a.t).slice(0, limit)
+  return <div className="card"><h3>Off-chart tape <span className="nm">{mint ? 'this coin' : 'all desks'}</span></h3><div className="feed tape">
+    {rows.map((f) => <div className={'it' + (f.t > mountedAt ? ' new' : '')} key={f.sig} style={{ cursor: go ? 'pointer' : 'default' }} onClick={() => go?.('coin/' + f.mint + '/desk')}>{!mint && <b className="tk" style={{ width: 64 }}>{f.symbol}</b>}<span className="num up" style={{ width: 80 }}>{S(f.sol, 2)} SOL</span><span className="num dn" style={{ width: 64 }}>{f.discBps < 0 ? '+' : '−'}{(Math.abs(f.discBps) / 100).toFixed(1)}%</span><span className="dim" style={{ width: 60 }}>{f.vault ? 'vault' : short(f.bidder, 4)}</span><span className="sp" /><span className="dim">{ago(f.t)}</span><a className="dim" href={solscan(f.sig)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ marginLeft: 8 }}>↗</a></div>)}
+    {!rows.length && <div className="empty" style={{ padding: 14 }}>No fills yet</div>}
+  </div></div>
+}
 /** Order book + bid/take controls for one coin */
 export function CoinDeskPro({ mint, symbol, d }: { mint: string; symbol: string; d: DeskCtx }) {
   const [book, setBook] = useState<K.Book | null>(null); const [err, setErr] = useState(''); const [sol, setSol] = useState('1'); const [disc, setDisc] = useState(400); const [msg, setMsg] = useState('')
@@ -150,6 +161,7 @@ export function DeskPage({ go, coins = [], owner = '', bidder = null }: { go: (p
       {!rows.length && <tr><td colSpan={4} className="empty">{err ? 'Offline. Reconnecting.' : 'No desks open right now. Paste a mint above.'}</td></tr>}
       {rows.map((r) => <tr key={r.mint} onClick={() => go('coin/' + r.mint + '/desk')}><td className="tk">{r.symbol}</td><td className="r num">{r.mcap ? F(r.mcap) : '—'}</td><td className="r"><DeskState b={{ bids: r.bids, sol: r.sol, asks: r.asks, askSol: r.askSol }} /></td><td className="r num">{r.best != null && r.bids ? <span className="dn">−{(r.best / 100).toFixed(1)}%</span> : <span className="dim">—</span>}</td></tr>)}
     </tbody></table></div>
+    <div style={{ marginTop: 12 }}><FillTape go={go} limit={16} /></div>
   </>
 }
 

@@ -73,6 +73,7 @@ export function SettingsPage({ s, set, owner, signTx, conn }: { s: Settings; set
     {llp && <div className="fld"><div className="lbl">Launchpad</div>
       {llp.chain?.exists ? <div className="nm">live · tax {(llp.chain.feeRate ?? 0).toFixed(2)}% → chests · creator {(llp.chain.creatorFeeRate ?? 0).toFixed(2)}% → dev · platform {llp.platformId?.slice(0, 8)}…</div>
         : !llp.platformId ? <div className="nm">server has no PLATFORM_ADMIN set — add your wallet address to the server env, then come back here</div>
+        : llp.selfAdmin ? <div className="nm">not live yet · send <b>0.02 SOL</b> to the platform wallet <span className="num" style={{ userSelect: 'all' }}>{llp.feeWallet}</span> ({(llp.walletSol ?? 0).toFixed(3)} SOL now) — the server creates the config itself within a minute. Until then launches go out under Raydium's own platform, with no tax.</div>
         : owner && owner === llp.admin ? <div className="row" style={{ gap: 8 }}><button className="btn pri sm" onClick={setupPlatform} disabled={/…/.test(pst)}>Set up launchpad · 1 signature</button><span className="nm">tax {(llp.taxBps / 100).toFixed(1)}% → chests · creator {(llp.creatorFeeBps / 100).toFixed(2)}% → dev · {pst}</span></div>
         : <div className="nm">not set up yet · connect the admin wallet ({llp.admin?.slice(0, 6)}…) to create it</div>}
     </div>}

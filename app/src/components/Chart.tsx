@@ -3,6 +3,7 @@ import { createChart, type IChartApi, type ISeriesApi, type UTCTimestamp, Crossh
 import type { Coin } from '../lib/dex'
 import * as D from '../lib/dex'
 import type { VaultPub } from '../lib/desk'
+import * as K from '../lib/desk'
 import type { Fill, Lot } from '../lib/positions'
 import type { Order } from '../lib/orders'
 import type { TradeEvt } from '../lib/pumpportal'
@@ -44,13 +45,21 @@ export default function Chart({ coin, solPrice, vault, fills, lot, orders, trade
     chart.current = c; cs.current = s; vs.current = v
     return () => { c.remove(); chart.current = null }
   }, [])
-  // history
+  // history: our own coins chart off the vault's exact pool reads (server /candles, SOL → USD); everything else off gecko; the dexscreener embed only when neither has bars
+  const [src, setSrc] = useState<'ours' | 'gecko' | ''>('')
   useEffect(() => {
-    let on = true; setBars([]); setFallback(false)
-    if (!coin.pair) { setFallback(true); return }
-    const load = () => gecko(coin.pair!, tf).then((b) => { if (!on) return; if (!b.length) { setFallback(true); return } setBars(b) }).catch(() => on && setFallback(true))
+    let on = true; setBars([]); setFallback(false); setSrc('')
+    const ours = () => K.candles(coin.mint, TF[tf].sec).then((b) => b.filter((x) => x.close > 0).map((x) => ({ time: x.time as UTCTimestamp, open: x.open * solPrice, high: x.high * solPrice, low: x.low * solPrice, close: x.close * solPrice, volume: x.volume * solPrice })))
+    const load = async () => {
+      try {
+        if (coin.venue === 'launchlab' || !coin.pair) { const b = await ours(); if (!on) return; if (b.length >= 2) { setBars(b); setSrc('ours'); return } }
+        if (coin.pair) { const b = await gecko(coin.pair, tf); if (!on) return; if (b.length) { setBars(b); setSrc('gecko'); return } }
+        const b = await ours(); if (!on) return; if (b.length >= 2) { setBars(b); setSrc('ours'); return }
+        setFallback(true)
+      } catch { if (on) setFallback(true) }
+    }
     load(); const i = setInterval(load, 20000); return () => { on = false; clearInterval(i) }
-  }, [coin.pair, tf])
+  }, [coin.pair, coin.mint, coin.venue, tf, solPrice > 0])
   // live tick: fold the latest price into the last bar between refreshes
   useEffect(() => {
     if (!bars.length || !coin.priceUsd) return
@@ -85,9 +94,9 @@ export default function Chart({ coin, solPrice, vault, fills, lot, orders, trade
   }, [bars, vault?.activity?.length, fills.length, orders.length, tf])
   useEffect(() => { try { localStorage.setItem('unnamed_tf', tf) } catch {} }, [tf])
   return <div className="chart" style={{ position: 'relative', background: '#000000' }}>
-    {fallback && coin.pair ? <iframe src={D.chartUrl(coin.pair)} title="chart" allow="clipboard-write" /> : <>
+    {fallback && coin.pair && coin.venue !== 'launchlab' ? <iframe src={D.chartUrl(coin.pair)} title="chart" allow="clipboard-write" /> : fallback ? <div className="empty" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>No trades yet</div> : <>
       <div ref={el} style={{ position: 'absolute', inset: 0 }} />
-      <div className="row" style={{ position: 'absolute', top: 8, left: 10, zIndex: 2, gap: 6 }}><div className="seg" style={{ padding: 1 }}>{Object.keys(TF).map((k) => <button key={k} className={tf === k ? 'on' : ''} style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => setTf(k)}>{k}</button>)}</div><span className="dim num" style={{ fontSize: 11 }}>{legend}</span>{!bars.length && <span className="dim" style={{ fontSize: 11 }}>loading candles…</span>}</div>
+      <div className="row" style={{ position: 'absolute', top: 8, left: 10, zIndex: 2, gap: 6 }}><div className="seg" style={{ padding: 1 }}>{Object.keys(TF).map((k) => <button key={k} className={tf === k ? 'on' : ''} style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => setTf(k)}>{k}</button>)}</div><span className="dim num" style={{ fontSize: 11 }}>{legend}</span>{!bars.length && <span className="dim" style={{ fontSize: 11 }}>loading…</span>}{src === 'ours' && <span className="dim" style={{ fontSize: 11 }}>pool</span>}</div>
       {(vault?.activity?.length || fills.some((f) => f.mint === coin.mint)) ? <div className="row" style={{ position: 'absolute', bottom: 8, left: 10, zIndex: 2, gap: 10, fontSize: 10 }}><span className="dn">▼ C capture</span><span className="up">▲ D dip buy · OTC fill</span><span className="gold">┄ floor</span><span className="dim">you</span></div> : null}
     </>}
   </div>

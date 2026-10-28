@@ -49,7 +49,7 @@ if (sent.length) { const tx = Transaction.from(Buffer.from(sent[sent.length - 1]
 const vs = await (await fetch('http://localhost:4192/vaults')).json()
 chk('vault armed via on-chain tx verification', vs.length === 1 && vs[0].armed && vs[0].imported && vs[0].chest === 5 && vs[0].dev === addr)
 chk('toast VAULTED', seenToast)
-await pg.waitForTimeout(1500); chk('coin header shows VAULTED badge', (await pg.locator('.coinhd').innerText()).includes('VAULTED'))
+await pg.waitForTimeout(1500); chk('coin header: no Add vault button once the vault is on', (await pg.locator('.coinhd .btn', { hasText: 'Add vault' }).count()) === 0 && (await pg.locator('.seg button', { hasText: 'Vault' }).innerText()).includes('ON'))
 await pg.locator('.seg button', { hasText: 'Vault' }).click(); await pg.waitForTimeout(2000)
 chk('deposit controls visible', (await pg.locator('.panel').nth(1).innerText()).includes('Deposit'))
 await pg.locator('.btn.sm', { hasText: 'all my BONK' }).click(); await pg.locator('.btn.pri', { hasText: 'Deposit' }).click(); await pg.waitForTimeout(6000)

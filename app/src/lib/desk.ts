@@ -33,15 +33,17 @@ export type BookAsk = { id: string; mint: string; symbol: string; sol: number; d
 export type Book = { asks: BookAsk[]; open: boolean; why?: string | null; minBlock: number | null; market: any; bids: BookBid[]; rules: { discMin: number; discMax: number; restMs: number; feeBps: number; gateUsd: number } }
 export type Expect = { mint: string; seller: string; bidder: string; treasury: string; base: string; sellerLamports: string; fee: string; priceSol: number; discBps: number; decimals: number; tokenProgram: string; payer?: 'seller' | 'bidder' }
 
+/** list endpoints: a bad or partial server reply never crashes a page — anything that is not an array reads as empty */
+const arr = (x: any): any[] => (Array.isArray(x) ? x : [])
 async function j(path: string, body?: any) {
   await ready
   const r = await fetch(SERVER + path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : undefined)
   const d = await r.json().catch(() => ({ error: 'bad response' })); if (!r.ok || d?.error) throw new Error(d?.error || 'server ' + r.status); return d
 }
 export const getBook = (mint: string, me?: string): Promise<Book> => j(`/book/${mint}${me ? '?me=' + me : ''}`)
-export const getBooks = (): Promise<{ mint: string; symbol: string; bids: number; sol: number; bestDisc: number; asks?: number; askSol?: number }[]> => j('/books')
+export const getBooks = (): Promise<{ mint: string; symbol: string; bids: number; sol: number; bestDisc: number; asks?: number; askSol?: number }[]> => j('/books').then(arr)
 export const health = () => j('/health')
-export const myBids = (me: string): Promise<BookBid[]> => j('/mybids?me=' + me)
+export const myBids = (me: string): Promise<BookBid[]> => j('/mybids?me=' + me).then(arr)
 
 /** Structural check of a fill tx — same rules as the server's verify.ts, run independently by the bidder */
 export function verifyFill(tx: Transaction, e: Expect): string | null {
@@ -171,7 +173,7 @@ export type VampHit = { mint: string; symbol: string; original: string; original
 export type VampInfo = { vamp: VampHit | null; family: { key: string; members: { mint: string; symbol: string; mcapUsd: number; vol1h: number; leader: boolean; score: number; vampOf?: string }[] } | null; copies: VampHit[] }
 export const vampFor = (mint: string): Promise<VampInfo> => j('/vamp/' + mint)
 export const vamps = (): Promise<{ at: number; vamps: VampHit[]; families: any[] }> => j('/vamps')
-export const myAsks = (me: string): Promise<BookAsk[]> => j('/myasks?me=' + me)
+export const myAsks = (me: string): Promise<BookAsk[]> => j('/myasks?me=' + me).then(arr)
 export const signMsgWith = (kp: Keypair) => async (m: Uint8Array) => nacl.sign.detached(m, kp.secretKey)
 export const signLegacyWith = (kp: Keypair) => async (t: Transaction) => { t.partialSign(kp); return t }
 
@@ -188,16 +190,17 @@ export async function devAuth(signMsg: (m: Uint8Array) => Promise<Uint8Array>, a
 export const vaultArm = (id: string, mint: string, symbol: string, name = '', auth?: DevAuth): Promise<VaultPub> => j('/vault/arm', { id, mint, symbol, name, auth })
 export const vaultRenounce = (id: string, dev: string): Promise<VaultPub> => j('/vault/renounce', { id, dev })
 export const vaultByMint = (mint: string): Promise<VaultPub | null> => j('/vault/mint/' + mint)
-export const vaults = (): Promise<VaultPub[]> => j('/vaults')
+export const candles = (mint: string, tf = 60): Promise<{ time: number; open: number; high: number; low: number; close: number; volume: number }[]> => j(`/candles/${mint}?tf=${tf}`).then(arr)
+export const vaults = (): Promise<VaultPub[]> => j('/vaults').then(arr)
 
 // ---- history / leaderboard / family / dev / redeem ----
 export type FillRec = { t: number; mint: string; symbol: string; seller: string; bidder: string; sol: number; discBps: number; tokens: number; sig: string; vault: boolean }
-export const fills = (mint?: string): Promise<FillRec[]> => j('/fills' + (mint ? '?mint=' + mint : ''))
-export const leaderboard = (me?: string): Promise<{ wallet: string; soldSol: number; boughtSol: number; fills: number; saved: number; mine?: boolean }[]> => j('/leaderboard' + (me ? '?me=' + me : ''))
+export const fills = (mint?: string): Promise<FillRec[]> => j('/fills' + (mint ? '?mint=' + mint : '')).then(arr)
+export const leaderboard = (me?: string): Promise<{ wallet: string; soldSol: number; boughtSol: number; fills: number; saved: number; mine?: boolean }[]> => j('/leaderboard' + (me ? '?me=' + me : '')).then(arr)
 export type SwapEvt = { type: 'swap'; mint: string; symbol: string; pool: string; sig: string; slot: number; side: 'buy' | 'sell'; sol: number; trader: string; t: number }
 export type Family = { root: string; members: { mint: string; symbol: string; mcapUsd: number; vol1h: number; score: number; original: boolean; vault: boolean; leader?: boolean }[] }
 export const family = (mint: string): Promise<Family> => j('/family/' + mint)
-export const devVaults = (dev: string): Promise<VaultPub[]> => j('/dev/' + dev)
+export const devVaults = (dev: string): Promise<VaultPub[]> => j('/dev/' + dev).then(arr)
 export const redeemQuote = (mint: string, tokens: number): Promise<{ vaultId: string; vaultPub: string; chest: number; supply: number; share: number; sol: number; lamports: number }> => j('/redeem/quote', { mint, tokens })
 /** Burn-to-redeem: holder delivers tokens to the vault, vault pays SOL in the same tx (server co-signs with the vault key). */
 export async function redeem(conn: Connection, holder: string, mint: string, tokensUi: number, decimals: number, signTx: (t: Transaction) => Promise<Transaction>, onStatus?: (s: string) => void) {
@@ -221,7 +224,7 @@ export const vaultDeposit = (id: string, from: string, sig: string): Promise<Vau
 /** One signature: fee → treasury, seed → vault chest */
 export type Crowd = { goalSol: number; raised: number; backers: number; expiresAt: number; refunded: boolean }
 export const importCrowd = (owner: string, mint: string): Promise<VaultPub & { quote: ImportQuote; crowd?: Crowd }> => j('/import/crowd', { owner, mint })
-export const crowdOpen = (): Promise<(VaultPub & { crowd?: Crowd })[]> => j('/import/open')
+export const crowdOpen = (): Promise<(VaultPub & { crowd?: Crowd })[]> => j('/import/open').then(arr)
 /** Send SOL to the takeover escrow (the vault wallet) and record it. ≥0.05 SOL. */
 export async function contribute(conn: Connection, from: string, v: VaultPub, sol: number, signTx: (t: Transaction) => Promise<Transaction>, onStatus?: (s: string) => void) {
   const fp = new PublicKey(from); const tx = new Transaction(); tx.feePayer = fp; tx.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash
@@ -266,7 +269,7 @@ export function openSwapFeed(onSwap: (s: SwapEvt) => void) {
 
 // ---- LaunchLab (our launchpad) ----
 export type LLPool = { poolId: string; status: number; migrated: boolean; priceSol: number; liqSol: number; soldPct: number; platformId: string; ours: boolean; platformFee: string }
-export type LLPlatform = { venue: string; permTaxBps?: number; platformId: string | null; admin: string | null; feeWallet: string; taxBps: number; creatorFeeBps: number; chain: { id: string; exists: boolean; feeRate?: number; creatorFeeRate?: number } | null }
+export type LLPlatform = { venue: string; permTaxBps?: number; platformId: string | null; admin: string | null; selfAdmin?: boolean; feeWallet: string; taxBps: number; creatorFeeBps: number; ready?: boolean; walletSol?: number; setup?: string | null; chain: { id: string; exists: boolean; feeRate?: number; creatorFeeRate?: number } | null }
 export const llPlatform = (): Promise<LLPlatform> => j('/ll/platform')
 export const llPlatformBuild = (admin: string): Promise<{ tx: string; platformId: string }> => j('/ll/platform/build', { admin })
 export const llPool = (mint: string): Promise<LLPool | null> => j('/ll/pool/' + mint)

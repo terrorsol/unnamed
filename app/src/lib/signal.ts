@@ -35,7 +35,7 @@ export function classify(f: Feat): Signal {
   if (f.top10 != null && f.top10 > 55) { risk += 20; reasons.push(`top 10 hold ${f.top10.toFixed(0)}%`) }
   if (f.ageMin < 15 && f.mcap > 400_000) { risk += 20; reasons.push(`$${(f.mcap / 1000).toFixed(0)}K in ${f.ageMin.toFixed(0)} min — launch bundle likely`) }
   if (f.ageMin < 30 && f.top10 != null && f.top10 > 40 && volMc > 1) { risk += 20; reasons.push('bundle rotation pattern: fresh, concentrated, churning') }
-  if (f.vault) { risk -= 15; run += 5; reasons.push('vaulted: floor + desk under it') }
+  if (f.vault) { risk -= 15; run += 5; reasons.push('vault: floor + desk under it') }
   run = Math.max(0, Math.min(100, run)); risk = Math.max(0, Math.min(100, risk))
   let label: Label
   if (f.ageMin > 60 && f.vol1h < 500 && (f.h24 < -50 || f.vol1h < f.vol24 * 0.02)) label = 'DEAD'

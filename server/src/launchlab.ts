@@ -15,11 +15,7 @@ export const JITO_TIP = '96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5'
 export const PROGRAM = LAUNCHPAD_PROGRAM
 export const CONFIG_ID = getPdaLaunchpadConfigId(PROGRAM, WSOL, 0, 0).publicKey // default SOL constant-product config
 /** platform admin = the owner's wallet (signs CreatePlatformConfig once); platform id is its PDA */
-export const PLATFORM_ADMIN = process.env.PLATFORM_ADMIN ? new PublicKey(process.env.PLATFORM_ADMIN) : null
-export const PLATFORM_ID = process.env.PLATFORM_ID ? new PublicKey(process.env.PLATFORM_ID) : PLATFORM_ADMIN ? getPdaPlatformId(PROGRAM, PLATFORM_ADMIN).publicKey : null
-/** fee wallet = server key that claims platform fees and holds the LP fee NFT (PLATFORM_SECRET base58; falls back to a key derived from VAULT_SECRET) */
-export const TAX_BPS = Math.min(500, Math.max(0, +(process.env.TAX_BPS || 200)))          // platform fee on every curve trade → chest. cap 500
-export const CREATOR_FEE_BPS = Math.min(50, Math.max(0, +(process.env.CREATOR_FEE_BPS || 0))) // on-chain creator fee. Default 0: the dev earns from the vault cut, which only grows with volume
+/** platform key: claims platform fees, holds the LP fee NFT, and — unless PLATFORM_ADMIN names another wallet — is the platform admin too, so the server can create the platform config itself once this wallet holds ~0.02 SOL (PLATFORM_SECRET base58; falls back to a key derived from VAULT_SECRET) */
 let platformKp: Keypair | null = null
 export function platformKeypair(): Keypair {
   if (platformKp) return platformKp
@@ -27,7 +23,11 @@ export function platformKeypair(): Keypair {
   else platformKp = Keypair.fromSeed(createHash('sha256').update('unnamed-platform:' + (process.env.VAULT_SECRET || 'dev')).digest())
   return platformKp!
 }
-
+export const PLATFORM_ADMIN = process.env.PLATFORM_ADMIN ? new PublicKey(process.env.PLATFORM_ADMIN) : platformKeypair().publicKey
+export const PLATFORM_ID: PublicKey | null = process.env.PLATFORM_ID ? new PublicKey(process.env.PLATFORM_ID) : getPdaPlatformId(PROGRAM, PLATFORM_ADMIN).publicKey
+export const SELF_ADMIN = !process.env.PLATFORM_ADMIN && !process.env.PLATFORM_ID
+export const TAX_BPS = Math.min(500, Math.max(0, +(process.env.TAX_BPS || 200)))          // platform fee on every curve trade → chest. cap 500
+export const CREATOR_FEE_BPS = Math.min(50, Math.max(0, +(process.env.CREATOR_FEE_BPS || 0))) // on-chain creator fee. Default 0: the dev earns from the vault cut, which only grows with volume
 let rdP: Promise<Raydium> | null = null
 const rd = () => (rdP ||= Raydium.load({ connection: conn, disableLoadToken: true, disableFeatureCheck: true, cluster: 'mainnet' }).catch((e) => { rdP = null; throw e }))
 // the SDK keeps one owner; serialize builds so two callers never interleave
@@ -62,6 +62,16 @@ export async function platform(): Promise<{ id: string; exists: boolean; feeRate
   const d: any = PlatformConfig.decode(info.data)
   return { id: PLATFORM_ID.toBase58(), exists: true, feeRate: +d.feeRate.toString() / 1e4, creatorFeeRate: +d.creatorFeeRate.toString() / 1e4, feeWallet: d.platformClaimFeeWallet.toBase58(), nftWallet: d.platformLockNftWallet.toBase58(), name: Buffer.from(d.name).toString('utf8').replace(/\0+$/, '') }
 }
+let platformExists = false
+/** Self-setup: when the server key is the admin and the platform config is not on chain yet, create it as soon as the platform wallet can pay the rent (~0.006 SOL + fee). Returns the signature or null. */
+export async function ensurePlatform(): Promise<string | null> {
+  if (platformExists || !SELF_ADMIN || !PLATFORM_ID) return null
+  const p = await platform(); if (p?.exists) { platformExists = true; return null }
+  const kp = platformKeypair(); const bal = (await conn.getBalance(kp.publicKey).catch(() => 0)) / 1e9; if (bal < 0.012) return null
+  const { tx } = await buildPlatformTx(kp.publicKey); const vt = VersionedTransaction.deserialize(Buffer.from(tx, 'base64')); vt.sign([kp])
+  const sig = await conn.sendRawTransaction(vt.serialize(), { skipPreflight: false, maxRetries: 3 }); await conn.confirmTransaction(sig, 'confirmed').catch(() => {})
+  platformExists = !!(await platform())?.exists; console.log(`launchlab platform ${platformExists ? 'created' : 'create sent'} ${PLATFORM_ID.toBase58()} · ${sig}`); return sig
+}
 /** one-time: the admin's wallet signs this. Fee wallet / NFT wallet = our platform key. Fee rates in 1e-6 units (bps × 100). */
 export async function buildPlatformTx(admin: PublicKey): Promise<{ tx: string; platformId: string }> {
   // reuse Raydium's own platform for the CPMM config it binds graduated pools to
@@ -83,6 +93,8 @@ export type LaunchBuild = { mint: string; poolId: string; txs: string[]; devToke
 /** The create (+ dev buy) tx(s) for the dev to sign; the mint keypair has already co-signed. Platform = ours (must exist on chain). */
 export async function buildLaunch(dev: PublicKey, meta: { name: string; symbol: string; uri: string }, devBuySol: number, platformId: PublicKey | null = PLATFORM_ID, permTax = false): Promise<LaunchBuild> {
   if (!platformId) throw new Error('no platform configured (PLATFORM_ADMIN)')
+  // until our platform config is on chain (platform wallet funded → ensurePlatform), launches still go out under Raydium's own platform: no tax to the chest, but nothing blocks a launch
+  if (platformId.equals(PLATFORM_ID!) && !platformExists) { const p = await platform(); if (p?.exists) platformExists = true; else platformId = LAUNCHPAD_PLATFORM }
   const mintKp = Keypair.generate()
   const r: any = await withOwner(dev, (r) => r.launchpad.createLaunchpad({
     programId: PROGRAM, platformId, mintA: mintKp.publicKey, decimals: 6, name: meta.name, symbol: meta.symbol.slice(0, 10), uri: meta.uri, migrateType: 'cpmm',
@@ -150,7 +162,7 @@ export async function buildClaim(mint: string, platformId: PublicKey | null = PL
 }
 /** unclaimed platform fee sitting in the pool (lamports) */
 export async function pendingFee(mint: string): Promise<number> { const p = await pool(mint, 0); return p ? Number(p.platformFee) / 1e9 : 0 }
-export const status = () => ({ venue: 'launchlab', permTaxBps: PERM_TAX_BPS, program: PROGRAM.toBase58(), platformId: PLATFORM_ID?.toBase58() || null, admin: PLATFORM_ADMIN?.toBase58() || null, feeWallet: platformKeypair().publicKey.toBase58(), taxBps: TAX_BPS, creatorFeeBps: CREATOR_FEE_BPS, rpc: RPC.replace(/api-key=.*/, 'api-key=…') })
+export const status = () => ({ venue: 'launchlab', permTaxBps: PERM_TAX_BPS, program: PROGRAM.toBase58(), platformId: PLATFORM_ID?.toBase58() || null, admin: PLATFORM_ADMIN?.toBase58() || null, selfAdmin: SELF_ADMIN, feeWallet: platformKeypair().publicKey.toBase58(), taxBps: TAX_BPS, creatorFeeBps: CREATOR_FEE_BPS, rpc: RPC.replace(/api-key=.*/, 'api-key=…') })
 
 // ---- after graduation: LP fees. The LP from migration is locked in a fee-key NFT held by the platform wallet; harvesting pulls the accrued
 // swap fees (SOL + token side) to the platform wallet. The vault's tick forwards the SOL to the chest. Experimental until the first graduation.

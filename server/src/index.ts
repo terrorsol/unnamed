@@ -56,6 +56,7 @@ const server = createServer(async (req, res) => {
     if (p === '/quote' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await D.quote(b.bidId, b.seller, b.sol ? +b.sol : undefined)) }
     if (p === '/fill' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await D.fill(b.bidId, b.seller, b.tx, b.sol ? +b.sol : undefined)) }
     if (p === '/vaults') return json(res, 200, V.list())
+    if (p.startsWith('/candles/')) { const mint = p.slice(9).replace(/[^1-9A-HJ-NP-Za-km-z]/g, ''); const tf = Math.max(5, Math.min(3600, +(u.searchParams.get('tf') || 60))); return json(res, 200, V.candles(mint, tf, Math.min(2000, +(u.searchParams.get('limit') || 300)))) }
     if (p.startsWith('/tape/')) { const f = (process.env.DATA_DIR || './data') + '/tape/' + p.slice(6).replace(/[^1-9A-HJ-NP-Za-km-z]/g, '') + '.jsonl'; if (!existsSync(f)) return json(res, 404, { error: 'no tape' }); res.writeHead(200, { 'content-type': 'application/x-ndjson', 'access-control-allow-origin': '*' }); return createReadStream(f).pipe(res) }
     if (p.startsWith('/vault/mint/')) return json(res, 200, V.byMint(p.slice(12)))
     if (p.startsWith('/vault/') && req.method === 'GET') return json(res, 200, V.get(p.slice(7)))
@@ -70,7 +71,7 @@ const server = createServer(async (req, res) => {
     if (p === '/import/activate' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importActivate(b.id, b.sig)) }
     if (p === '/vault/deposit' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.deposit(b.id, b.from, b.sig)) }
     // ---- LaunchLab: our launchpad ----
-    if (p === '/ll/platform' && req.method === 'GET') return json(res, 200, { ...LL.status(), chain: await LL.platform() })
+    if (p === '/ll/platform' && req.method === 'GET') { const chain = await LL.platform(); const walletSol = (await C.conn.getBalance(LL.platformKeypair().publicKey).catch(() => 0)) / 1e9; return json(res, 200, { ...LL.status(), chain, ready: !!chain?.exists, walletSol, setup: chain?.exists ? null : LL.SELF_ADMIN ? `send 0.02 SOL to ${LL.platformKeypair().publicKey.toBase58()} — the server creates the platform config itself within a minute` : 'the admin wallet signs the one-time setup in Settings' }) }
     if (p === '/ll/platform/build' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await LL.buildPlatformTx(new PublicKey(b.admin))) }
     if (p.startsWith('/ll/pool/') && req.method === 'GET') { const pl = await LL.pool(p.slice(9), 0); return json(res, 200, pl ? { ...pl, virtualA: String(pl.virtualA), virtualB: String(pl.virtualB), realA: String(pl.realA), realB: String(pl.realB), totalSellA: String(pl.totalSellA), totalFundRaisingB: String(pl.totalFundRaisingB), platformFee: String(pl.platformFee), ours: LL.isOurs(pl) } : null) }
     if (p === '/ll/quote' && req.method === 'GET') { const pct = u.searchParams.get('pct'); const dev = +(u.searchParams.get('dev') || 0); const vault = pct ? V.solForPct(+pct, dev) : +(u.searchParams.get('vault') || 0); return json(res, 200, { ...LL.blockZero(dev, vault), vaultSol: vault }) }
@@ -118,7 +119,7 @@ setInterval(D.sweep, 10000); setInterval(D.rfqSweep, 5000)
 D.setVaultResponder(V.respondRfq)
 // DESK_ONLY=1: ephemeral/public-tunnel deployments — the desk is non-custodial so it is safe to run anywhere; vaults (server-held keys) stay off.
 export const DESK_ONLY = process.env.DESK_ONLY === '1'
-if (!DESK_ONLY) { V.load(); V.startStream(); setInterval(() => V.tick().catch(() => {}), 5000); setInterval(() => V.crowdSweep().catch(() => {}), 60000) }
+if (!DESK_ONLY) { V.load(); V.startStream(); setInterval(() => V.tick().catch(() => {}), 5000); setInterval(() => V.crowdSweep().catch(() => {}), 60000); const ep = () => LL.ensurePlatform().catch((e) => console.log('platform setup: ' + String(e.message).slice(0, 120))); setTimeout(ep, 8000); setInterval(ep, 60000) }
 else console.log('desk-only mode: vault/import routes disabled')
 if (process.env.VAMPS !== '0') VM.start()
 server.listen(PORT, () => console.log(`banker server on :${PORT} · treasury ${TREASURY}`))

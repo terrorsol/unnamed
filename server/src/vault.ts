@@ -19,10 +19,27 @@ import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
 const DIR = process.env.DATA_DIR || './data'; const FILE = DIR + '/vaults.json'
 /** Live tape: every swap seen on a vaulted coin, one JSON line {t,side,sol,trader,sig} → DATA_DIR/tape/<mint>.jsonl. Replay with `npm run replay -- <file>` in app/. Capped at ~20MB per coin. */
 const recentTape = new Map<string, MM.Swap[]>()
+// ---- price log → candles for our own coins (gecko/dexscreener do not index a fresh LaunchLab pool for a while, and the vault reads the pool exactly every tick)
+const PX_DIR = () => (process.env.DATA_DIR || './data') + '/px'
+const pxLog = new Map<string, { t: number; p: number }[]>(); const volLog = new Map<string, { t: number; sol: number; side: 'buy' | 'sell' }[]>()
+function pxLoad(mint: string) { if (pxLog.has(mint)) return pxLog.get(mint)!; let l: { t: number; p: number }[] = []; try { const f = `${PX_DIR()}/${mint}.jsonl`; if (existsSync(f)) { const cut = Date.now() - 86400_000 * 3; l = readFileSync(f, 'utf8').split('\n').filter(Boolean).map((x) => JSON.parse(x)).filter((x) => x.t > cut) } } catch {} pxLog.set(mint, l); return l }
+export function pxPush(mint: string, t: number, p: number) { const l = pxLoad(mint); if (l.length && l[l.length - 1].p === p && t - l[l.length - 1].t < 30_000) return; l.push({ t, p }); if (l.length > 60000) l.splice(0, 20000); try { if (!existsSync(PX_DIR())) mkdirSync(PX_DIR(), { recursive: true }); appendFileSync(`${PX_DIR()}/${mint}.jsonl`, JSON.stringify({ t, p }) + '\n') } catch {} }
+/** OHLCV from the vault's own price reads + the swap tape. tf in seconds. Prices in SOL per token. */
+export function candles(mint: string, tf = 60, limit = 300) {
+  const l = pxLoad(mint); if (!l.length) return []
+  const vol = volLog.get(mint) || []; const by = new Map<number, { time: number; open: number; high: number; low: number; close: number; volume: number }>()
+  for (const x of l) { const b = Math.floor(x.t / 1000 / tf) * tf; const c = by.get(b); if (!c) by.set(b, { time: b, open: x.p, high: x.p, low: x.p, close: x.p, volume: 0 }); else { c.high = Math.max(c.high, x.p); c.low = Math.min(c.low, x.p); c.close = x.p } }
+  for (const v of vol) { const b = Math.floor(v.t / 1000 / tf) * tf; const c = by.get(b); if (c) c.volume += v.sol }
+  const out = [...by.values()].sort((a, b) => a.time - b.time)
+  // fill gaps with flat bars so the chart has no holes
+  const filled: typeof out = []; for (const c of out) { const prev = filled[filled.length - 1]; if (prev) for (let t = prev.time + tf; t < c.time && filled.length < 5000; t += tf) filled.push({ time: t, open: prev.close, high: prev.close, low: prev.close, close: prev.close, volume: 0 }); filled.push(c) }
+  return filled.slice(-limit)
+}
 /** last 10 minutes of swaps on a mint, in memory (seller-concentration check) */
 export const recent = (mint: string) => recentTape.get(mint) || []
 export function tape(mint: string, e: { t: number; side: 'buy' | 'sell'; sol: number; trader?: string; sig?: string }) {
   const r = recentTape.get(mint) || []; r.push({ t: e.t, side: e.side, sol: e.sol, trader: e.trader }); recentTape.set(mint, r.filter((x) => e.t - x.t < 600_000))
+  const vl = volLog.get(mint) || []; vl.push({ t: e.t, sol: e.sol, side: e.side }); if (vl.length > 50000) vl.splice(0, 10000); volLog.set(mint, vl)
   try { const d = DIR + '/tape'; if (!existsSync(d)) mkdirSync(d, { recursive: true }); const f = `${d}/${mint}.jsonl`; if (existsSync(f) && statSync(f).size > 20e6) return; appendFileSync(f, JSON.stringify(e) + '\n') } catch {}
 }
 const SECRET = process.env.VAULT_SECRET || 'dev-only-secret-change-me'
@@ -275,6 +292,7 @@ async function tickOne(v: Vault) {
       const m = await market(v.mint); if (!m || !m.priceSol) return
       const now = Date.now(), p = m.priceSol
       if (p !== v.lastPushed) { v.lastPushed = p; D.broadcast({ type: 'price', mint: v.mint, priceSol: p, mcapUsd: m.mcapUsd, liqSol: m.liqSol, t: now }) }
+      pxPush(v.mint, now, p)
       // vamp feeding runners: when the detector is sure this coin copies a vaulted runner, it becomes a copy — half of every cut streams to the original
       if (!v.copyOf && !v.vampChecked || now > (v.vampChecked || 0)) { v.vampChecked = now + 300000; try { const vf = VM.forMint(v.mint); if (vf.vamp && vf.vamp.score >= 0.8 && Object.values(vaults).some((x) => x.mint === vf.vamp!.original && x.armed)) { v.copyOf = vf.vamp.original; v.vampFlag = true; v.activity.unshift({ t: now, kind: 'note', msg: `flagged as a copy of ${vf.vamp.originalSymbol} (${vf.vamp.reasons.join(', ')}) — half of every cut now streams to its chest` }) } } catch {} }
       if (v.permTax && now > (v.nextPermAt || 0)) { v.nextPermAt = now + 1.2e6 + Math.random() * 6e5; harvestPermTax(v).catch((e) => v.activity.unshift({ t: now, kind: 'note', msg: 'transfer tax harvest failed: ' + String(e.message).slice(0, 80) })) }
