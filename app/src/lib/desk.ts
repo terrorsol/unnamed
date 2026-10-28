@@ -21,8 +21,9 @@ export const ready: Promise<void> = (async () => {
 })()
 const WS = () => SERVER.replace(/^http/, 'ws')
 export type BookBid = { id: string; mint: string; symbol: string; sol: number; discBps: number; placedAt: number; restable: boolean; away?: boolean; status: string; bidder: string; mine: boolean; vault?: boolean; block?: boolean; expiresAt?: number }
-export type Book = { open: boolean; why?: string | null; minBlock: number | null; market: any; bids: BookBid[]; rules: { discMin: number; discMax: number; restMs: number; feeBps: number; gateUsd: number } }
-export type Expect = { mint: string; seller: string; bidder: string; treasury: string; base: string; sellerLamports: string; fee: string; priceSol: number; discBps: number; decimals: number; tokenProgram: string }
+export type BookAsk = { id: string; mint: string; symbol: string; sol: number; discBps: number; placedAt: number; status: string; away?: boolean; seller: string; mine: boolean }
+export type Book = { asks: BookAsk[]; open: boolean; why?: string | null; minBlock: number | null; market: any; bids: BookBid[]; rules: { discMin: number; discMax: number; restMs: number; feeBps: number; gateUsd: number } }
+export type Expect = { mint: string; seller: string; bidder: string; treasury: string; base: string; sellerLamports: string; fee: string; priceSol: number; discBps: number; decimals: number; tokenProgram: string; payer?: 'seller' | 'bidder' }
 
 async function j(path: string, body?: any) {
   await ready
@@ -37,11 +38,12 @@ export const myBids = (me: string): Promise<BookBid[]> => j('/mybids?me=' + me)
 /** Structural check of a fill tx — same rules as the server's verify.ts, run independently by the bidder */
 export function verifyFill(tx: Transaction, e: Expect): string | null {
   const CB = 'ComputeBudget111111111111111111111111111111'; const ix = tx.instructions.filter((i, n) => !(n < 2 && i.programId.toBase58() === CB)); if (ix.length !== 4) return 'wrong instruction count'
-  if (!tx.feePayer || tx.feePayer.toBase58() !== e.seller) return 'fee payer must be seller'
-  const bidder = new PublicKey(e.bidder), seller = new PublicKey(e.seller), mint = new PublicKey(e.mint)
+  const payer = e.payer === 'bidder' ? e.bidder : e.seller
+  if (!tx.feePayer || tx.feePayer.toBase58() !== payer) return 'fee payer mismatch'
+  const bidder = new PublicKey(e.bidder), seller = new PublicKey(e.seller), mint = new PublicKey(e.mint), payerPk = new PublicKey(payer)
   const prog = new PublicKey(e.tokenProgram); if (!prog.equals(TOKEN_PROGRAM_ID) && !prog.equals(TOKEN_2022_PROGRAM_ID)) return 'unknown token program'
   const bAta = getAssociatedTokenAddressSync(mint, bidder, true, prog), sAta = getAssociatedTokenAddressSync(mint, seller, true, prog)
-  const a = ix[0]; if (!a.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID) || a.data[0] !== 1 || !a.keys[0].pubkey.equals(seller) || !a.keys[1].pubkey.equals(bAta) || !a.keys[2].pubkey.equals(bidder) || !a.keys[3].pubkey.equals(mint) || !a.keys[5].pubkey.equals(prog)) return 'ix0 bad'
+  const a = ix[0]; if (!a.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID) || a.data[0] !== 1 || !a.keys[0].pubkey.equals(payerPk) || !a.keys[1].pubkey.equals(bAta) || !a.keys[2].pubkey.equals(bidder) || !a.keys[3].pubkey.equals(mint) || !a.keys[5].pubkey.equals(prog)) return 'ix0 bad'
   const t = ix[1]; if (!t.programId.equals(prog) || t.data[0] !== 12 || !t.keys[0].pubkey.equals(sAta) || !t.keys[1].pubkey.equals(mint) || !t.keys[2].pubkey.equals(bAta) || !t.keys[3].pubkey.equals(seller)) return 'ix1 bad'
   const amt = new DataView(t.data.buffer, t.data.byteOffset + 1, 8).getBigUint64(0, true); if (amt !== BigInt(e.base)) return 'token amount mismatch'
   if (t.data[9] !== e.decimals) return 'decimals mismatch'
@@ -50,11 +52,12 @@ export function verifyFill(tx: Transaction, e: Expect): string | null {
   const f = ix[3]; if (!f.programId.equals(SystemProgram.programId) || !f.keys[0].pubkey.equals(bidder) || f.keys[1].pubkey.toBase58() !== e.treasury || dv(f.data) !== BigInt(e.fee)) return 'fee mismatch'
   // economic check: implied price must honor my discount (within tolerance)
   const impliedPx = Number(BigInt(e.sellerLamports) + BigInt(e.fee)) / 1e9 / (Number(BigInt(e.base)) / 10 ** e.decimals)
-  if (impliedPx > e.priceSol * (1 - e.discBps / 10000) * 1.015) return 'price does not honor discount'
+  // bidder co-signing: must not pay more than spot·(1−disc); seller co-signing an ask: must not receive less than spot·(1−disc)
+  if (e.payer === 'bidder') { if (impliedPx < e.priceSol * (1 - e.discBps / 10000) * 0.985) return 'price below my offer' } else if (impliedPx > e.priceSol * (1 - e.discBps / 10000) * 1.015) return 'price does not honor discount'
   return null
 }
 
-export type BidderSession = { close: () => void; place: (mint: string, sol: number, discBps: number) => Promise<BookBid>; buyBlock: (mint: string, sol: number, premiumBps: number, ttlSec: number) => Promise<BookBid>; cancel: (id: string) => Promise<boolean>; connected: () => boolean; respond: (rfqId: string, discBps: number, sol: number) => Promise<any> }
+export type BidderSession = { close: () => void; place: (mint: string, sol: number, discBps: number) => Promise<BookBid>; buyBlock: (mint: string, sol: number, premiumBps: number, ttlSec: number) => Promise<BookBid>; placeAsk: (mint: string, sol: number, discBps: number) => Promise<BookAsk>; cancelAsk: (id: string) => Promise<boolean>; cancel: (id: string) => Promise<boolean>; connected: () => boolean; respond: (rfqId: string, discBps: number, sol: number) => Promise<any> }
 /** Open a bidder session. `sign` co-signs fills (in-app wallet: silent; extension: prompts). `spot` returns current SOL price of a mint for the economic check. */
 export function openBidder(conn: Connection, pubkey: string, signMsg: (m: Uint8Array) => Promise<Uint8Array>, signTx: (t: Transaction) => Promise<Transaction>, spot: (mint: string) => Promise<number>, onEvent: (e: any) => void): BidderSession {
   let ws: WebSocket | null = null, closed = false, authed = false, timer: any, hb: any
@@ -76,6 +79,19 @@ export function openBidder(conn: Connection, pubkey: string, signMsg: (m: Uint8A
       if (d.type === 'placed') { if (d.bid && !d.bid.block) mine.set(d.bid.id, { mint: d.bid.mint, sol: d.bid.sol, discBps: d.bid.discBps }); waiters.get('place')?.ok(d.bid); waiters.delete('place'); onEvent(d); return }
       if (d.type === 'cancelled') { mine.delete(d.id); waiters.get('cancel:' + d.id)?.ok(d.ok); waiters.delete('cancel:' + d.id); onEvent(d); return }
       if (d.type === 'error') { const w = d.re === 'place' ? waiters.get('place') : d.re === 'rfq_respond' ? waiters.get('rfq') : null; if (w) { w.no(new Error(d.error)); waiters.delete(d.re === 'place' ? 'place' : 'rfq') } onEvent(d); return }
+      if (d.type === 'fill_ask') {
+        try {
+          const tx = Transaction.from(Uint8Array.from(atob(d.tx), (c) => c.charCodeAt(0)))
+          const e: Expect = d.expect; const why = verifyFill(tx, { ...e, priceSol: await spot(e.mint).catch(() => e.priceSol) })
+          if (why) throw new Error(why)
+          const signed = await signTx(tx)
+          const raw = signed.serialize(); const sig = await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }); const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 2000); try { await confirmByPolling(conn, sig) } finally { clearInterval(rb) }
+          send({ type: 'filled_ask', askId: d.askId, sig }); onEvent({ type: 'sold', askId: d.askId, sig, expect: e })
+        } catch (err: any) { send({ type: 'reject_ask', askId: d.askId, err: String(err.message || err) }); onEvent({ type: 'fillfail', error: String(err.message || err) }) }
+        return
+      }
+      if (d.type === 'placed_ask') { waiters.get('ask')?.ok(d.ask); waiters.delete('ask'); onEvent(d); return }
+      if (d.type === 'cancelled_ask') { waiters.get('cancelask:' + d.id)?.ok(d.ok); waiters.delete('cancelask:' + d.id); onEvent(d); return }
       if (d.type === 'fill') {
         try {
           const tx = Transaction.from(Uint8Array.from(atob(d.tx), (c) => c.charCodeAt(0)))
@@ -99,6 +115,8 @@ export function openBidder(conn: Connection, pubkey: string, signMsg: (m: Uint8A
     connected: () => authed,
     place: (mint, sol, discBps) => new Promise((ok, no) => { if (!authed) return no(new Error('desk not connected')); waiters.set('place', { ok, no }); send({ type: 'place', mint, sol, discBps }); setTimeout(() => { if (waiters.has('place')) { waiters.delete('place'); no(new Error('timeout')) } }, 15000) }),
     buyBlock: (mint, sol, premiumBps, ttlSec) => new Promise((ok, no) => { if (!authed) return no(new Error('desk not connected')); waiters.set('place', { ok, no }); send({ type: 'buy_rfq', mint, sol, premiumBps, ttlSec }); setTimeout(() => { if (waiters.has('place')) { waiters.delete('place'); no(new Error('timeout')) } }, 15000) }),
+    placeAsk: (mint, sol, discBps) => new Promise((ok, no) => { if (!authed) return no(new Error('desk not connected')); waiters.set('ask', { ok, no }); send({ type: 'place_ask', mint, sol, discBps }); setTimeout(() => { if (waiters.has('ask')) { waiters.delete('ask'); no(new Error('timeout')) } }, 15000) }),
+    cancelAsk: (id) => new Promise((ok) => { waiters.set('cancelask:' + id, { ok, no: ok }); send({ type: 'cancel_ask', id }); setTimeout(() => ok(false), 8000) }),
     cancel: (id) => new Promise((ok) => { waiters.set('cancel:' + id, { ok, no: ok }); send({ type: 'cancel', id }); setTimeout(() => ok(false), 8000) }),
     respond: (rfqId, discBps, sol) => new Promise((ok, no) => { if (!authed) return no(new Error('desk not connected')); waiters.set('rfq', { ok, no }); send({ type: 'rfq_respond', rfqId, discBps, sol }); setTimeout(() => { if (waiters.has('rfq')) { waiters.delete('rfq'); no(new Error('timeout')) } }, 15000) }),
   }
@@ -124,6 +142,24 @@ export async function takeBid(conn: Connection, seller: string, bidId: string, s
   const r = await j('/fill', { bidId, seller, sol: opts?.sol, tx: btoa(String.fromCharCode(...signed.serialize({ requireAllSignatures: false }))) })
   return { sig: r.sig, quote: q }
 }
+/** Buyer takes a resting sell offer: builds the fill (buyer pays, buyer's ATA), signs, server relays to the seller to co-sign. */
+export async function takeAsk(conn: Connection, buyer: string, askId: string, signTx: (t: Transaction) => Promise<Transaction>, onStatus?: (s: string) => void, opts?: { sol?: number; cuPriceMicro?: number }): Promise<{ sig: string; quote: any }> {
+  onStatus?.('Quoting…')
+  const q = await j('/ask/quote', { askId, buyer, sol: opts?.sol })
+  if (q.refAgeMs > 3000) throw new Error('reference price is stale — try again')
+  const buyerPk = new PublicKey(buyer), sellerPk = new PublicKey(q.seller), mint = new PublicKey(q.mint), prog = new PublicKey(q.tokenProgram)
+  const bAta = getAssociatedTokenAddressSync(mint, buyerPk, true, prog), sAta = getAssociatedTokenAddressSync(mint, sellerPk, true, prog)
+  const tx = new Transaction(); tx.feePayer = buyerPk; tx.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash
+  tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 80_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: Math.max(1000, Math.floor(opts?.cuPriceMicro || 50_000)) }))
+  tx.add(createAssociatedTokenAccountIdempotentInstruction(buyerPk, bAta, buyerPk, mint, prog), createTransferCheckedInstruction(sAta, mint, bAta, sellerPk, BigInt(q.base), q.decimals, [], prog),
+    SystemProgram.transfer({ fromPubkey: buyerPk, toPubkey: sellerPk, lamports: BigInt(q.sellerLamports) }), SystemProgram.transfer({ fromPubkey: buyerPk, toPubkey: new PublicKey(q.treasury), lamports: BigInt(q.fee) }))
+  onStatus?.(q.partial ? `Sign to buy ${S(q.takeSol, 2)} SOL of the offer…` : 'Sign to pay…')
+  const signed = await signTx(tx)
+  onStatus?.('Waiting for the seller to co-sign…')
+  const r = await j('/ask/fill', { askId, buyer, sol: opts?.sol, tx: btoa(String.fromCharCode(...signed.serialize({ requireAllSignatures: false }))) })
+  return { sig: r.sig, quote: q }
+}
+export const myAsks = (me: string): Promise<BookAsk[]> => j('/myasks?me=' + me)
 export const signMsgWith = (kp: Keypair) => async (m: Uint8Array) => nacl.sign.detached(m, kp.secretKey)
 export const signLegacyWith = (kp: Keypair) => async (t: Transaction) => { t.partialSign(kp); return t }
 

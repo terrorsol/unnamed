@@ -29,6 +29,9 @@ const server = createServer(async (req, res) => {
     // pubkey-shaped path params only
     for (const seg of [p.startsWith('/book/') && p.slice(6), p.startsWith('/vault/mint/') && p.slice(12), p.startsWith('/family/') && p.slice(8), p.startsWith('/dev/') && p.slice(5), p.startsWith('/import/quote/') && p.slice(14)]) if (seg && !isPk(seg)) throw new Error('bad address')
     if (p === '/health') return json(res, 200, { ok: true, rpc: RPC.replace(/api-key=.*/, 'api-key=…'), treasury: TREASURY, desk: D.stats(), vaults: V.list().length, stream: streamStats(), beta: { deskOnly: DESK_ONLY, paper: V.PAPER, feeBps: R.CROSS_FEE_BPS, maxChestSol: V.MAX_CHEST_SOL, pumpStream: !!process.env.PUMPPORTAL_KEY, ipfs: !!process.env.PINATA_JWT, landing: process.env.JITO === '1' ? 'jito' : C.FAST ? 'sender' : 'rpc' } })
+    if (p === '/ask/quote' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await D.askQuote(b.askId, b.buyer, b.sol ? +b.sol : undefined)) }
+    if (p === '/ask/fill' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await D.askFill(b.askId, b.buyer, b.tx, b.sol ? +b.sol : undefined)) }
+    if (p === '/myasks') { const me = u.searchParams.get('me') || ''; if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(me)) return json(res, 400, { error: 'me' }); return json(res, 200, D.myAsks(me)) }
     if (p === '/mybids') { const me = u.searchParams.get('me') || ''; if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(me)) return json(res, 400, { error: 'me' }); return json(res, 200, D.myBids(me)) }
     if (p === '/books') return json(res, 200, D.books())
     if (p === '/fills') return json(res, 200, D.history(u.searchParams.get('mint') || undefined))
@@ -84,6 +87,10 @@ wss.on('connection', (ws: WebSocket) => {
       if (!who) throw new Error('auth first')
       if (m.type === 'place') return send({ type: 'placed', bid: await D.place(ws, who, m.mint, +m.sol, +m.discBps) })
       if (m.type === 'cancel') return send({ type: 'cancelled', id: m.id, ok: D.cancel(who, m.id) })
+      if (m.type === 'place_ask') return send({ type: 'placed_ask', ask: await D.placeAsk(ws, who, m.mint, +m.sol, +m.discBps) })
+      if (m.type === 'cancel_ask') return send({ type: 'cancelled_ask', id: m.id, ok: D.cancelAsk(who, m.id) })
+      if (m.type === 'filled_ask') return D.settleAsk(m.askId, true, m.sig)
+      if (m.type === 'reject_ask') return D.settleAsk(m.askId, false, undefined, m.err)
       if (m.type === 'buy_rfq') return send({ type: 'placed', bid: await D.rfqBuy(ws, who, m.mint, +m.sol, +m.premiumBps, +m.ttlSec) })
       if (m.type === 'refresh') return D.refresh(who)
       if (m.type === 'rfq_respond') return send({ type: 'rfq_responded', rfq: await D.rfqRespond(ws, who, m.rfqId, +m.discBps, +m.sol) })

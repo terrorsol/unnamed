@@ -1,6 +1,7 @@
 // Desk + vault rules. Pure functions, unit-tested. Mirrors app/src/lib/protocol.ts.
 export const DISC_MIN_BPS = 300, DISC_MAX_BPS = 500          // bids sit 3–5% under spot
-export const BUY_RFQ_MAX_PREMIUM_BPS = 500                    // block buys may pay up to +5% over spot
+export const BUY_RFQ_MAX_PREMIUM_BPS = 500
+export const ASK_MAX_PREMIUM_BPS = 500                        // sell offers may sit up to +5% over spot                    // block buys may pay up to +5% over spot
 export const GATE_MCAP_USD = 100_000                            // desk opens: graduated + $100K mc …
 export const GATE_CURVE_MCAP_USD = 50_000                        // … or still on the curve at $50K mc with real volume (a fill is a token-for-SOL transfer; it only needs a price)
 export const GATE_MIN_VOL1H_USD = 5_000                          // and the coin must actually be trading

@@ -25,7 +25,7 @@ import type { Coin } from './lib/dex'
 
 // three mains + bag; everything else lives under More
 const NAV: [string, string, string][] = [['home', 'Home', 'runners · our coins'], ['desk', 'Desk', 'blocks off-chart · any coin'], ['vault', 'Vault', 'holder-owned market maker'], ['portfolio', 'Bag', 'P&L']]
-const MORE: [string, string][] = [['compare', 'Vaulted vs not'], ['vault/import', 'Import a coin'], ['dev', 'My launches'], ['desk/leaderboard', 'Leaderboard'], ['vault/simulate', 'Simulate'], ['settings', 'Settings'], ['dev/how-it-works', 'How it works'], ['about', 'About']]
+const MORE: [string, string][] = [['dev', 'My launches'], ['vault/import', 'Import a coin'], ['settings', 'Settings'], ['docs', 'Docs']]
 
 function Tabs({ tabs, sel, go }: { tabs: [string, React.ReactNode][]; sel: string; go: (t: string) => void }) {
   const slug = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-')
@@ -83,6 +83,7 @@ export default function App() {
     if (!activeB58 || !deskUp) { setBidder(null); return }
     const sess = K.openBidder(connection, activeB58, signMsg, signLegacy, async (m) => { const c = await D.tokenPairs(m); return c?.raw?.priceNative ? +c.raw.priceNative : 0 }, (e) => {
       setDeskTick((t) => t + 1)
+      if (e.type === 'sold') { toast({ kind: 'ok', title: `Your sell offer filled`, rows: [['Received', S(Number(BigInt(e.expect.sellerLamports)) / 1e9) + ' SOL'], ['Tx', short(e.sig, 6)]], href: solscan(e.sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
       if (e.type === 'buy_rfq') toast({ kind: 'ok', title: `Someone wants ${S(e.sol, 2)} SOL of ${e.symbol} at +${(e.premiumBps / 100).toFixed(1)}% over market`, rows: [['Open for', e.secondsLeft + 's'], ['Sell to them', 'coin page → Desk / OTC']], href: '#/coin/' + e.mint })
       if (e.type === 'rfq' && e.rfq.seller !== activeB58) setPings((l) => [e.rfq, ...l.filter((x) => x.id !== e.rfq.id)].slice(0, 4))
       if (e.type === 'authed' && e.rfqs) setPings(e.rfqs.filter((r: K.Rfq) => r.seller !== activeB58).slice(0, 4))
@@ -99,6 +100,11 @@ export default function App() {
   }
   const [gateQ, setGateQ] = useState<{ q: any; ok: (v: boolean) => void } | null>(null)
   const gate = (q: any) => new Promise<boolean>((ok) => { if (!q.needsConfirm) return ok(true); setGateQ({ q, ok: (v) => { setGateQ(null); ok(v) } }) })
+  const takeAsk = async (id: string, sol?: number) => {
+    if (!activeB58) return needWallet()
+    try { const { sig, quote } = await K.takeAsk(connection, activeB58, id, signLegacy, setBusy, { sol, cuPriceMicro: Math.floor(Math.min(settings.priorityFeeSol, 0.0002) * 1e9 * 1e6 / 80_000) }); const paid = Number(BigInt(quote.sellerLamports) + BigInt(quote.fee)) / 1e9; recordBuy(ws.owner, quote.mint, quote.ask.symbol, paid, sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Bought a block off-chart`, rows: [['Paid', S(paid) + ' SOL'], ['Price', (quote.ask.discBps < 0 ? '+' : '−') + (Math.abs(quote.ask.discBps) / 100).toFixed(1) + '% vs market'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
+    catch (e: any) { toast({ kind: 'err', title: 'Could not buy the block', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
+  }
   const takeBid = async (id: string, sol?: number) => {
     if (!activeB58) return needWallet()
     try { const { sig, quote } = await K.takeBid(connection, activeB58, id, signLegacy, setBusy, gate, { sol, cuPriceMicro: Math.floor(Math.min(settings.priorityFeeSol, 0.0002) * 1e9 * 1e6 / 80_000) }); const got = Number(BigInt(quote.sellerLamports)) / 1e9; recordSell(ws.owner, quote.mint, quote.bid.symbol, 0, got, sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Block sold on the desk`, rows: [['Received', S(got) + ' SOL'], ['Discount', '−' + (quote.bid.discBps / 100).toFixed(1) + '%'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
@@ -219,14 +225,15 @@ export default function App() {
   const toggleWatch = (m: string) => setSettings({ watch: settings.watch.includes(m) ? settings.watch.filter((x) => x !== m) : [...settings.watch, m] })
 
   const content = () => {
-    if (page === 'coin' && arg) { const h = ws.tokens.find((t) => t.mint === arg); return <CoinPage mint={arg} coin={byMint[arg]} solPrice={solPrice} holding={h} lot={ledger.lots[arg]} sol={ws.sol} connected={connected} busy={busy} onBuy={onBuy} onSell={onSell} needWallet={needWallet} quickSol={settings.quickBuy} watch={settings.watch} toggleWatch={toggleWatch} trades={allTrades} subscribe={fresh.subscribe} desk={{ owner: ws.owner, connected, bidder, deskUp, busy, takeBid, holdingUi: h?.amount || 0, solPrice }} deskTick={deskTick} vaultV={vaultV} onRenounce={renounce} onRedeem={onRedeem} onDeposit={onDeposit} onMode={onMode} onSwitch={onSwitch} go={go} ordersV={ordersV} bumpOrders={() => setOrdersV((v) => v + 1)} fills={ledger.fills} /> }
+    if (page === 'coin' && arg) { const h = ws.tokens.find((t) => t.mint === arg); return <CoinPage mint={arg} coin={byMint[arg]} solPrice={solPrice} holding={h} lot={ledger.lots[arg]} sol={ws.sol} connected={connected} busy={busy} onBuy={onBuy} onSell={onSell} needWallet={needWallet} quickSol={settings.quickBuy} watch={settings.watch} toggleWatch={toggleWatch} trades={allTrades} subscribe={fresh.subscribe} desk={{ owner: ws.owner, connected, bidder, deskUp, busy, takeBid, takeAsk, holdingUi: h?.amount || 0, solPrice }} deskTick={deskTick} vaultV={vaultV} onRenounce={renounce} onRedeem={onRedeem} onDeposit={onDeposit} onMode={onMode} onSwitch={onSwitch} go={go} ordersV={ordersV} bumpOrders={() => setOrdersV((v) => v + 1)} fills={ledger.fills} /> }
     if (page === 'portfolio') return <Portfolio sol={ws.sol} tokens={ws.tokens} coins={byMint} lots={ledger.lots} fills={ledger.fills} solPrice={solPrice} go={go} owner={ws.owner} />
     if (page === 'settings') return <SettingsPage s={settings} set={setSettings} />
     if (page === 'about') return <About />
     if (page === 'compare') return <Compare coins={coins} vaults={vaultList} solPrice={solPrice} go={go} />
+    if (page === 'docs') return <Tabs tabs={[['How it works', <About />], ['Simulate', <Simulate />], ['Vaulted vs not', <Compare coins={coins} vaults={vaultList} solPrice={solPrice} go={go} />], ['Leaderboard', <LeaderboardPage owner={ws.owner} />]]} sel={arg} go={(t) => go('docs/' + t)} />
     if (page === 'simulate') return <Simulate />
-    if (page === 'vault') return <Tabs tabs={[['Vaults', <VaultPage go={go} solPrice={solPrice} />], ['Import', <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={arg2 || ''} needWallet={needWallet} sol={ws.sol} />], ['Simulate', <Simulate />]]} sel={arg} go={(t) => go('vault/' + t)} />
-    if (page === 'desk') return <Tabs tabs={[['Books', <DeskPage go={go} coins={coins} owner={ws.owner} bidder={bidder} />], ['Leaderboard', <LeaderboardPage owner={ws.owner} />]]} sel={arg} go={(t) => go('desk/' + t)} />
+    if (page === 'vault') return <Tabs tabs={[['Vaults', <VaultPage go={go} solPrice={solPrice} />], ['Import', <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={arg2 || ''} needWallet={needWallet} sol={ws.sol} />]]} sel={arg} go={(t) => go('vault/' + t)} />
+    if (page === 'desk') return <DeskPage go={go} coins={coins} owner={ws.owner} bidder={bidder} />
     if (page === 'import') return <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={arg || ''} needWallet={needWallet} sol={ws.sol} />
     if (page === 'dev' || page === 'mine') return <Tabs tabs={[['My launches', <MinePage owner={ws.owner} go={go} solPrice={solPrice} onRenounce={renounce} onClaim={onClaim} busy={busy} />], ['How it works', <About />]]} sel={arg} go={(t) => go('dev/' + t)} />
     if (page === 'leaderboard') return <LeaderboardPage owner={ws.owner} />

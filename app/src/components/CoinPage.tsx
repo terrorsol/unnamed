@@ -34,7 +34,8 @@ function Orders({ c, owner, held, ordersV, bump }: { c: D.Coin; owner: string; h
 export default function CoinPage(p: Props) {
   const [coin, setCoin] = useState<D.Coin | undefined>(p.coin)
   const [side, setSide] = useState<'buy' | 'sell'>('buy'); const [amt, setAmt] = useState(String(p.quickSol)); const [frac, setFrac] = useState(1)
-  const [tab, setTab] = useState<'trades' | 'desk' | 'vault' | 'protocol'>(location.hash.endsWith('/desk') ? 'desk' : location.hash.endsWith('/vault') ? 'vault' : 'trades'); const [sb, setSb] = useState(false); const [route, setRoute] = useState('')
+  const [tab, setTab] = useState<'trades' | 'desk' | 'vault' | 'protocol'>(location.hash.endsWith('/desk') ? 'desk' : location.hash.endsWith('/vault') ? 'vault' : 'trades');
+  useEffect(() => { const f = () => { if (location.hash.endsWith('/desk')) setTab('desk'); else if (location.hash.endsWith('/vault')) setTab('vault') }; addEventListener('hashchange', f); return () => removeEventListener('hashchange', f) }, []); const [sb, setSb] = useState(false); const [route, setRoute] = useState('')
   // Smart sell: if a resting desk bid beats the chart impact and fits inside the size, take it first; the rest goes to the pool.
   const smartSell = async () => {
     const cc = coin!; const held0 = p.holding ? p.holding.amount : 0; const pxSol = cc.raw?.priceNative ? +cc.raw.priceNative : (p.solPrice ? cc.priceUsd / p.solPrice : 0); const liqSol = cc.depthSol || (p.solPrice ? cc.liq / 2 / p.solPrice : 0)
@@ -87,12 +88,12 @@ export default function CoinPage(p: Props) {
     {(() => { const sg = classify(featsFromCoin(c, rug || (vault as any)?.holders || null, !!vault)); return <div className="card" style={{ marginBottom: 10, padding: '8px 12px' }}><div className="row" style={{ gap: 8, flexWrap: 'wrap', fontSize: 12 }}><span className={'tag ' + labelTone(sg.label)}>{sg.label}</span><span className="dim">run {sg.score} · risk {sg.risk}</span><span className="dim">·</span><span className="dim" style={{ flex: 1, minWidth: 200 }}>{sg.reasons.slice(0, 4).join(' · ')}</span>{rug && <>{rug.mintAuthority && <span className="tag pre">MINT AUTHORITY ON</span>}{rug.freezeAuthority && <span className="tag pre">FREEZE ON</span>}{rug.top1Pct > 20 && <span className="tag pre">top holder {rug.top1Pct.toFixed(0)}%</span>}{rug.top10Pct > 60 && <span className="tag pre">top 10 {rug.top10Pct.toFixed(0)}%</span>}{vault && <span className="tag live">vault {(rug.holders.find((h) => h.address === vault.pub)?.pct || 0).toFixed(1)}%</span>}</>}{fam && fam.members.length > 1 && (() => { const leader = fam.members.find((m) => m.leader); return leader && leader.mint !== p.mint ? <button className="btn sm pri" disabled={!!p.busy || !held} onClick={() => p.onSwitch(c, leader.mint, leader.symbol)}>Switch → {leader.symbol} (leader)</button> : <span className="tag live">LEADER</span> })()}</div></div> })()}
     <div className="lay">
       <div>
-        <Chart coin={c} solPrice={p.solPrice} vault={vault} fills={p.fills} lot={p.lot} orders={loadOrders(p.desk.owner)} trades={p.trades} owner={p.desk.owner} />
-        <div className="card" style={{ marginTop: 12 }}>
-          <h3><span className="seg" style={{ marginLeft: -4 }}><button className={tab === 'trades' ? 'on' : ''} onClick={() => setTab('trades')}>Trades</button><button className={tab === 'desk' ? 'on' : ''} onClick={() => setTab('desk')}>Desk / OTC</button><button className={tab === 'vault' ? 'on' : ''} onClick={() => setTab('vault')}>Vault {vault && <span className="tag live" style={{ marginLeft: 4 }}>ON</span>}</button><button className={tab === 'protocol' ? 'on' : ''} onClick={() => setTab('protocol')}>Rules</button></span></h3>
+        <div className="row" style={{ marginBottom: 10 }}><span className="seg"><button className={tab === 'trades' ? 'on' : ''} onClick={() => setTab('trades')}>Chart</button><button className={tab === 'desk' ? 'on' : ''} onClick={() => setTab('desk')}>Desk / OTC</button><button className={tab === 'vault' ? 'on' : ''} onClick={() => setTab('vault')}>Vault {vault && <span className="tag live" style={{ marginLeft: 4 }}>ON</span>}</button><button className={tab === 'protocol' ? 'on' : ''} onClick={() => setTab('protocol')}>Rules</button></span></div>
+        {tab === 'trades' && <Chart coin={c} solPrice={p.solPrice} vault={vault} fills={p.fills} lot={p.lot} orders={loadOrders(p.desk.owner)} trades={p.trades} owner={p.desk.owner} />}
+        <div className="card" style={{ marginTop: tab === 'trades' ? 12 : 0 }}>
           {tab === 'trades' ? <div className="feed">{myTrades.map((t, i) => <div className="it" key={i}><span className={t.txType === 'buy' ? 'up' : 'dn'} style={{ width: 40, fontWeight: 600 }}>{t.txType.toUpperCase()}</span><span className="num" style={{ width: 90 }}>{S(t.sol, 3)} SOL</span><span className="num dim" style={{ width: 110 }}>{F(t.mcapSol * p.solPrice)} mc</span><span className="dim num" style={{ flex: 1 }}>{t.trader.slice(0, 4)}…{t.trader.slice(-4)}</span><span className="nm">{ago(t.ts)}</span></div>)}
             {!myTrades.length && <div className="empty" style={{ padding: 24 }}>{c.onCurve ? 'Streaming curve trades… (pump.fun live feed)' : 'Live trade stream covers bonding-curve coins. Graduated: see dexscreener ↗'}</div>}</div>
-            : tab === 'desk' ? <CoinDesk mint={p.mint} symbol={c.symbol} d={p.desk} key={p.deskTick} />
+            : tab === 'desk' ? <CoinDesk mint={p.mint} symbol={c.symbol} d={{ ...p.desk, onShop: () => setSb(true), needWallet: p.needWallet }} key={p.deskTick} />
             : tab === 'vault' ? <><CoinVault mint={p.mint} v={vault} isDev={!!vault && vault.dev === p.desk.owner} onRenounce={() => vault && p.onRenounce(vault)} solPrice={p.solPrice} onMode={(m, c) => vault && p.onMode(vault, m, c)} />{vault && <div className="panel" style={{ paddingTop: 0 }}><VaultDeposit v={vault} owner={p.desk.owner} holdingUi={held} busy={p.busy} connected={p.connected} needWallet={p.needWallet} onDeposit={(s, t) => p.onDeposit(vault, s, t, p.holding?.decimals ?? 6)} /><VaultExtras mint={p.mint} v={vault} holdingUi={held} decimals={p.holding?.decimals ?? 6} connected={p.connected} busy={p.busy} onRedeem={(t) => p.onRedeem(c, t, p.holding?.decimals ?? 6)} go={p.go} solPrice={p.solPrice} needWallet={p.needWallet} /></div>}</>
             : <div className="panel" style={{ gap: 8 }}>
               <div className="nm">Green = enforced now. Amber = on-chain program, next.</div>
@@ -111,24 +112,26 @@ export default function CoinPage(p: Props) {
         {side === 'buy' ? <>
           <div className="presets lg">{[0.1, 0.25, 0.5, 1].map((v) => <button key={v} className={n === v ? 'on' : ''} onClick={() => setAmt(String(v))}>{v} SOL</button>)}</div>
           <div className="inp"><input value={amt} onChange={(e) => setAmt(e.target.value)} inputMode="decimal" placeholder="0.0" /><span>SOL</span></div>
-          <div className="kv"><span>Balance</span><b className="num">{p.sol == null ? '—' : S(p.sol) + ' SOL'}</b></div>
-          <div className="kv"><span>≈ USD</span><b className="num">${S(n * p.solPrice, 2)}</b></div>
-          <div className="kv"><span>Route</span><b>{c.onCurve ? 'pump.fun curve · direct' : 'Jupiter best route · Jito tip'}</b></div>
-          <div className="kv"><span>Est. tokens</span><b className="num">{c.priceUsd ? ((n * p.solPrice) / c.priceUsd).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'}</b></div>
+          <div className="tradekv">
+            <div className="kv"><span>You get</span><b className="num" style={{ fontSize: 16 }}>{c.priceUsd ? ((n * p.solPrice) / c.priceUsd).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'} {c.symbol}</b></div>
+            <div className="kv"><span>For</span><b className="num">{S(n)} SOL · ${S(n * p.solPrice, 2)}</b></div>
+            <div className="kv"><span>Balance</span><b className="num">{p.sol == null ? '—' : S(p.sol) + ' SOL'}</b></div>
+          </div>
           <button className="btn pri big" disabled={!!p.busy || (p.connected && (n <= 0 || (p.sol != null && n > p.sol - 0.005)))} onClick={() => p.connected ? p.onBuy(c, n) : p.needWallet()}>{p.busy || (!p.connected ? 'Connect wallet' : `Buy ${c.symbol}`)}</button>
         </> : <>
           <div className="presets lg">{[0.25, 0.5, 0.75, 1].map((v) => <button key={v} className={frac === v ? 'on' : ''} onClick={() => setFrac(v)}>{v * 100}%</button>)}</div>
           <input type="range" className="slider" min={1} max={100} value={Math.round(frac * 100)} onChange={(e) => setFrac(+e.target.value / 100)} />
-          <div className="kv"><span>Holding</span><b className="num">{held ? held.toLocaleString(undefined, { maximumFractionDigits: 0 }) : 0} {c.symbol}</b></div>
-          <div className="kv"><span>Selling</span><b className="num">≈ {S(sellSol)} SOL (${S(sellSol * p.solPrice, 2)})</b></div>
-          {cost > 0 && <div className="kv"><span>P&amp;L on this sell</span><b className={'num ' + (sellProfit >= 0 ? 'up' : 'dn')}>{sellProfit >= 0 ? '+' : ''}{S(sellProfit)} SOL</b></div>}
-                    <div className="kv"><span>Route</span><b>{c.onCurve ? 'pump.fun curve · PumpPortal' : 'Jupiter aggregator'}</b></div>
+          <div className="tradekv">
+            <div className="kv"><span>You get</span><b className="num" style={{ fontSize: 16 }}>≈ {S(sellSol)} SOL · ${S(sellSol * p.solPrice, 2)}</b></div>
+            <div className="kv"><span>Selling</span><b className="num">{(held * frac).toLocaleString(undefined, { maximumFractionDigits: 0 })} of {held ? held.toLocaleString(undefined, { maximumFractionDigits: 0 }) : 0} {c.symbol}</b></div>
+            {cost > 0 && <div className="kv"><span>P&amp;L</span><b className={'num ' + (sellProfit >= 0 ? 'up' : 'dn')}>{sellProfit >= 0 ? '+' : ''}{S(sellProfit)} SOL</b></div>}
+          </div>
           <button className="btn big sell" disabled={!!p.busy || (p.connected && !held)} onClick={() => p.connected ? smartSell() : p.needWallet()}>{p.busy || (!p.connected ? 'Connect wallet' : !held ? 'Nothing to sell' : `Sell ${Math.round(frac * 100)}%`)}</button>
           {route && <div className="nm">{route}</div>}
           {held > 0 && !c.onCurve && <button className="btn" style={{ width: '100%', fontSize: 12, fontWeight: 500 }} onClick={() => setSb(true)}>OTC · sell a block off-chart</button>}
           <Orders c={c} owner={p.desk.owner} held={held} ordersV={p.ordersV} bump={p.bumpOrders} />
         </>}
-        <div className="nm">Non-custodial · slippage &amp; priority in Settings · curve trades carry PumpPortal's 0.5%.</div>
+        <div className="nm" style={{ fontSize: 10.5 }}>fastest route · auto fee · slippage in Settings</div>
       </div></div>
     </div>
   </>
