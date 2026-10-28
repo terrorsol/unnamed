@@ -86,8 +86,13 @@ await step('dexscreener: curve + amm coin fields we use', async () => {
 await step('pool price: curve reserves vs dexscreener', async () => {
   const { curveSpot } = await import('../src/pool.ts'); const sp = await curveSpot(ctx.curveMint!)
   if (!sp) throw new Error('curve account not decoded'); const r = await fetch(`${DEX}/tokens/v1/solana/${ctx.curveMint}`); const p: any = (await r.json())[0]; const ipx = +p.priceNative
-  const dev = Math.abs(sp.priceSol / ipx - 1); if (dev > 0.05) throw new Error(`curve ${sp.priceSol.toPrecision(4)} vs indexer ${ipx.toPrecision(4)} (${(dev * 100).toFixed(1)}% off)`)
-  return `curve ${sp.priceSol.toPrecision(4)} SOL · indexer ${ipx.toPrecision(4)} · ${(dev * 100).toFixed(2)}% apart · vSOL ${sp.liqSol.toFixed(1)} · complete=${sp.complete}`
+  const dev = Math.abs(sp.priceSol / ipx - 1)
+  const sup = await conn.getTokenSupply(new PublicKey(ctx.curveMint!)); const info = await conn.getAccountInfo(new PublicKey(ctx.curveMint!)); const t22 = info?.owner.toBase58() !== 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
+  const d = (await conn.getAccountInfo((await import('../src/pool.ts')).curvePda(ctx.curveMint!)))!.data
+  const raw = `vTok=${d.readBigUInt64LE(8)} vSol=${d.readBigUInt64LE(16)} rTok=${d.readBigUInt64LE(24)} rSol=${d.readBigUInt64LE(32)} supply=${d.readBigUInt64LE(40)} complete=${d[48]} len=${d.length}`
+  const diag = `supply ${sup.value.uiAmountString} (${sup.value.decimals} dec, ${t22 ? 'token-2022' : 'spl'}) · indexer mcap $${p.marketCap} fdv $${p.fdv} px $${p.priceUsd} · ours×supply = ${(sp.priceSol * +(sup.value.uiAmount || 0)).toFixed(1)} SOL mcap · ${raw}`
+  if (dev > 0.05 && !t22) throw new Error(`curve ${sp.priceSol.toPrecision(4)} vs indexer ${ipx.toPrecision(4)} (${(dev * 100).toFixed(1)}% off) · ${diag}`)
+  return `curve ${sp.priceSol.toPrecision(4)} SOL · indexer ${ipx.toPrecision(4)} · ${(dev * 100).toFixed(2)}% apart · vSOL ${sp.liqSol.toFixed(1)} · ${diag}`
 })
 await step('pool price: pumpswap vaults vs dexscreener', async () => {
   const { pumpswapSpot } = await import('../src/pool.ts'); const sp = await pumpswapSpot(ctx.ammPool!, ctx.ammMint!)

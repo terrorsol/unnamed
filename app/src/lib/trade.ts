@@ -17,6 +17,9 @@ export type Ctx = { conn: Connection; owner: PublicKey; sign: Signer; settings: 
 /** Sender tip when MEV protection is on: the tip buys priority routing (validators + SWQOS), the CU price is still set by priorityFee. */
 function fast(ctx: Ctx): Fast | undefined { return ctx.settings.mev ? { rpc: ctx.settings.rpc, payer: ctx.owner, tipLamports: Math.max(MIN_TIP_LAMPORTS, Math.floor(ctx.settings.jitoTipSol * LAMPORTS)) } : undefined }
 async function fee(ctx: Ctx) { return ctx.settings.autoFee ? priorityFee(ctx.conn, ctx.settings.priorityFeeSol) : ctx.settings.priorityFeeSol }
+/** true only when the chain says the tx would fail; network errors count as 'fine' so a flaky RPC never changes the route */
+async function simFails(conn: Connection, tx: VersionedTransaction) { try { const r = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true }); return !!r.value.err } catch { return false } }
+
 export async function buy(ctx: Ctx, mint: string, sol: number, onCurve: boolean): Promise<string> {
   const { conn, owner, sign, onStatus } = ctx; const settings = { ...ctx.settings, priorityFeeSol: await fee(ctx), slippageBps: dynSlippageBps(sol, ctx.depthSol, ctx.settings.slippageBps) }
   const pk = owner.toBase58()
@@ -24,6 +27,8 @@ export async function buy(ctx: Ctx, mint: string, sol: number, onCurve: boolean)
   if (onCurve) {
     onStatus?.('Building pump.fun buy…')
     const tx = await P.buildTrade({ publicKey: pk, action: 'buy', mint, amount: sol, denominatedInSol: true, slippage: slipPct, priorityFee: settings.priorityFeeSol, pool: 'auto' })
+    // dry-run before the wallet prompt: PumpPortal's builder has failed on mayhem (Token-2022) curve coins; Jupiter routes those
+    if (await simFails(conn, tx)) { onStatus?.('Routing via Jupiter…'); const q = await J.quote(SOL_MINT, mint, Math.floor(sol * LAMPORTS), settings.slippageBps); const jt = await J.buildSwap(q, pk, Math.floor(settings.priorityFeeSol * LAMPORTS), 0); return sendAndConfirm(conn, jt, sign, onStatus, fast(ctx)) }
     return sendAndConfirm(conn, tx, sign, onStatus, fast(ctx))
   }
   try {
@@ -49,6 +54,7 @@ export async function sell(ctx: Ctx, mint: string, frac: number, rawAmount: bigi
   if (onCurve) {
     onStatus?.('Building pump.fun sell…')
     const tx = await P.buildTrade({ publicKey: pk, action: 'sell', mint, amount: `${pct}%`, denominatedInSol: false, slippage: slipPct, priorityFee: settings.priorityFeeSol, pool: 'auto' })
+    if (await simFails(conn, tx)) { onStatus?.('Routing via Jupiter…'); const amt = frac >= 0.999 ? rawAmount : (rawAmount * BigInt(Math.round(frac * 10000))) / 10000n; const q = await J.quote(mint, SOL_MINT, amt, settings.slippageBps); const jt = await J.buildSwap(q, pk, Math.floor(settings.priorityFeeSol * LAMPORTS), 0); return sendAndConfirm(conn, jt, sign, onStatus, fast(ctx)) }
     return sendAndConfirm(conn, tx, sign, onStatus, fast(ctx))
   }
   const amt = frac >= 0.999 ? rawAmount : (rawAmount * BigInt(Math.round(frac * 10000))) / 10000n
