@@ -90,9 +90,16 @@ export const TIP_LAMPORTS = Math.max(MIN_TIP_LAMPORTS, Math.floor(+(process.env.
 /** Jito bundle: ≤5 signed txs, base64 (Jito: base58 is "slow, DEPRECATED"; default is still base58 so the encoding option is explicit). Helius RPC proxies sendBundle (5 rps) so it is the default when the RPC is Helius. */
 export async function sendBundle(raws: Uint8Array[]): Promise<string> {
   if (raws.length > 5) throw new Error('bundle > 5 txs')
-  const u = process.env.JITO_URL || (/helius/.test(RPC) ? RPC : 'https://mainnet.block-engine.jito.wtf/api/v1/bundles')
-  const b = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'sendBundle', params: [raws.map((x) => Buffer.from(x).toString('base64')), { encoding: 'base64' }] }) })
-  const d: any = await b.json(); if (d.error) throw new Error('jito: ' + JSON.stringify(d.error)); return d.result as string
+  // helius proxies sendBundle only on paid plans ("Method not available on your current plan"); jito's public block engine takes bundles from anyone (tip tx required, rate-limited)
+  const urls = [process.env.JITO_URL, /helius/.test(RPC) ? RPC : null, 'https://mainnet.block-engine.jito.wtf/api/v1/bundles', 'https://ny.mainnet.block-engine.jito.wtf/api/v1/bundles'].filter((x): x is string => !!x)
+  const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'sendBundle', params: [raws.map((x) => Buffer.from(x).toString('base64')), { encoding: 'base64' }] })
+  let last = ''
+  for (const u of urls) {
+    try { const b = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body }); const d: any = await b.json().catch(() => ({ error: { message: 'http ' + b.status } }))
+      if (d.error) { last = JSON.stringify(d.error); if (/plan|not available|unauthorized|forbidden/i.test(last)) continue; throw new Error('jito: ' + last) }
+      return d.result as string } catch (e: any) { last = String(e.message || e); if (!/plan|not available|fetch failed|http 4/i.test(last)) throw e }
+  }
+  throw new Error('jito: ' + last)
 }
 
 /** Holder concentration + authorities straight from chain (used for signals on vaulted coins) */

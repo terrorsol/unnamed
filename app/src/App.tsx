@@ -244,6 +244,8 @@ export default function App() {
     }
     catch (e: any) { toast({ kind: 'err', title: 'Launch failed', rows: [['Reason', String(e?.message || e).slice(0, 140)], ...(pendingVault.current ? [['Your stake', 'still in the vault — press Create again to retry']] as [string, string][] : [])] }) } finally { setBusy('') }
   }
+  // a launch whose coin went out but whose arm never ran (phantom blocked the message signature, bundle route down, tab closed): arm it from the Vault page
+  const onArm = async (v: K.VaultPub) => { if (!v.mint) return; try { setBusy('Arming vault…'); const r = await K.vaultArm(v.id, v.mint, v.symbol || '', v.name || '', await K.devAuth(signMsg, 'arm', v.id, v.mint)); setVaultV((n) => n + 1); toast({ kind: 'ok', title: `Vault armed · ${r.pct}% supply target`, rows: [['Chest', S(r.chest) + ' SOL']] }) } catch (e: any) { toast({ kind: 'err', title: 'Arm failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') } }
   sellRef.current = onSell
   const quick = (c: Coin) => { if (!connected) return needWallet(); onBuy(c, settings.quickBuy) }
   const toggleWatch = (m: string) => setSettings({ watch: settings.watch.includes(m) ? settings.watch.filter((x) => x !== m) : [...settings.watch, m] })
@@ -259,7 +261,7 @@ export default function App() {
     if (page === 'vault') return <Tabs tabs={[['Vaults', <VaultPage go={go} solPrice={solPrice} onLaunch={() => setLaunch(true)} />], ['Import', <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={arg2 || ''} needWallet={needWallet} sol={ws.sol} />]]} sel={arg} go={(t) => go('vault/' + t)} />
     if (page === 'desk') return <DeskPage go={go} coins={coins} owner={ws.owner} bidder={bidder} />
     if (page === 'import') return <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={arg || ''} needWallet={needWallet} sol={ws.sol} />
-    if (page === 'dev' || page === 'mine') return <MinePage owner={ws.owner} go={go} solPrice={solPrice} onRenounce={renounce} onClaim={onClaim} busy={busy} onConnect={needWallet} onLaunch={() => setLaunch(true)} />
+    if (page === 'dev' || page === 'mine') return <MinePage owner={ws.owner} go={go} solPrice={solPrice} onRenounce={renounce} onClaim={onClaim} onArm={onArm} busy={busy} onConnect={needWallet} onLaunch={() => setLaunch(true)} />
     if (page === 'leaderboard') return <LeaderboardPage owner={ws.owner} />
     return <Home coins={q.trim() ? results : coins} byMint={byMint} vaults={vaultList} solPrice={solPrice} go={go} quick={quick} quickSol={settings.quickBuy} deskUp={deskUp} onLaunch={() => setLaunch(true)} fresh={fresh.list} freshCoins={freshCoins} trades={fresh.trades} live={fresh.live} err={err} watch={settings.watch} />
   }
