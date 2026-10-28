@@ -150,6 +150,29 @@ await step('pumpportal: create + dev buy (random mint) → shape only', async ()
   const signers = tx.message.header.numRequiredSignatures
   return `${tx.message.compiledInstructions.length} ix · ${signers} signers (dev + mint) · mint signature applied=${tx.signatures.some((s) => s.some((b) => b))} · ` + (await sim(tx, 'create').catch((e) => 'simulate: ' + String(e.message).slice(0, 120)))
 })
+await step('launch bundle: [create+dev buy, vault buy] → decode + math check', async () => {
+  // the exact 2-tx bundle the app sends at launch, built by PumpPortal for a random mint. Dev and vault are both PAYER here (same wallet twice is allowed).
+  const { Keypair } = await import('@solana/web3.js'); const L = await import('../src/launch.ts')
+  const mintKp = Keypair.generate(); const mint = mintKp.publicKey.toBase58(); const devSol = 0.05, vaultSol = 0.1
+  const body = [
+    { publicKey: PAYER.toBase58(), action: 'create', tokenMetadata: { name: 'preflight', symbol: 'PRE', uri: 'https://ipfs.io/ipfs/bafkreigh2akiscaildc' }, mint, denominatedInSol: 'true', amount: devSol, slippage: 10, priorityFee: 0.0005, pool: 'pump' },
+    { publicKey: PAYER.toBase58(), action: 'buy', mint, denominatedInSol: 'true', amount: vaultSol, slippage: 10, priorityFee: 0.00005, pool: 'pump' },
+  ]
+  const r = await timeout(fetch(PP, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), 20000)
+  if (!r.ok) throw new Error(`HTTP ${r.status} ${(await r.text()).slice(0, 160)}`)
+  const enc: string[] = await r.json(); if (enc.length !== 2) throw new Error('expected 2 txs, got ' + enc.length)
+  const [t0, t1] = enc.map((e) => VersionedTransaction.deserialize(bs58.decode(e)))
+  const c = L.inspectCreate(t0, mint); const b = L.inspectBuy(t1, PAYER.toBase58(), mint)
+  const z = L.blockZero(devSol, vaultSol)
+  const devDev = c.buy ? (c.buy.tokens - z.devTokens) / z.devTokens * 100 : NaN, vaultDev = (b.tokens - z.vaultTokens) / z.vaultTokens * 100
+  // implied fee from PumpPortal's own quote on the fresh curve: tokens = vTok − k/(vSol + sol·(1−fee))
+  const impliedFee = c.buy ? (1 - ((L.CURVE0.vSol * L.CURVE0.vTok) / (L.CURVE0.vTok - c.buy.tokens) - L.CURVE0.vSol) / devSol) * 100 : NaN
+  if (Math.abs(devDev) > 2 || Math.abs(vaultDev) > 2) throw new Error(`our block-zero math is off: dev ${devDev.toFixed(2)}% vault ${vaultDev.toFixed(2)}% (implied fee ${impliedFee.toFixed(2)}%)`)
+  if (b.maxSolCost > vaultSol * 1.1 + 1e-9) throw new Error('vault max_sol_cost above amount×(1+slippage): ' + b.maxSolCost)
+  if (!c.tipSol && !b.tipSol) throw new Error('no Jito tip in either tx')
+  const simNote = await sim(t0, 'create').catch((e) => 'create simulate: ' + String(e.message).slice(0, 100))
+  return `tip on ${c.tipSol ? 'tx0' : 'tx1'} ${(c.tipSol || b.tipSol).toFixed(4)} SOL · dev ${(c.buy!.tokens / 1e6).toFixed(2)}M tok (ours ${(z.devTokens / 1e6).toFixed(2)}M, ${devDev >= 0 ? '+' : ''}${devDev.toFixed(2)}%) · vault ${(b.tokens / 1e6).toFixed(2)}M (ours ${(z.vaultTokens / 1e6).toFixed(2)}M, ${vaultDev >= 0 ? '+' : ''}${vaultDev.toFixed(2)}%) · implied fee ${impliedFee.toFixed(2)}% · vault max out ${b.solOut.toFixed(4)} SOL · ixs ${b.ixs.join(',')} · ${simNote}`
+})
 await step('pumpportal: collectCreatorFee → shape', async () => {
   const r = await timeout(fetch(PP, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ publicKey: PAYER.toBase58(), action: 'collectCreatorFee', priorityFee: 0.000001 }) }), 15000)
   const txt = r.ok ? '' : await r.text(); if (!r.ok) return `HTTP ${r.status} ${txt.slice(0, 120)} (expected for a wallet with no creator fees)`

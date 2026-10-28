@@ -335,15 +335,18 @@ export function startStream() {
 
 /** Block-zero: sign the vault's buy tx inside a launch bundle. Verifies it is a PumpPortal buy for this vault's mint-to-be, within chest. */
 import { VersionedTransaction } from '@solana/web3.js'
+import * as L from './launch.ts'
 export async function signBundleTx(id: string, mint: string, txB64: string, maxSol: number) {
   const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('already armed')
   const bal = await balanceSol(v.pub); if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL`)
   const spend = Math.min(maxSol, bal * 0.5); if (spend < 0.05) throw new Error('nothing to spend')
   const tx = VersionedTransaction.deserialize(Buffer.from(txB64, 'base64'))
-  const keys = tx.message.staticAccountKeys.map((k) => k.toBase58()); if (keys[0] !== v.pub) throw new Error('tx fee payer is not the vault')
-  if (!keys.includes(mint)) throw new Error('tx does not reference the mint')
-  tx.sign([kp(v)]); v.mint = mint; v.activity.unshift({ t: Date.now(), kind: 'note', msg: `signed block-zero buy · ${spend.toFixed(3)} SOL` }); save()
-  return { tx: Buffer.from(tx.serialize()).toString('base64'), spend }
+  // decode the buy itself: the client chose the numbers PumpPortal built from, so the cap is enforced on what the tx can actually take
+  const b = L.inspectBuy(tx, v.pub, mint)
+  if (b.solOut > spend * 1.2 + 0.01) throw new Error(`block-zero buy can cost ${b.solOut.toFixed(3)} SOL, policy allows ${spend.toFixed(3)}`)
+  KEEP.sign({ id: v.id, chest: v.stakeSol, sk: kp(v) }, tx, 'trade', b.solOut)
+  v.mint = mint; v.activity.unshift({ t: Date.now(), kind: 'note', msg: `signed block-zero buy · up to ${b.maxSolCost.toFixed(3)} SOL for ${(b.tokens / 1e6).toFixed(1)}M tokens` }); save()
+  return { tx: Buffer.from(tx.serialize()).toString('base64'), spend: b.maxSolCost, tokens: b.tokens }
 }
 /** Submit a Jito bundle (array of base64 signed txs). Returns bundle id. */
 export async function sendBundle(txs: string[]) { return C.sendBundle(txs.map((b64) => new Uint8Array(Buffer.from(b64, 'base64')))) }
