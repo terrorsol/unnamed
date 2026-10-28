@@ -107,7 +107,7 @@ await new Promise((r) => setTimeout(r, 7000))
 const book = await (await fetch('http://localhost:4192/book/' + MINT)).json()
 const vb = book.bids.find((b) => b.vault)
 { const vp = await (await fetch('http://localhost:4192/vault/mint/' + MINT)).json(); console.log('VAULT', JSON.stringify({ chest: vp.chest, tokens: vp.tokens, pct: vp.pct, deskBid: vp.deskBid, acts: vp.activity.slice(0, 8).map((a) => a.kind + ':' + (a.msg || '').slice(0, 90)) })) }
-chk('vault bid resting on desk ≈ −4% (±0.5) ≈ 25% chest (±10%)', !!vb && vb.discBps >= 350 && vb.discBps <= 450 && vb.sol >= 1.1 && vb.sol <= 1.4)
+chk('vault bid resting on desk ≈ −4% (±0.5), max(25% of chest, min block)', !!vb && vb.discBps >= 350 && vb.discBps <= 450 && vb.sol >= 1.1 && vb.sol <= 2.1)
 // redeem quote: 500000 tokens of 1e9 supply × 5 SOL × 0.93
 const rq = await (await fetch('http://localhost:4192/redeem/quote', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mint: MINT, tokens: 500000 }) })).json()
 chk('redeem quote', Math.abs(rq.sol - 0.002325) < 1e-6)
@@ -122,9 +122,9 @@ chk('redeem tx sent', sent.length === sentBefore + 1)
 if (sent.length > sentBefore) { const tx = Transaction.from(Buffer.from(sent.at(-1), 'base64')); const ks = tx.signatures.map((s) => s.publicKey.toBase58()); chk('redeem signed by holder AND vault', tx.signatures.every((x) => x.signature) && ks.includes(seller.addr) && ks.includes(v.pub) && tx.instructions.length === 3) }
 chk('redeem toast', (await seller.pg.locator('.toast.ok').last().innerText().catch(() => '')).includes('Redeemed'))
 // vault bid fill: seller sells a block into the vault's bid after it has rested
-console.log('waiting for vault bid rest…'); await seller.pg.waitForTimeout(55000)
+console.log('waiting for vault bid rest…'); await seller.pg.waitForTimeout(70000)
 await seller.pg.locator('.seg button', { hasText: 'Desk' }).click(); await seller.pg.waitForTimeout(6000)
-chk('vault bid is the best bid on the desk tab', /Best bid/i.test(await seller.pg.locator('.main').innerText()) && /SOL/.test(await seller.pg.locator('.main').innerText()))
+{ const mt = await seller.pg.locator('.main').innerText(); console.log('DESKTAB', mt.replace(/\n/g, ' / ').slice(0, 500)); chk('vault bid shows on the desk tab (simple: best bid · pro: VAULT row)', /Best bid/i.test(mt) || (/VAULT/.test(mt) && /−4\.\d%/.test(mt))) }
 // ---- smart sell: plain Sell routes through the vault bid because it beats chart impact ----
 await seller.pg.locator('.seg button', { hasText: 'Sell' }).first().click(); await seller.pg.waitForTimeout(300); await seller.pg.locator('.presets button', { hasText: '100%' }).first().click()
 const bookNow = await (await fetch('http://localhost:4192/book/' + MINT)).json(); console.log('BOOK before smart sell', JSON.stringify(bookNow.bids.map((b) => ({ sol: b.sol, disc: b.discBps, restable: b.restable, away: b.away, vault: b.vault }))), 'minBlock', bookNow.minBlock)
@@ -156,12 +156,12 @@ const ctx3 = await b.newContext({ viewport: { width: 1200, height: 900 } }); con
 await p3.addInitScript(() => { localStorage.setItem('unnamed_server', 'http://localhost:4192'); localStorage.setItem('unnamed_settings_v2', JSON.stringify({ rpc: 'http://localhost:4390' })) })
 await p3.route(/api\.dexscreener\.com/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: dexReply(r.request().url()) }))
 await p3.goto('http://localhost:4191/#/coin/' + MINT + '/desk'); await p3.waitForTimeout(2500)
-const simple = await p3.locator('.panel').first().innerText()
-chk('simple desk: plain headline + both sides visible', /off the chart/i.test(simple) && /I want to sell/i.test(simple) && /I want to buy/i.test(simple))
-chk('simple desk: best offer or none, in words', /BEST OFFER|No bids/i.test(simple))
-
+const simple = await p3.locator('.panel').first().innerText(); console.log('SIMPLE', simple.replace(/\n/g, ' / ').slice(0, 400))
+chk('simple desk: one Sell/Buy switch, min block shown, Pro available', (await p3.locator('.panel').first().locator('.seg button', { hasText: 'Sell' }).count()) === 1 && (await p3.locator('.panel').first().locator('.seg button', { hasText: 'Buy' }).count()) === 1 && /min \d/.test(simple) && /Pro/.test(simple))
+chk('simple desk: sell side shows the best bid or your own offer form', /Best bid|Your sell offer/i.test(simple))
+await p3.locator('.panel').first().locator('.seg button', { hasText: 'Buy' }).click(); await p3.waitForTimeout(300)
 const buyTxt = await p3.locator('.panel').first().innerText()
-chk('simple desk: buy side explains itself, no above-market option', /under the price/i.test(buyTxt) && !/above the price/i.test(buyTxt))
+chk('simple desk: buy side is a bid form or the best offer, nothing above market', /Your bid|Best sell offer|Vault sells at spot/i.test(buyTxt) && !/above the price/i.test(buyTxt))
 await ctx3.close()
 const bookJson = await (await fetch('http://localhost:4192/book/' + MINT)).json()
 chk('book is pseudonymous (no pubkeys)', bookJson.bids.every((b) => /^desk-[0-9a-f]{5}$|^vault/i.test(b.bidder) || b.vault))

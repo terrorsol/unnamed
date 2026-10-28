@@ -11,6 +11,7 @@ import { confetti, useRoute, useSettings, useSolPrice, useTrending, useNewTokens
 import Home from './components/Home'
 import CoinPage from './components/CoinPage'
 import Launch from './components/Launch'
+import Gate from './components/Gate'
 import { Portfolio, SettingsPage, About } from './components/Pages'
 const Simulate = React.lazy(() => import('./components/Simulate'))
 const Compare = React.lazy(() => import('./components/Compare'))
@@ -85,7 +86,9 @@ export default function App() {
   const [pings, setPings] = useState<K.Rfq[]>([]); const [swaps, setSwaps] = useState<any[]>([])
   const allTrades = useMemo(() => [...swaps, ...fresh.trades].sort((a, b) => b.ts - a.ts).slice(0, 200), [swaps, fresh.trades])
   useEffect(() => { if (!deskUp) return; return K.openSwapFeed((sw) => setSwaps((l) => [{ mint: sw.mint, txType: sw.side, sol: sw.sol, tokens: 0, trader: sw.trader, mcapSol: 0, ts: sw.t, sig: sw.sig }, ...l].slice(0, 200))) }, [deskUp])
-  useEffect(() => { K.health().then(() => setDeskUp(true)).catch(() => setDeskUp(false)); const i = setInterval(() => K.health().then(() => setDeskUp(true)).catch(() => setDeskUp(false)), 30000); return () => clearInterval(i) }, [])
+  // private beta gate: health says whether the server is gated; a stored session is re-checked once, and any 401 from a write re-opens the gate
+  const [gated, setGated] = useState<boolean | null>(null)
+  useEffect(() => { const chk = async () => { try { const h = await K.health(); setDeskUp(true); if (!h.gate) { setGated(false); return } const t = K.sessionToken(); if (!t) { setGated(true); return } const r = await K.inviteSession(t).catch(() => ({ ok: false })); if (!r.ok) K.setSessionToken(''); setGated(!r.ok) } catch { setDeskUp(false) } }; chk(); const i = setInterval(() => K.health().then(() => setDeskUp(true)).catch(() => setDeskUp(false)), 30000); const onGate = () => { K.setSessionToken(''); setGated(true) }; K.gateBus.addEventListener('gate', onGate); return () => { clearInterval(i); K.gateBus.removeEventListener('gate', onGate) } }, [])
   useEffect(() => {
     if (!activeB58 || !deskUp) { setBidder(null); return }
     const sess = K.openBidder(connection, activeB58, signMsg, signLegacy, async (m) => { const c = await D.tokenPairs(m); return c?.raw?.priceNative ? +c.raw.priceNative : 0 }, (e) => {
@@ -101,7 +104,7 @@ export default function App() {
       if (e.type === 'error' && e.re !== 'place') toast({ kind: 'err', title: 'Desk', rows: [['Error', e.error]] })
     })
     setBidder(sess); return () => sess.close()
-  }, [activeB58, deskUp, connection, signMsg, signLegacy])
+  }, [activeB58, deskUp, connection, signMsg, signLegacy, gated])
   const onRespond = async (rfqId: string, discBps: number, sol: number) => {
     if (!bidder) return needWallet()
     try { await bidder.respond(rfqId, discBps, sol); setPings((l) => l.filter((x) => x.id !== rfqId)); toast({ kind: 'ok', title: discBps <= (pings.find((p) => p.id === rfqId)?.maxBps ?? discBps) ? 'Filling the block — seller is signing' : 'Counter sent to seller', rows: [['Your price', '−' + (discBps / 100).toFixed(2) + '%'], ['Size', S(sol, 2) + ' SOL']] }) }
@@ -271,7 +274,7 @@ export default function App() {
       <nav className="side">{NAV.map(([k, l, d, i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={'nav' + (page === k ? ' on' : '')}><span className="ico">{i}</span><span className="lab"><b>{l}</b><small>{d}</small></span></a>)}
         <div className="cap">More</div>{MORE.map(([k, l]) => <a key={k} href={'#/' + k} className={'nav sub' + ((page + '/' + arg === k || page === k) ? ' on' : '')}><span className="lab"><b>{l}</b></span></a>)}
         <div className="foot">{deskUp ? 'beta' : <span className="dn">server offline</span>}</div></nav>
-      <main className="main"><React.Suspense fallback={<div className="empty">…</div>}>{content()}</React.Suspense></main>
+      <main className="main">{gated ? <Gate wallet={activeB58} connected={connected} signMsg={signMsg} needWallet={needWallet} onOpen={() => { setGated(false); setVaultV((n) => n + 1) }} /> : <React.Suspense fallback={<div className="empty">…</div>}>{content()}</React.Suspense>}</main>
     </div>
     <nav className="mnav">{NAV.map(([k, l, , i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={page === k ? 'on' : ''}><b>{i}</b>{l}</a>)}<a href="#" onClick={(e) => { e.preventDefault(); setMore(true) }} className={more ? 'on' : ''}><b>≡</b>More</a></nav>
     {more && <div className="modal" onClick={() => setMore(false)}><div className="box" onClick={(e) => e.stopPropagation()} style={{ width: 360 }}><h2>More</h2><div className="panel" style={{ gap: 4 }}>

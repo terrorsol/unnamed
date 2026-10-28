@@ -35,9 +35,15 @@ export type Expect = { mint: string; seller: string; bidder: string; treasury: s
 
 /** list endpoints: a bad or partial server reply never crashes a page — anything that is not an array reads as empty */
 const arr = (x: any): any[] => (Array.isArray(x) ? x : [])
+// private beta: the session token from a redeemed invite key rides on every request and on the bidder socket
+export const sessionToken = (): string => { try { return localStorage.getItem('banker_session') || '' } catch { return '' } }
+export const setSessionToken = (t: string) => { try { t ? localStorage.setItem('banker_session', t) : localStorage.removeItem('banker_session') } catch {} }
+export const gateBus = new EventTarget()
 async function j(path: string, body?: any) {
   await ready
-  const r = await fetch(SERVER + path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : undefined)
+  const sh = sessionToken() ? { 'x-banker-session': sessionToken() } : {}
+  const r = await fetch(SERVER + path, body ? { method: 'POST', headers: { 'content-type': 'application/json', ...sh }, body: JSON.stringify(body) } : (sessionToken() ? { headers: sh } : undefined))
+  if (r.status === 401) { try { const e = await r.clone().json(); if (e?.gate) gateBus.dispatchEvent(new Event('gate')) } catch {} }
   const d = await r.json().catch(() => ({ error: 'bad response' })); if (!r.ok || d?.error) throw new Error(d?.error || 'server ' + r.status); return d
 }
 export const getBook = (mint: string, me?: string): Promise<Book> => j(`/book/${mint}${me ? '?me=' + me : ''}`)
@@ -77,7 +83,7 @@ export function openBidder(conn: Connection, pubkey: string, signMsg: (m: Uint8A
   const connect = async () => {
     await ready; if (closed) return
     ws = new WebSocket(WS()); authed = false
-    ws.onopen = async () => { const ts = Date.now(); const sig = await signMsg(new TextEncoder().encode(`unnamed-desk:${pubkey}:${ts}`)); send({ type: 'auth', pubkey, ts, sig: bs58.encode(sig) }) }
+    ws.onopen = async () => { const ts = Date.now(); const sig = await signMsg(new TextEncoder().encode(`unnamed-desk:${pubkey}:${ts}`)); send({ type: 'auth', pubkey, ts, sig: bs58.encode(sig), session: sessionToken() }) }
     ws.onmessage = async (m) => {
       const d = JSON.parse(m.data)
       if (d.type === 'authed') { authed = true; onEvent(d); hb = setInterval(() => send({ type: 'refresh' }), 20000)
@@ -191,6 +197,8 @@ export const vaultArm = (id: string, mint: string, symbol: string, name = '', au
 export const vaultRenounce = (id: string, dev: string): Promise<VaultPub> => j('/vault/renounce', { id, dev })
 export const vaultByMint = (mint: string): Promise<VaultPub | null> => j('/vault/mint/' + mint)
 export const candles = (mint: string, tf = 60): Promise<{ time: number; open: number; high: number; low: number; close: number; volume: number }[]> => j(`/candles/${mint}?tf=${tf}`).then(arr)
+export const inviteRedeem = (code: string, wallet: string, msg: string, sig: string): Promise<{ token: string; wallet: string; exp: number }> => j('/invite/redeem', { code, wallet, msg, sig })
+export const inviteSession = (token: string): Promise<{ ok: boolean; wallet?: string; gate?: boolean }> => j('/invite/session', { token })
 export const vaults = (): Promise<VaultPub[]> => j('/vaults').then(arr)
 
 // ---- history / leaderboard / family / dev / redeem ----

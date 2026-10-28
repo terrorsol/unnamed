@@ -135,3 +135,5 @@ tbody tr{transition:background .12s,transform .12s}tbody tr:hover{transform:tran
 
 .actions2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}.actions2 .btn{height:auto;padding:14px 16px;flex-direction:column;align-items:flex-start;gap:2px;white-space:normal;text-align:left}.actions2 .btn b{font-size:15px}.actions2 .btn span{font-size:11.5px;font-weight:500;opacity:.8}
 @media(max-width:600px){.actions2{grid-template-columns:1fr}}
+
+.gate{max-width:360px;margin:12vh auto 0;display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center}.gatemark{width:96px;height:96px;color:#e6e6e6}.gatettl{font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--fg2)}.gate input{width:100%;text-align:center;font-size:16px;letter-spacing:.08em;height:46px}

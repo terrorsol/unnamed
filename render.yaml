@@ -32,7 +32,11 @@ services:
       - key: JITO
         value: "0"    # 1 = vault trades as Jito bundles via PumpPortal bundle mode (default: Helius Sender)
       - key: PLATFORM_ADMIN
-        sync: false   # YOUR wallet pubkey: admin of our Raydium LaunchLab platform (signs the one-time setup in Settings)
+        sync: false   # optional: a wallet to be the LaunchLab platform admin. Unset = the server key is admin and creates the config itself once its wallet holds 0.02 SOL
+      - key: GATE
+        value: "1"    # private beta: every write needs a session from a redeemed invite key (npm run invites -- 10 "wave 1" on the server shell)
+      - key: ADMIN_KEY
+        sync: false   # any long random string: GET /invite/redeemed?key=… lists who redeemed which key
       - key: TAX_BPS
         value: "200"  # platform fee on every curve trade of a coin launched here → that coin's chest (max 500)
       - key: CREATOR_FEE_BPS

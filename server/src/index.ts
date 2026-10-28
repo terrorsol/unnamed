@@ -10,6 +10,7 @@ import bs58 from 'bs58'
 import { PublicKey } from '@solana/web3.js'
 import * as D from './desk.ts'
 import * as V from './vault.ts'
+import * as INV from './invite.ts'
 import { TREASURY, RPC } from './chain.ts'
 import * as R from './rules.ts'
 import * as C from './chain.ts'
@@ -27,13 +28,16 @@ const isPk = (x: any) => typeof x === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$
 const wlSet = new Set<string>(); const wlIp = new Map<string, number[]>()
 const server = createServer(async (req, res) => {
   const u = new URL(req.url!, 'http://x'); const p = u.pathname
+    // private beta gate: every write route needs a session from a redeemed invite key (GATE=1). Reads stay open so the terminal is visible without one.
+    const sessionWallet = INV.session(String(req.headers['x-banker-session'] || u.searchParams.get('session') || '')); (req as any).sessionWallet = sessionWallet
+    if (INV.GATE && req.method === 'POST' && !['/invite/redeem', '/invite/session', '/waitlist', '/ipfs'].includes(p) && !sessionWallet) return json(res, 401, { error: 'invite key required', gate: true })
   if (req.method === 'OPTIONS') return json(res, 204, {})
   const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim()
   if (limited(ip, req.method === 'POST')) return json(res, 429, { error: 'slow down' })
   try {
     // pubkey-shaped path params only
     for (const seg of [p.startsWith('/book/') && p.slice(6), p.startsWith('/vault/mint/') && p.slice(12), p.startsWith('/family/') && p.slice(8), p.startsWith('/vamp/') && p.slice(6), p.startsWith('/dev/') && p.slice(5), p.startsWith('/import/quote/') && p.slice(14)]) if (seg && !isPk(seg)) throw new Error('bad address')
-    if (p === '/health') return json(res, 200, { ok: true, rpc: RPC.replace(/api-key=.*/, 'api-key=…'), treasury: TREASURY, desk: D.stats(), vaults: V.list().length, stream: streamStats(), beta: { deskOnly: DESK_ONLY, paper: V.PAPER, importFeeSol: R.IMPORT_FEE_SOL, importSeedSol: R.IMPORT_SEED_SOL, keeper: KEEP.status(), feeBps: R.CROSS_FEE_BPS, maxChestSol: V.MAX_CHEST_SOL, pumpStream: !!process.env.PUMPPORTAL_KEY, ipfs: !!process.env.PINATA_JWT, landing: process.env.JITO === '1' ? 'jito' : C.FAST ? 'sender' : 'rpc', lastRoute: C.lastRoute } })
+    if (p === '/health') return json(res, 200, { ok: true, gate: INV.GATE, invites: INV.stats(), rpc: RPC.replace(/api-key=.*/, 'api-key=…'), treasury: TREASURY, desk: D.stats(), vaults: V.list().length, stream: streamStats(), beta: { deskOnly: DESK_ONLY, paper: V.PAPER, importFeeSol: R.IMPORT_FEE_SOL, importSeedSol: R.IMPORT_SEED_SOL, keeper: KEEP.status(), feeBps: R.CROSS_FEE_BPS, maxChestSol: V.MAX_CHEST_SOL, pumpStream: !!process.env.PUMPPORTAL_KEY, ipfs: !!process.env.PINATA_JWT, landing: process.env.JITO === '1' ? 'jito' : C.FAST ? 'sender' : 'rpc', lastRoute: C.lastRoute } })
     if (p === '/ask/quote' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await D.askQuote(b.askId, b.buyer, b.sol ? +b.sol : undefined)) }
     if (p === '/ask/fill' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await D.askFill(b.askId, b.buyer, b.tx, b.sol ? +b.sol : undefined)) }
     if (p === '/myasks') { const me = u.searchParams.get('me') || ''; if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(me)) return json(res, 400, { error: 'me' }); return json(res, 200, D.myAsks(me)) }
@@ -58,6 +62,9 @@ const server = createServer(async (req, res) => {
     if (p === '/fill' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await D.fill(b.bidId, b.seller, b.tx, b.sol ? +b.sol : undefined)) }
     if (p === '/vaults') return json(res, 200, V.list())
     // waitlist (banker.cash landing): wallet + optional x handle → DATA_DIR/waitlist.jsonl. Open CORS, rate-limited per ip.
+    if (p === '/invite/redeem' && req.method === 'POST') { const b = await readBody(req); const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0]; return json(res, 200, INV.redeem(String(b.code || ''), String(b.wallet || ''), String(b.msg || ''), String(b.sig || ''), ip)) }
+    if (p === '/invite/session' && req.method === 'POST') { const b = await readBody(req); const w = INV.session(String(b.token || '')); return json(res, w ? 200 : 401, w ? { ok: true, wallet: w } : { ok: false, gate: INV.GATE }) }
+    if (p === '/invite/redeemed' && req.method === 'GET') { if (!process.env.ADMIN_KEY || u.searchParams.get('key') !== process.env.ADMIN_KEY) return json(res, 403, { error: 'admin key' }); return json(res, 200, INV.redeemed()) }
     if (p === '/waitlist' && req.method === 'POST') { const b = await readBody(req); const wallet = String(b.wallet || '').trim(); const x = String(b.x || '').trim().replace(/^@/, '').slice(0, 32)
       if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet)) return json(res, 400, { error: 'that is not a Solana address' })
       const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0]; const now = Date.now(); const h = wlIp.get(ip) || []; const recent = h.filter((t) => now - t < 3600_000); if (recent.length >= 20) return json(res, 429, { error: 'slow down' }); recent.push(now); wlIp.set(ip, recent)
@@ -106,6 +113,7 @@ wss.on('connection', (ws: WebSocket) => {
       if (m.type === 'auth') {
         const msg = `unnamed-desk:${m.pubkey}:${m.ts}`; if (Math.abs(Date.now() - m.ts) > 120000) throw new Error('stale auth')
         if (!nacl.sign.detached.verify(new TextEncoder().encode(msg), bs58.decode(m.sig), bs58.decode(m.pubkey))) throw new Error('bad signature')
+        if (INV.GATE && INV.session(m.session) !== m.pubkey) throw new Error('invite key required')
         who = m.pubkey; const back = D.reattach(ws, who); return send({ type: 'authed', pubkey: who, rfqs: D.rfqOpenFor(), reattached: back })
       }
       if (!who) throw new Error('auth first')

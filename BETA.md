@@ -5,7 +5,8 @@ banker.cash · @bankerdotcash · the bank that never closes
 Real mainnet, small amounts. Three things: a launchpad where every trade feeds the coin's own market maker, an off-chart desk on any coin, and a vamp detector. App: https://terrorsol.github.io/unnamed/app/ · waitlist: https://banker.cash
 
 ## Setup (2 min)
-1. Open the app → **Connect wallet → In-app** → set a password. That's your signup. (Phantom/Solflare work too; every action prompts a signature.)
+0. You got a key like `BANK-XXXX-XXXX`. Open https://banker.cash → *have a key?* → paste it, or open the app directly. The key binds to the first wallet you sign with; it won't work for anyone else after that.
+1. Open the app → **Connect wallet → In-app** → set a password → *Enter*. That's your signup. (Phantom/Solflare work too; every action prompts a signature.)
 2. Fund it: tap the balance → address → send 0.5–2 SOL.
 3. Home shows what's live: desks open, vaults running, the off-chart tape, runners and vamps.
 

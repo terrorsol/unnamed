@@ -31,8 +31,15 @@ jobs:
           CROSS_FEE_BPS: ${{ vars.TREASURY && '50' || '0' }}
           DESK_ONLY: '1'
           PORT: '8787'
+          GATE: ${{ vars.GATE || '0' }}
+          INVITE_HASHES: ${{ vars.INVITE_HASHES }}
+          VAULT_SECRET: ${{ secrets.VAULT_SECRET || 'dev-only-secret-change-me' }}
+          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
+          DATA_DIR: ./data
         run: |
           set -e
+          # key bindings (which wallet redeemed which key) survive the 6-hour handover via the reports-live branch; no secrets in there
+          mkdir -p data && (curl -sf https://raw.githubusercontent.com/${{ github.repository }}/reports-live/invites.json -o data/invites.json || true)
           node --experimental-strip-types src/index.ts > server.log 2>&1 &
           curl -sSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && chmod +x cloudflared
           ./cloudflared tunnel --url http://localhost:8787 --no-autoupdate > tunnel.log 2>&1 &
@@ -44,7 +51,9 @@ jobs:
           cd /tmp/pub && git init -q && git checkout -qb reports-live && git config user.name unnamed-ci && git config user.email ci@unnamed.local && git add -A && git commit -qm "live desk ${{ github.run_id }}" && git push -qf https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git reports-live
           cd "$GITHUB_WORKSPACE/server"
           # keep alive until the runner limit; the next scheduled run takes over (clients re-place bids on reconnect)
-          end=$(( $(date +%s) + 345*60 )); while [ $(date +%s) -lt $end ]; do sleep 60; curl -sf localhost:8787/health >/dev/null || { echo 'server died'; tail -50 server.log; exit 1; }; done
+          end=$(( $(date +%s) + 345*60 )); n=0; while [ $(date +%s) -lt $end ]; do sleep 60; curl -sf localhost:8787/health >/dev/null || { echo 'server died'; tail -50 server.log; exit 1; }
+            n=$((n+1)); if [ $((n % 5)) -eq 0 ] && [ -f data/invites.json ] && ! cmp -s data/invites.json /tmp/pub/invites.json; then cp data/invites.json /tmp/pub/invites.json; (cd /tmp/pub && git add -A && git commit -qm "bindings $(date -u +%H:%M)" && git push -qf https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git reports-live) || true; fi
+          done
           echo 'handing over to the next run'; tail -20 server.log
       - name: Publish logs (for debugging without log access)
         if: failure()
