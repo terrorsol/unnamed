@@ -20,7 +20,7 @@ export function Mc({ v }: { v: number }) { const fl = useFlash(v); return <span 
 /** wrap any rendered value; flashes when `v` moves */
 export function Live({ v, children, className = '' }: { v: number | null | undefined; children: React.ReactNode; className?: string }) { const fl = useFlash(v); return <span className={('cell ' + className + (fl ? ' ' + fl : '')).trim()}>{children}</span> }
 export function Status({ c }: { c: Coin }) {
-  return c.onCurve ? <span className="tag curve">CURVE</span> : <span className="tag">{c.dex.toUpperCase().replace('PUMPSWAP', 'PUMP AMM')}</span>
+  return c.venue === 'launchlab' ? <span className="tag live">UNNAMED</span> : c.onCurve ? <span className="tag curve">CURVE</span> : <span className="tag">{c.dex.toUpperCase().replace('PUMPSWAP', 'PUMP AMM')}</span>
 }
 export function Spark({ pts, up }: { pts: number[]; up: boolean }) {
   if (pts.length < 2) return <svg className="spark" />
