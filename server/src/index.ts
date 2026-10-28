@@ -11,9 +11,9 @@ import { streamStats } from './stream.ts'
 const PORT = +(process.env.PORT || 8787)
 const json = (res: any, code: number, body: any) => { res.writeHead(code, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'GET,POST,OPTIONS' }); res.end(JSON.stringify(body)) }
 const readBody = (req: any) => new Promise<any>((ok, no) => { let s = ''; req.on('data', (c: any) => { s += c; if (s.length > 200_000) { no(new Error('body too large')); req.destroy() } }); req.on('end', () => { try { ok(JSON.parse(s || '{}')) } catch { ok({}) } }) })
-// per-IP token bucket: 60 req / 10s for reads, 20 / 10s for writes
+// per-IP token bucket: 300 reads / 60 writes per 10s — a phone polls ~1 req/s, carrier NAT shares one IP across many phones
 const buckets = new Map<string, { t: number; n: number }>()
-function limited(ip: string, write: boolean) { const now = Date.now(); const k = ip + (write ? 'w' : 'r'); const b = buckets.get(k) || { t: now, n: 0 }; if (now - b.t > 10_000) { b.t = now; b.n = 0 } b.n++; buckets.set(k, b); return b.n > (write ? 20 : 60) }
+function limited(ip: string, write: boolean) { const now = Date.now(); const k = ip + (write ? 'w' : 'r'); const b = buckets.get(k) || { t: now, n: 0 }; if (now - b.t > 10_000) { b.t = now; b.n = 0 } b.n++; buckets.set(k, b); return b.n > (write ? 60 : 300) }
 setInterval(() => { const now = Date.now(); for (const [k, b] of buckets) if (now - b.t > 60_000) buckets.delete(k) }, 60_000)
 const isPk = (x: any) => typeof x === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(x)
 
