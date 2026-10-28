@@ -164,11 +164,18 @@ function trimAllowed(v: Vault, m: any, p: number, now: number) {
 }
 async function sync(v: Vault) { v.chest = await balanceSol(v.pub); v.tokens = (await tokenBalance(v.pub, v.mint!)).ui }
 
+const inflight = new Set<string>()
+/** One pass over all armed vaults, concurrently; a vault still confirming a trade from the last pass is skipped, never queued. */
 export async function tick() {
-  for (const v of Object.values(vaults)) {
-    if (!v.armed || !v.mint) continue
+  await Promise.all(Object.values(vaults).map((v) => tickOne(v)))
+  save()
+}
+async function tickOne(v: Vault) {
+  if (!v.armed || !v.mint || inflight.has(v.id)) return
+  inflight.add(v.id)
+  {
     try {
-      const m = await market(v.mint); if (!m || !m.priceSol) continue
+      const m = await market(v.mint); if (!m || !m.priceSol) return
       const now = Date.now(), p = m.priceSol
       v.samples.push({ t: now, p, v: 1 }); v.samples = v.samples.filter((s) => now - s.t < 30 * 60_000)
       v.high15.push({ t: now, p }); v.high15 = v.high15.filter((s) => now - s.t < 15 * 60_000)
@@ -212,8 +219,8 @@ export async function tick() {
       } catch {}
       if (v.activity.length > 200) v.activity.length = 200
     } catch (e: any) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: String(e.message || e).slice(0, 120) }) }
+    finally { inflight.delete(v.id) }
   }
-  save()
 }
 
 /** Vault answers an RFQ: fills at −4% when the seller allows it, otherwise counters at −4%. Sized to what the chest can carry. */
