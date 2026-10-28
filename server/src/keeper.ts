@@ -6,7 +6,7 @@ import { Keypair, Transaction, VersionedTransaction } from '@solana/web3.js'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 export type Purpose = 'trade' | 'desk_fill' | 'redeem' | 'payout' | 'refund' | 'treasury'
-export const HOURLY_OUT_PCT = +(process.env.KEEPER_HOURLY_OUT_PCT || 100)  // ≤100% of the chest may leave per hour across trades/fills/redeems (treasury + refunds are structural and exempt)
+export const HOURLY_OUT_PCT = +(process.env.KEEPER_HOURLY_OUT_PCT || 60)  // ≤60% of the chest may leave per hour across trades/fills/redeems (treasury + refunds are structural and exempt)
 export const MAX_TX_OUT_PCT = +(process.env.KEEPER_MAX_TX_OUT_PCT || 75)    // ≤75% of the chest in a single tx (a tranche is ≤13%, a desk fill ≤66%)
 const ledger = new Map<string, { t: number; sol: number; purpose: Purpose }[]>()
 // the hourly cap must survive a restart (a crash-loop could otherwise re-arm the budget every boot)

@@ -12,8 +12,8 @@ import Home from './components/Home'
 import CoinPage from './components/CoinPage'
 import Launch from './components/Launch'
 import { Portfolio, SettingsPage, About } from './components/Pages'
-import Simulate from './components/Simulate'
-import Compare from './components/Compare'
+const Simulate = React.lazy(() => import('./components/Simulate'))
+const Compare = React.lazy(() => import('./components/Compare'))
 import { Toasts } from './components/ui'
 import { toast } from './lib/store'
 import * as T from './lib/trade'
@@ -270,7 +270,7 @@ export default function App() {
       <nav className="side">{NAV.map(([k, l, d, i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={'nav' + (page === k ? ' on' : '')}><span className="ico">{i}</span><span className="lab"><b>{l}</b><small>{d}</small></span></a>)}
         <div className="cap">More</div>{MORE.map(([k, l]) => <a key={k} href={'#/' + k} className={'nav sub' + ((page + '/' + arg === k || page === k) ? ' on' : '')}><span className="lab"><b>{l}</b></span></a>)}
         <div className="foot">{deskUp ? 'beta' : <span className="dn">server offline</span>}</div></nav>
-      <main className="main">{content()}</main>
+      <main className="main"><React.Suspense fallback={<div className="empty">…</div>}>{content()}</React.Suspense></main>
     </div>
     <nav className="mnav">{NAV.map(([k, l, , i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={page === k ? 'on' : ''}><b>{i}</b>{l}</a>)}<a href="#" onClick={(e) => { e.preventDefault(); setMore(true) }} className={more ? 'on' : ''}><b>≡</b>More</a></nav>
     {more && <div className="modal" onClick={() => setMore(false)}><div className="box" onClick={(e) => e.stopPropagation()} style={{ width: 360 }}><h2>More</h2><div className="panel" style={{ gap: 4 }}>

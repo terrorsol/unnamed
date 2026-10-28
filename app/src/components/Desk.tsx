@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import * as K from '../lib/desk'
-import { Spark } from './Chart'
 import { Live, DeskState } from './ui'
 import { deskEligible } from '../lib/dex'
 import { F, S, ago, short } from '../lib/fmt'
@@ -13,8 +12,8 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
   const [pro, setPro] = useState(() => { try { return localStorage.getItem('unnamed_desk_pro') === '1' } catch { return false } })
   const [side, setSide] = useState<'sell' | 'buy'>('sell')
   const [book, setBook] = useState<K.Book | null>(null); const [err, setErr] = useState('')
-  const [sol, setSol] = useState('1'); const [disc, setDisc] = useState(400); const [prem, setPrem] = useState(200); const [msg, setMsg] = useState('')
-  const [askSol, setAskSol] = useState('1'); const [askBps, setAskBps] = useState(0)
+  const [sol, setSol] = useState('1'); const [disc, setDisc] = useState(400); const [msg, setMsg] = useState('')
+  const [askSol, setAskSol] = useState('1'); const [askBps, setAskBps] = useState(0); const [sub, setSub] = useState('')
   const load = () => K.getBook(mint, d.owner || undefined).then((b) => { setBook(b); setErr('') }).catch((e) => setErr(String(e.message || e)))
   useEffect(() => { load(); const i = setInterval(load, 5000); const onBook = (e: Event) => { if ((e as CustomEvent).detail === mint) load() }; K.bookBus.addEventListener('book', onBook); return () => { clearInterval(i); K.bookBus.removeEventListener('book', onBook) } }, [mint, d.owner])
   const togglePro = () => { setPro(!pro); try { localStorage.setItem('unnamed_desk_pro', !pro ? '1' : '0') } catch {} }
@@ -26,70 +25,51 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
   const best = offers[0]; const myValSol = d.holdingUi * px
   const takeOf = (b: K.BookBid) => Math.min(b.sol, myValSol)
   const canSellTo = (b: K.BookBid) => book.open && d.connected && takeOf(b) >= Math.min(b.sol, book.minBlock || 0) - 1e-9 && takeOf(b) > 0
-  const post = async () => { setMsg(''); try { if (side === 'buy') { await d.bidder!.place(mint, +sol, disc); setMsg(`Posted. Live in 60s — anyone holding ${symbol} can sell to you at ${(disc / 100).toFixed(1)}% under price.`) } load() } catch (e: any) { setMsg(e.message) } }
-  const postAsk = async () => { setMsg(''); try { await d.bidder!.placeAsk(mint, +askSol, askBps); setMsg(`Your sell offer is live — buyers can take it any time. Keep this tab open; your browser signs the fill.`); load() } catch (e: any) { setMsg(e.message) } }
+  const post = async () => { setMsg(''); try { if (side === 'buy') { await d.bidder!.place(mint, +sol, disc); setMsg(`Bid posted. Live in 60s.`) } load() } catch (e: any) { setMsg(e.message) } }
+  const postAsk = async () => { setMsg(''); try { await d.bidder!.placeAsk(mint, +askSol, askBps); setMsg(`Offer live. Keep this tab open to sign the fill.`); load() } catch (e: any) { setMsg(e.message) } }
   const asksOpen = (book?.asks || []).filter((a) => !a.mine && !a.away).sort((a, b) => b.discBps - a.discBps)
   const myAsk = (book?.asks || []).find((a) => a.mine)
-  const buyNow = async () => { setMsg(''); try { await d.bidder!.buyBlock(mint, +sol, prem, 120); setMsg(`Asked. Holders are being pinged — they can sell to you for the next 2 minutes.`); load() } catch (e: any) { setMsg(e.message) } }
-  const Wallet = () => <button className="btn pri big" onClick={() => d.needWallet?.()}>Connect a wallet to use the desk</button>
-  const mk = book.market; const chg = (mk as any)?.ch5m
+  const Wallet = () => <button className="btn pri big" onClick={() => d.needWallet?.()}>Connect wallet</button>
+  const pct = (bps: number, over = 'over', under = 'under') => bps === 0 ? 'at price' : bps < 0 ? `${(Math.abs(bps) / 100).toFixed(1)}% ${over}` : `${(bps / 100).toFixed(1)}% ${under}`
+  const bestAsk = asksOpen[0]
+  const offerForm = myAsk ? <div className="card" style={{ padding: 14 }}><div className="row" style={{ gap: 8 }}><b className="num">{S(myAsk.sol, 2)} SOL {pct(myAsk.discBps)}</b><span className="tag live">LIVE</span><span className="sp" /><button className="btn sm" onClick={async () => { await d.bidder?.cancelAsk(myAsk.id); load() }}>Cancel</button></div></div>
+    : <div className="card" style={{ padding: 14 }}>
+      <div className="lbl">Your sell offer</div>
+      <div className="presets lg" style={{ marginTop: 8 }}>{[0.5, 1, 2, 5].map((v) => <button key={v} className={+askSol === v ? 'on' : ''} onClick={() => setAskSol(String(v))}>{v} SOL</button>)}</div>
+      <div className="row" style={{ marginTop: 8 }}><input type="range" className="slider" min={-1500} max={1500} step={25} value={-askBps} onChange={(e) => setAskBps(-+e.target.value)} /><b className={'num ' + (askBps <= 0 ? 'up' : 'dn')}>{askBps <= 0 ? '+' : '−'}{(Math.abs(askBps) / 100).toFixed(1)}%</b></div>
+      <div className="row" style={{ marginTop: 10 }}>{!d.connected ? <Wallet /> : <button className="btn pri big" disabled={!book.open || !d.bidder?.connected() || d.holdingUi <= 0 || +askSol < (book.minBlock || 0) || myValSol < +askSol * 0.98} onClick={postAsk}>{!d.bidder?.connected() ? 'Linking…' : d.holdingUi <= 0 ? `No ${symbol} in wallet` : myValSol < +askSol * 0.98 ? `You hold ≈ ${S(myValSol, 2)} SOL` : +askSol < (book.minBlock || 0) ? `Min ${S(book.minBlock || 0, 2)} SOL` : `Offer ${askSol} SOL ${pct(askBps)}`}</button>}</div>
+    </div>
+  const bidForm = <div className="card" style={{ padding: 14 }}>
+      <div className="lbl">Your bid</div>
+      <div className="presets lg" style={{ marginTop: 8 }}>{[0.5, 1, 2, 5].map((v) => <button key={v} className={+sol === v ? 'on' : ''} onClick={() => setSol(String(v))}>{v} SOL</button>)}</div>
+      <div className="row" style={{ marginTop: 8 }}><input type="range" className="slider" min={book.rules.discMin} max={book.rules.discMax} step={25} value={disc} onChange={(e) => setDisc(+e.target.value)} /><b className="num dn">−{(disc / 100).toFixed(1)}%</b></div>
+      <div className="row" style={{ marginTop: 10 }}>{!d.connected ? <Wallet /> : <button className="btn pri big" disabled={!book.open || !d.bidder?.connected() || +sol < (book.minBlock || 0)} onClick={post}>{!d.bidder?.connected() ? 'Linking…' : +sol < (book.minBlock || 0) ? `Min ${S(book.minBlock || 0, 2)} SOL` : `Bid ${sol} SOL · ${(disc / 100).toFixed(1)}% under`}</button>}</div>
+    </div>
   return <div className="panel" style={{ gap: 10 }}>
     <div className="row" style={{ gap: 8 }}>
-      <div style={{ fontSize: 15, fontWeight: 600 }}>Trade {symbol} off the chart</div>
-      <span className="nm">off-chart · no candle</span>
-      <span className="sp" /><span className={'tag ' + (book.open ? 'live' : '')}>{book.open ? 'open' : 'closed'}</span><button className="btn sm" onClick={togglePro}>Pro</button>
+      <span className="seg"><button className={side === 'sell' ? 'on' : ''} onClick={() => { setSide('sell'); setSub('') }}>Sell</button><button className={side === 'buy' ? 'on' : ''} onClick={() => { setSide('buy'); setSub('') }}>Buy</button></span>
+      <span className="sp" /><span className="nm">{book.open ? `min ${S(book.minBlock || 0, 2)} SOL` : 'closed'}</span><button className="btn sm" onClick={togglePro}>Pro</button>
     </div>
-    <div className="card pricestrip"><div className="row" style={{ gap: 14, padding: '8px 12px' }}>
-      <div><div className="l">Price</div><div className="v num"><Live v={px}>{px ? '$' + (px * d.solPrice).toPrecision(3) : '—'}</Live> <span className="dim" style={{ fontSize: 11 }}>{px ? px.toPrecision(3) + ' SOL' : ''}</span></div></div>
-      <div><div className="l">Mcap</div><div className="v num"><Live v={mk?.mcapUsd}>{mk?.mcapUsd ? F(mk.mcapUsd) : '—'}</Live></div></div>
-      <div><div className="l">Min block</div><div className="v num">{S(book.minBlock || 0, 2)} SOL</div></div>
-      <div style={{ flex: 1, minWidth: 120 }}><Spark pool={mk?.pair} tone={''} /></div>
-    </div></div>
     {!book.open && <div className="note">Closed: {book.why || 'not enough market'}.</div>}
-    <div className="lay desk2" style={{ gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-    <div className="col">
-    <div className="lbl">I want to sell</div>
-    {true && <>
+    {side === 'sell' ? <>
       {best ? <div className="card" style={{ padding: 14 }}>
         <div className="lbl">Best bid</div>
-        <div style={{ fontSize: 19, fontWeight: 600 }} className="num"><Live v={best.sol}>{S(best.sol, 2)} SOL</Live> <span className="dim" style={{ fontSize: 14, fontWeight: 500 }}>{best.discBps < 0 ? `${(Math.abs(best.discBps) / 100).toFixed(1)}% over` : `${(best.discBps / 100).toFixed(1)}% under`}</span></div>
-        <div className="nm" style={{ marginTop: 4 }}>{d.holdingUi <= 0 ? `You don't hold ${symbol}.` : myValSol >= best.sol ? `You get ≈ ${S(best.sol * (1 - book.rules.feeBps / 10000), 2)} SOL for ${(best.sol / px).toLocaleString(undefined, { maximumFractionDigits: 0 })} ${symbol}.` : canSellTo(best) ? `Your whole bag → ≈ ${S(takeOf(best) * (1 - book.rules.feeBps / 10000), 2)} SOL.` : `Your bag (${S(myValSol, 2)} SOL) is under the ${S(book.minBlock || 0, 2)} SOL minimum.`}</div>
-        <div className="row" style={{ marginTop: 10, gap: 8 }}>{!d.connected ? <Wallet /> : <button className="btn pri big" disabled={!canSellTo(best) || !!d.busy} onClick={() => d.takeBid(best.id, takeOf(best) < best.sol - 1e-9 ? +takeOf(best).toFixed(4) : undefined)}>{d.busy || 'Sell into it'}</button>}{offers.length > 1 && <span className="nm">+{offers.length - 1} in Pro</span>}</div>
-      </div> : <div className="card" style={{ padding: 14 }}><div className="lbl">No bids</div><div className="nm">Nobody is bidding for {symbol}.</div></div>}
-      <div className="card" style={{ padding: 14 }}>
-        <div className="lbl">Or ask buyers for a price</div>
-        <div className="nm">Pick size and max loss. First bid inside it fills you.</div>
-        <div className="row" style={{ marginTop: 10 }}>{!d.connected ? <Wallet /> : <button className="btn big" disabled={!book.open || d.holdingUi <= 0} onClick={() => d.onShop?.()}>Ask for offers</button>}</div>
-      </div>
-      <div className="card" style={{ padding: 14 }}>
-        <div className="lbl">Or post a sell offer and wait</div>
-        <div className="nm">Your price. {symbol} stays in your wallet until someone takes it.</div>
-        {myAsk ? <div className="row" style={{ marginTop: 10, gap: 8 }}><b className="num">{S(myAsk.sol, 2)} SOL at {myAsk.discBps <= 0 ? `+${(Math.abs(myAsk.discBps) / 100).toFixed(1)}% over` : `${(myAsk.discBps / 100).toFixed(1)}% under`}</b><span className="nm">live</span><span className="sp" /><button className="btn sm" onClick={async () => { await d.bidder?.cancelAsk(myAsk.id); load() }}>Cancel</button></div> : <>
-        <div className="presets lg" style={{ marginTop: 10 }}>{[0.5, 1, 2, 5].map((v) => <button key={v} className={+askSol === v ? 'on' : ''} onClick={() => setAskSol(String(v))}>{v} SOL</button>)}</div>
-        <div className="row" style={{ marginTop: 8 }}><span className="dim" style={{ fontSize: 12 }}>Price vs market</span><input type="range" className="slider" min={-1500} max={1500} step={25} value={-askBps} onChange={(e) => setAskBps(-+e.target.value)} /><b className={'num ' + (askBps <= 0 ? 'up' : 'dn')}>{askBps <= 0 ? '+' : '−'}{(Math.abs(askBps) / 100).toFixed(2)}%</b></div>
-        <div className="row" style={{ marginTop: 10 }}>{!d.connected ? <Wallet /> : <button className="btn pri big" disabled={!book.open || !d.bidder?.connected() || d.holdingUi <= 0 || +askSol < (book.minBlock || 0) || myValSol < +askSol * 0.98} onClick={postAsk}>{!d.bidder?.connected() ? 'Linking…' : d.holdingUi <= 0 ? `You don't hold ${symbol}` : myValSol < +askSol * 0.98 ? `Your bag is ≈ ${S(myValSol, 2)} SOL` : +askSol < (book.minBlock || 0) ? `Min here is ${S(book.minBlock || 0, 2)} SOL` : `Offer ${askSol} SOL of ${symbol} at ${askBps <= 0 ? '+' : '−'}${(Math.abs(askBps) / 100).toFixed(1)}%`}</button>}</div></>}
-      </div>
+        <div style={{ fontSize: 19, fontWeight: 600 }} className="num"><Live v={best.sol}>{S(best.sol, 2)} SOL</Live> <span className="dim" style={{ fontSize: 14, fontWeight: 500 }}>{pct(best.discBps)}</span></div>
+        <div className="nm" style={{ marginTop: 4 }}>{d.holdingUi <= 0 ? `No ${symbol} in wallet.` : myValSol >= best.sol ? `You get ≈ ${S(best.sol * (1 - book.rules.feeBps / 10000), 2)} SOL.` : canSellTo(best) ? `Whole bag → ≈ ${S(takeOf(best) * (1 - book.rules.feeBps / 10000), 2)} SOL.` : `Your bag (${S(myValSol, 2)} SOL) is under the ${S(book.minBlock || 0, 2)} SOL minimum.`}</div>
+        <div className="row" style={{ marginTop: 10, gap: 8 }}>{!d.connected ? <Wallet /> : <button className="btn pri big" disabled={!canSellTo(best) || !!d.busy} onClick={() => d.takeBid(best.id, takeOf(best) < best.sol - 1e-9 ? +takeOf(best).toFixed(4) : undefined)}>{d.busy || 'Sell into it'}</button>}{offers.length > 1 && <span className="nm">+{offers.length - 1} more in Pro</span>}</div>
+      </div> : offerForm}
+      <div className="row" style={{ gap: 8 }}>{best && <button className={'btn' + (sub === 'offer' ? ' on' : '')} onClick={() => setSub(sub === 'offer' ? '' : 'offer')}>{myAsk ? 'Your offer' : 'Post a sell offer'}</button>}{d.connected && d.holdingUi > 0 && book.open && <button className="btn" onClick={() => d.onShop?.()}>Ask buyers</button>}</div>
+      {best && sub === 'offer' && offerForm}
+    </> : <>
+      {bestAsk ? <div className="card" style={{ padding: 14 }}>
+        <div className="lbl">{bestAsk.vault ? <>Vault sells at spot <span className="tag live" style={{ marginLeft: 6 }}>NO FEE</span></> : 'Best sell offer'}</div>
+        <div style={{ fontSize: 19, fontWeight: 600 }} className="num"><Live v={bestAsk.sol}>{S(bestAsk.sol, 2)} SOL</Live> <span className="dim" style={{ fontSize: 14, fontWeight: 500 }}>{pct(bestAsk.discBps)}</span></div>
+        <div className="nm" style={{ marginTop: 4 }}>≈ {px ? (bestAsk.sol / (px * (1 - bestAsk.discBps / 10000))).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'} {symbol} for {S(bestAsk.sol * (1 + (bestAsk.feeBps ?? book.rules.feeBps) / 10000), 2)} SOL.{asksOpen.length > 1 ? ` +${asksOpen.length - 1} more in Pro.` : ''}</div>
+        <div className="row" style={{ marginTop: 10 }}>{!d.connected ? <Wallet /> : <button className="btn pri big" disabled={!book.open || !!d.busy} onClick={() => d.takeAsk?.(bestAsk.id)}>{d.busy || 'Buy this block'}</button>}</div>
+      </div> : bidForm}
+      {bestAsk && <div className="row"><button className={'btn' + (sub === 'bid' ? ' on' : '')} onClick={() => setSub(sub === 'bid' ? '' : 'bid')}>Post a bid</button></div>}
+      {bestAsk && sub === 'bid' && bidForm}
     </>}
-    </div>
-    <div className="col">
-    <div className="lbl">I want to buy</div>
-    {true && <>
-      {asksOpen[0] && (() => { const a = asksOpen[0]; return <div className="card" style={{ padding: 14 }}>
-        <div className="lbl">{a.vault ? <>Vault sells at spot <span className="tag live" style={{ marginLeft: 6 }}>NO FEE</span></> : 'Best sell offer'}</div>
-        <div style={{ fontSize: 19, fontWeight: 600 }} className="num"><Live v={a.sol}>{S(a.sol, 2)} SOL</Live> <span className="dim" style={{ fontSize: 14, fontWeight: 500 }}>of {symbol} {a.discBps === 0 ? 'at the price' : a.discBps < 0 ? `${(Math.abs(a.discBps) / 100).toFixed(1)}% over` : `${(a.discBps / 100).toFixed(1)}% under`}</span></div>
-        <div className="nm" style={{ marginTop: 4 }}>≈ {px ? (a.sol / (px * (1 - a.discBps / 10000))).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'} {symbol} for {S(a.sol * (1 + (a.feeBps ?? book.rules.feeBps) / 10000), 2)} SOL. No candle.{asksOpen.length > 1 ? ` ${asksOpen.length - 1} more in Pro.` : ''}</div>
-        <div className="row" style={{ marginTop: 10 }}>{!d.connected ? <Wallet /> : <button className="btn pri big" disabled={!book.open || !!d.busy} onClick={() => d.takeAsk?.(a.id)}>{d.busy || 'Buy this block'}</button>}</div>
-      </div> })()}
-      <div className="card" style={{ padding: 14 }}>
-        <div className="lbl">{asksOpen[0] ? 'Or post a bid · buy under the price' : 'Post a bid · buy under the price'}</div>
-        <div className="nm">SOL stays in your wallet until a holder takes it.</div>
-        <div className="presets lg" style={{ marginTop: 10 }}>{[0.5, 1, 2, 5].map((v) => <button key={v} className={+sol === v ? 'on' : ''} onClick={() => setSol(String(v))}>{v} SOL</button>)}</div>
-        <div className="row" style={{ marginTop: 8 }}><span className="dim" style={{ fontSize: 12 }}>Under the price by</span><input type="range" className="slider" min={book.rules.discMin} max={book.rules.discMax} step={25} value={disc} onChange={(e) => setDisc(+e.target.value)} /><b className="num dn">{(disc / 100).toFixed(2)}%</b></div>
-        <div className="row" style={{ marginTop: 10 }}>{!d.connected ? <Wallet /> : <button className="btn pri big" disabled={!book.open || !d.bidder?.connected() || +sol < (book.minBlock || 0)} onClick={post}>{!d.bidder?.connected() ? 'Linking…' : +sol < (book.minBlock || 0) ? `Min here is ${S(book.minBlock || 0, 2)} SOL` : `Offer ${sol} SOL at ${(disc / 100).toFixed(1)}% under`}</button>}</div>
-      </div>
-    </>}
-    </div>
-    </div>
     {msg && <div className="note">{msg}</div>}
   </div>
 }

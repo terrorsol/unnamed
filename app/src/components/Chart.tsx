@@ -7,6 +7,7 @@ import type { Fill, Lot } from '../lib/positions'
 import type { Order } from '../lib/orders'
 import type { TradeEvt } from '../lib/pumpportal'
 
+const UP = '#2bd46a', DN = '#ff4d5e'
 type Bar = { time: UTCTimestamp; open: number; high: number; low: number; close: number; volume: number }
 const TF: Record<string, { path: string; agg: number; sec: number }> = { '1m': { path: 'minute', agg: 1, sec: 60 }, '5m': { path: 'minute', agg: 5, sec: 300 }, '15m': { path: 'minute', agg: 15, sec: 900 }, '1h': { path: 'hour', agg: 1, sec: 3600 } }
 
@@ -36,10 +37,10 @@ export default function Chart({ coin, solPrice, vault, fills, lot, orders, trade
   // chart instance
   useEffect(() => {
     if (!el.current) return
-    const c = createChart(el.current, { localization: { locale: 'en-US' }, layout: { background: { color: '#000000' }, textColor: 'rgba(255,255,255,.5)', fontFamily: 'Geist, sans-serif', fontSize: 11 }, grid: { vertLines: { color: 'rgba(255,255,255,.04)' }, horzLines: { color: 'rgba(255,255,255,.04)' } }, crosshair: { mode: CrosshairMode.Normal }, rightPriceScale: { borderColor: 'rgba(255,255,255,.08)' }, timeScale: { borderColor: 'rgba(255,255,255,.08)', timeVisible: true, secondsVisible: false }, autoSize: true })
-    const s = c.addCandlestickSeries({ upColor: '#26a69a', downColor: '#ef5350', borderVisible: false, wickUpColor: '#26a69a', wickDownColor: '#ef5350', priceFormat: { type: 'price', precision: 8, minMove: 0.00000001 } })
-    const v = c.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol', color: 'rgba(255,255,255,.18)' }); c.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
-    c.subscribeCrosshairMove((p) => { const b = p.seriesData.get(s) as any; if (b) setLegend(`O ${b.open.toPrecision(4)}  H ${b.high.toPrecision(4)}  L ${b.low.toPrecision(4)}  C ${b.close.toPrecision(4)}`); else setLegend('') })
+    const c = createChart(el.current, { localization: { locale: 'en-US' }, layout: { background: { color: '#000000' }, textColor: '#777', fontFamily: 'Geist, system-ui, sans-serif', fontSize: 11, attributionLogo: false }, grid: { vertLines: { color: '#111' }, horzLines: { color: '#111' } }, crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#444', labelBackgroundColor: '#262626' }, horzLine: { color: '#444', labelBackgroundColor: '#262626' } }, rightPriceScale: { borderColor: '#262626', scaleMargins: { top: 0.08, bottom: 0.22 } }, timeScale: { borderColor: '#262626', timeVisible: true, secondsVisible: false, rightOffset: 4 }, handleScale: { axisPressedMouseMove: true }, autoSize: true })
+    const s = c.addCandlestickSeries({ upColor: UP, downColor: DN, borderVisible: false, wickUpColor: UP, wickDownColor: DN, priceLineColor: '#555', priceFormat: { type: 'price', precision: 8, minMove: 0.00000001 } })
+    const v = c.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol', color: '#262626', lastValueVisible: false, priceLineVisible: false }); c.priceScale('vol').applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } })
+    c.subscribeCrosshairMove((p) => { const b = p.seriesData.get(s) as any; if (b) setLegend(`O ${b.open.toPrecision(3)} H ${b.high.toPrecision(3)} L ${b.low.toPrecision(3)} C ${b.close.toPrecision(3)}`); else setLegend('') })
     chart.current = c; cs.current = s; vs.current = v
     return () => { c.remove(); chart.current = null }
   }, [])
@@ -68,7 +69,7 @@ export default function Chart({ coin, solPrice, vault, fills, lot, orders, trade
   // render
   useEffect(() => {
     const s = cs.current, v = vs.current, c = chart.current; if (!s || !v || !c || !bars.length) return
-    s.setData(bars); v.setData(bars.map((b) => ({ time: b.time, value: b.volume, color: b.close >= b.open ? 'rgba(38,166,154,.35)' : 'rgba(239,83,80,.35)' })))
+    s.setData(bars); v.setData(bars.map((b) => ({ time: b.time, value: b.volume, color: b.close >= b.open ? 'rgba(43,212,106,.28)' : 'rgba(255,77,94,.28)' })))
     // markers: vault actions + your fills
     const mk: any[] = []
     const snap = (ms: number) => (Math.floor(ms / 1000 / TF[tf].sec) * TF[tf].sec) as UTCTimestamp
@@ -87,7 +88,7 @@ export default function Chart({ coin, solPrice, vault, fills, lot, orders, trade
     {fallback && coin.pair ? <iframe src={D.chartUrl(coin.pair)} title="chart" allow="clipboard-write" /> : <>
       <div ref={el} style={{ position: 'absolute', inset: 0 }} />
       <div className="row" style={{ position: 'absolute', top: 8, left: 10, zIndex: 2, gap: 6 }}><div className="seg" style={{ padding: 1 }}>{Object.keys(TF).map((k) => <button key={k} className={tf === k ? 'on' : ''} style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => setTf(k)}>{k}</button>)}</div><span className="dim num" style={{ fontSize: 11 }}>{legend}</span>{!bars.length && <span className="dim" style={{ fontSize: 11 }}>loading candles…</span>}</div>
-      <div className="row" style={{ position: 'absolute', bottom: 8, left: 10, zIndex: 2, gap: 10, fontSize: 10 }}><span className="dn">▼ C capture</span><span className="up">▲ D dip buy · OTC desk fill</span><span className="gold">● R redeem · ┄ floor</span><span className="dim">▲▼ you</span></div>
+      {(vault?.activity?.length || fills.some((f) => f.mint === coin.mint)) ? <div className="row" style={{ position: 'absolute', bottom: 8, left: 10, zIndex: 2, gap: 10, fontSize: 10 }}><span className="dn">▼ C capture</span><span className="up">▲ D dip buy · OTC fill</span><span className="gold">┄ floor</span><span className="dim">you</span></div> : null}
     </>}
   </div>
 }

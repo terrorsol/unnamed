@@ -15,12 +15,17 @@ const pinned = (import.meta as any).env?.VITE_SERVER_URL || (() => { try { retur
 export let SERVER: string = pinned || 'https://unnamed-server.onrender.com'
 export let SERVER_SOURCE: 'pinned' | 'live' | 'default' = pinned ? 'pinned' : 'default'
 const LIVE_POINTER = 'https://raw.githubusercontent.com/terrorsol/unnamed/reports-live/server.json'
-const okIn = (url: string, ms = 4000) => Promise.race([fetch(url.replace(/\/$/, '') + '/health').then((x) => x.ok).catch(() => false), new Promise<boolean>((r) => setTimeout(() => r(false), ms))])
-/** Server discovery: a pinned URL wins; otherwise the main (Render) server when it answers; otherwise the CI desk tunnel published in reports-live (desk only, no vaults/launches). */
+const okIn = (url: string, ms = 3500) => Promise.race([fetch(url.replace(/\/$/, '') + '/health').then((x) => x.ok).catch(() => false), new Promise<boolean>((r) => setTimeout(() => r(false), ms))])
+/** Server discovery, fast: a pinned URL wins; otherwise the main (Render) server and the CI desk tunnel are probed IN PARALLEL and the main one wins when it answers.
+ *  The result is remembered for 10 minutes per tab so reloads don't wait on probes. */
 export const ready: Promise<void> = (async () => {
   if (pinned) return
-  if (await okIn(SERVER)) { SERVER_SOURCE = 'default'; return }
-  try { const r = await fetch(LIVE_POINTER + '?t=' + Math.floor(Date.now() / 60000), { cache: 'no-store' }); if (!r.ok) return; const d = await r.json(); if (d?.url && /^https:\/\//.test(d.url) && (await okIn(d.url))) { SERVER = d.url.replace(/\/$/, ''); SERVER_SOURCE = 'live' } } catch {}
+  try { const c = JSON.parse(sessionStorage.getItem('banker_server') || 'null'); if (c && Date.now() - c.t < 600000 && c.url) { SERVER = c.url; SERVER_SOURCE = c.src; return } } catch {}
+  const main = okIn(SERVER)
+  const tunnel = Promise.race([fetch(LIVE_POINTER + '?t=' + Math.floor(Date.now() / 60000), { cache: 'no-store' }).then((r) => r.ok ? r.json() : null).then(async (d) => (d?.url && /^https:\/\//.test(d.url) && (await okIn(d.url))) ? d.url.replace(/\/$/, '') : null).catch(() => null), new Promise<string | null>((r) => setTimeout(() => r(null), 6000))])
+  if (await main) SERVER_SOURCE = 'default'
+  else { const t = await tunnel; if (t) { SERVER = t; SERVER_SOURCE = 'live' } }
+  try { sessionStorage.setItem('banker_server', JSON.stringify({ t: Date.now(), url: SERVER, src: SERVER_SOURCE })) } catch {}
 })()
 const WS = () => SERVER.replace(/^http/, 'ws')
 export type BookBid = { id: string; mint: string; symbol: string; sol: number; discBps: number; placedAt: number; restable: boolean; away?: boolean; status: string; bidder: string; mine: boolean; vault?: boolean; block?: boolean; expiresAt?: number }
@@ -255,7 +260,7 @@ export const bookBus = new EventTarget()
 /** Read-only firehose of vault-pool swaps + book-change notes (no auth). */
 export function openSwapFeed(onSwap: (s: SwapEvt) => void) {
   let ws: WebSocket | null = null, closed = false, timer: any
-  const connect = async () => { await ready; if (closed) return; ws = new WebSocket(WS()); ws.onmessage = (m) => { try { const d = JSON.parse(m.data); if (d.type === 'swap') onSwap(d); else if (d.type === 'book') bookBus.dispatchEvent(new CustomEvent('book', { detail: d.mint })) } catch {} }; ws.onclose = () => { if (!closed) timer = setTimeout(connect, 3000) }; ws.onerror = () => ws?.close() }
+  const connect = async () => { await ready; if (closed) return; ws = new WebSocket(WS()); ws.onmessage = (m) => { try { const d = JSON.parse(m.data); if (d.type === 'swap') onSwap(d); else if (d.type === 'book') bookBus.dispatchEvent(new CustomEvent('book', { detail: d.mint })); else if (d.type === 'price') bookBus.dispatchEvent(new CustomEvent('price', { detail: d })) } catch {} }; ws.onclose = () => { if (!closed) timer = setTimeout(connect, 3000) }; ws.onerror = () => ws?.close() }
   connect(); return () => { closed = true; clearTimeout(timer); ws?.close() }
 }
 

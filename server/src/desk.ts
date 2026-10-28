@@ -201,7 +201,7 @@ export async function fill(id: string, seller: string, txB64: string, sol?: numb
     try {
       if (b.sol > b.internal.maxSol()) throw new Error('vault bid no longer affordable')
       if (b.internal.sign) b.internal.sign(tx, q.takeSol); else tx.partialSign(b.internal.kp); const raw = tx.serialize(); const sig = await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }); const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 2000); try { await confirm(sig) } finally { clearInterval(rb) }
-      settleAmount(b, q.takeSol); recordFill({ t: Date.now(), mint: b.mint, symbol: b.symbol, seller, bidder: b.bidder, sol: q.takeSol, discBps: b.discBps, tokens: q.tokens, sig, vault: true }); rfqNoteFill(id, q.takeSol); onVaultFill?.(b.bidder, b.sol, q.tokens); return { sig }
+      settleAmount(b, q.takeSol); recordFill({ t: Date.now(), mint: b.mint, symbol: b.symbol, seller, bidder: b.bidder, sol: q.takeSol, discBps: b.discBps, tokens: q.tokens, sig, vault: true }); rfqNoteFill(id, q.takeSol); onVaultFill?.(b.bidder, q.takeSol, q.tokens); return { sig }
     } catch (e) { b.status = 'open'; throw e }
   }
   return new Promise((resolve, reject) => {

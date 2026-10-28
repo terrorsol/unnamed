@@ -70,7 +70,10 @@ export default function CoinPage(p: Props) {
         setCoin({ ...base, venue: 'launchlab', onCurve: true, dex: 'launchlab', priceUsd: px || base.priceUsd, mcap: px ? ll.priceSol * 1e9 * (p.solPrice || 0) : base.mcap, depthSol: ll.liqSol, liq: ll.liqSol * 2 * (p.solPrice || 0), pair: ll.poolId, raw: { ...(base.raw || ({} as any)), priceNative: String(ll.priceSol), soldPct: ll.soldPct } })
       } else if (c) setCoin(c)
     }
-    f(); const i = setInterval(f, 4000); return () => { on = false; clearInterval(i) }
+    // server pushes the exact pool price for vaulted coins on every tick — apply it the moment it lands, the 4s poll is the fallback
+    const onPrice = (e: Event) => { const d = (e as CustomEvent).detail; if (!on || d.mint !== p.mint || !d.priceSol) return; setCoin((c) => c ? { ...c, priceUsd: d.priceSol * (p.solPrice || 0) || c.priceUsd, mcap: d.mcapUsd || c.mcap, depthSol: d.liqSol || c.depthSol, raw: { ...(c.raw || ({} as any)), priceNative: String(d.priceSol) } } : c) }
+    K.bookBus.addEventListener('price', onPrice)
+    f(); const i = setInterval(f, 4000); return () => { on = false; clearInterval(i); K.bookBus.removeEventListener('price', onPrice) }
   }, [p.mint])
   const c = coin
   if (!c) return <div className="empty">Loading {p.mint.slice(0, 8)}… <div className="nm" style={{ marginTop: 8 }}>Brand-new launches can take ~1 min to be indexed. You can still trade below once the pair appears.</div></div>
