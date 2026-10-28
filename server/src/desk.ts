@@ -10,7 +10,7 @@ import { market } from './market.ts'
 import { balanceSol, decimals, TREASURY, tokenBalance } from './chain.ts'
 import { verifyFill } from './verify.ts'
 
-export type Bid = { id: string; mint: string; symbol: string; bidder: string; sol: number; discBps: number; placedAt: number; refreshedAt: number; status: 'open' | 'filling' | 'filled' | 'cancelled'; ws: WebSocket | null; fills: number; rfq?: string; expiresAt?: number; awaySince?: number; internal?: { kp: Keypair; label: string; maxSol: () => number } }
+export type Bid = { id: string; mint: string; symbol: string; bidder: string; sol: number; discBps: number; placedAt: number; refreshedAt: number; status: 'open' | 'filling' | 'filled' | 'cancelled'; ws: WebSocket | null; fills: number; rfq?: string; expiresAt?: number; awaySince?: number; internal?: { sign?: (tx: Transaction, solOut: number) => void; kp: Keypair; label: string; maxSol: () => number } }
 const bids = new Map<string, Bid>()
 /** A resting SELL offer: seller holds the tokens, names a SOL size and a price vs spot (discBps>0 under, <0 over). Buyers take it; the seller's browser co-signs. */
 export type Ask = { id: string; mint: string; symbol: string; seller: string; sol: number; discBps: number; placedAt: number; refreshedAt: number; status: 'open' | 'filling' | 'filled' | 'cancelled'; ws: WebSocket | null; awaySince?: number }
@@ -36,14 +36,14 @@ export function leaderboard(me?: string) {
   return Object.values(by).sort((a, b) => b.soldSol + b.boughtSol - (a.soldSol + a.boughtSol)).slice(0, 50).map((x) => ({ ...x, mine: !!me && x.wallet === me, wallet: alias(x.wallet) }))
 }
 /** Server-held bidder (the vault). Keeps one resting bid per mint; refreshed by the vault loop. */
-export async function placeInternal(kp: Keypair, label: string, mint: string, sol: number, discBps: number, maxSol: () => number) { return pubBid(await placeInternalRaw(kp, label, mint, sol, discBps, maxSol)) }
-export async function placeInternalRaw(kp: Keypair, label: string, mint: string, sol: number, discBps: number, maxSol: () => number, fresh = false): Promise<Bid> {
+export async function placeInternal(kp: Keypair, label: string, mint: string, sol: number, discBps: number, maxSol: () => number, sign?: (tx: Transaction, solOut: number) => void) { return pubBid(await placeInternalRaw(kp, label, mint, sol, discBps, maxSol, false, sign)) }
+export async function placeInternalRaw(kp: Keypair, label: string, mint: string, sol: number, discBps: number, maxSol: () => number, fresh = false, sign?: (tx: Transaction, solOut: number) => void): Promise<Bid> {
   const bidder = kp.publicKey.toBase58()
   const existing = fresh ? null : [...bids.values()].find((b) => b.bidder === bidder && b.mint === mint && b.status === 'open' && !b.rfq)
-  if (existing) { existing.sol = sol; existing.discBps = discBps; existing.refreshedAt = Date.now(); return existing }
+  if (existing) { existing.sol = sol; existing.discBps = discBps; existing.refreshedAt = Date.now(); if (sign) existing.internal!.sign = sign; return existing }
   const m = await market(mint); if (!m) throw new Error('unknown market'); const why = R.validBid(sol, discBps, m); if (why) throw new Error(why)
   const id = 'v' + Math.random().toString(36).slice(2, 9)
-  const b: Bid = { id, mint, symbol: m.symbol, bidder, sol, discBps, placedAt: Date.now(), refreshedAt: Date.now(), status: 'open', ws: null, fills: 0, internal: { kp, label, maxSol } }
+  const b: Bid = { id, mint, symbol: m.symbol, bidder, sol, discBps, placedAt: Date.now(), refreshedAt: Date.now(), status: 'open', ws: null, fills: 0, internal: { kp, label, maxSol, sign } }
   bids.set(id, b); bookChanged(mint); return b
 }
 export function cancelInternal(bidderPk: string, mint: string) { for (const [id, b] of bids) if (b.bidder === bidderPk && b.mint === mint && b.status === 'open') bids.delete(id) }
@@ -184,7 +184,7 @@ export async function fill(id: string, seller: string, txB64: string, sol?: numb
   if (b.internal) {
     try {
       if (b.sol > b.internal.maxSol()) throw new Error('vault bid no longer affordable')
-      tx.partialSign(b.internal.kp); const raw = tx.serialize(); const sig = await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }); const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 2000); try { await confirm(sig) } finally { clearInterval(rb) }
+      if (b.internal.sign) b.internal.sign(tx, q.takeSol); else tx.partialSign(b.internal.kp); const raw = tx.serialize(); const sig = await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }); const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 2000); try { await confirm(sig) } finally { clearInterval(rb) }
       settleAmount(b, q.takeSol); recordFill({ t: Date.now(), mint: b.mint, symbol: b.symbol, seller, bidder: b.bidder, sol: q.takeSol, discBps: b.discBps, tokens: q.tokens, sig, vault: true }); rfqNoteFill(id, q.takeSol); onVaultFill?.(b.bidder, b.sol, q.tokens); return { sig }
     } catch (e) { b.status = 'open'; throw e }
   }

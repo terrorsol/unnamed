@@ -27,7 +27,7 @@ export async function tokenBalance(owner: string, mint: string) {
   const a = r.value[0]; return a ? { ui: +(a.account.data as any).parsed.info.tokenAmount.uiAmount, raw: BigInt((a.account.data as any).parsed.info.tokenAmount.amount) } : { ui: 0, raw: 0n }
 }
 /** pump.fun / PumpSwap / Raydium trade signed by a server-held keypair (vault) */
-export async function pumpTrade(kp: Keypair, action: 'buy' | 'sell', mint: string, amount: number | string, denominatedInSol: boolean, slippage = 10, priorityFee = +(process.env.VAULT_PRIORITY_SOL || 0.001)) {
+export async function pumpTrade(kp: Keypair, action: 'buy' | 'sell', mint: string, amount: number | string, denominatedInSol: boolean, slippage = 10, priorityFee = +(process.env.VAULT_PRIORITY_SOL || 0.001), signer?: (tx: VersionedTransaction) => VersionedTransaction) {
   const args = { publicKey: kp.publicKey.toBase58(), action, mint, amount, denominatedInSol: denominatedInSol ? 'true' : 'false', slippage, priorityFee, pool: 'auto' }
   const url = (process.env.PUMPPORTAL_URL || 'https://pumpportal.fun/api') + '/trade-local'
   const jito = process.env.JITO === '1'
@@ -36,7 +36,7 @@ export async function pumpTrade(kp: Keypair, action: 'buy' | 'sell', mint: strin
   if (!r.ok) throw new Error('pumpportal ' + r.status + ' ' + (await r.text().catch(() => '')))
   let tx = jito ? VersionedTransaction.deserialize(bs58.decode((await r.json())[0])) : VersionedTransaction.deserialize(new Uint8Array(await r.arrayBuffer()))
   if (!jito && FAST) tx = await addTip(conn, tx, kp.publicKey, TIP_LAMPORTS).catch(() => tx)
-  tx.sign([kp])
+  if (signer) tx = signer(tx); else tx.sign([kp])
   const raw = tx.serialize(); const sig = bs58.encode(tx.signatures[0])
   if (jito) {
     try { await sendBundle([raw]) } catch { await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }) }

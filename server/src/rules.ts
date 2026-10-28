@@ -53,8 +53,8 @@ export const VAULT_TRIM_FRAC = 0.02            // trim ≤2% of position per tri
 export const VAULT_TRIM_COOLDOWN_MS = 120_000
 export const VAULT_TRIM_DAY_CAP = 0.05           // ≤5% of position per 24h
 export const VAULT_TRIM_VOL_CAP = 0.10           // a trim ≤10% of 1h volume
-export const IMPORT_FEE_SOL = 15                 // bring-your-own-coin vault: 10 → treasury, 5 → chest
-export const IMPORT_SEED_SOL = 5
+export const IMPORT_FEE_SOL = +(process.env.IMPORT_FEE_SOL || 15)   // bring-your-own-coin vault: fee − seed → treasury, seed → chest (env overrides for a test tier)
+export const IMPORT_SEED_SOL = +(process.env.IMPORT_SEED_SOL || 5)
 export const IMPORT_MIN_MCAP_USD = 50_000
 /** trim size in tokens given caps; 0 if nothing allowed */
 export function trimSize(positionTokens: number, trimmedToday: number, vol1hSol: number, priceSol: number) {

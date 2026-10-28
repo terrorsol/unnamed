@@ -10,6 +10,7 @@ import { balanceSol, tokenBalance, pumpTrade, conn, confirm, decimals, TREASURY,
 import * as C from './chain.ts'
 import * as D from './desk.ts'
 import { watchPool, streamStats } from './stream.ts'
+import * as KEEP from './keeper.ts'
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
 
@@ -93,9 +94,9 @@ export async function paperArm(mint: string, chestSol = 20, mode: 'floor' | 'mm'
   vaults[id].activity.unshift({ t: Date.now(), kind: 'note', msg: `paper vault · ${chestSol} SOL virtual · half seeded at ${m.priceSol.toPrecision(3)}` }); return pub(vaults[id])
 }
 /** SOL transfer signed by the vault key, confirmed by polling (no websocket dependency). */
-async function payFrom(v: Vault, to: string, lamports: number) {
+async function payFrom(v: Vault, to: string, lamports: number, purpose: KEEP.Purpose = 'payout') {
   const k = kp(v); const tx = new Transaction().add(SystemProgram.transfer({ fromPubkey: k.publicKey, toPubkey: new PublicKey(to), lamports }))
-  tx.feePayer = k.publicKey; tx.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash; tx.sign(k)
+  tx.feePayer = k.publicKey; tx.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash; KEEP.sign({ id: v.id, chest: v.chest, sk: k }, tx, purpose, lamports / 1e9)
   const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 }); await confirm(sig); return sig
 }
 /** Community takeover import: nobody pays 15 SOL alone. The vault wallet itself is the escrow — anyone sends ≥0.05 SOL to it; when
@@ -123,7 +124,7 @@ export async function importContribute(id: string, from: string, sig: string) {
 }
 async function crowdArm(v: Vault) {
   const treasurySol = R.IMPORT_FEE_SOL - R.IMPORT_SEED_SOL
-  const sig = await payFrom(v, TREASURY, Math.floor(treasurySol * 1e9))
+  const sig = await payFrom(v, TREASURY, Math.floor(treasurySol * 1e9), 'treasury')
   v.feePaid = R.IMPORT_FEE_SOL; try { const sup = await conn.getTokenSupply(new PublicKey(v.mint!)); v.supply = +(sup.value.uiAmount || 1e9) } catch {}
   await sync(v); v.armed = true; v.activity.unshift({ t: Date.now(), kind: 'stake', sol: v.chest, sig, msg: `vault activated by ${Object.keys(v.crowd!.contributors).length} backers · community takeover` })
 }
@@ -133,7 +134,7 @@ export async function crowdSweep() {
     if (!v.crowd || v.armed || v.crowd.refunded || Date.now() < v.crowd.expiresAt) continue
     try {
       const bal = await balanceSol(v.pub); const total = v.crowd.raised || 1; const payable = Math.max(0, bal - 0.002)
-      for (const [who, amt] of Object.entries(v.crowd.contributors)) { const lam = Math.floor((amt / total) * payable * 1e9); if (lam > 5000) await payFrom(v, who, lam) }
+      for (const [who, amt] of Object.entries(v.crowd.contributors)) { const lam = Math.floor((amt / total) * payable * 1e9); if (lam > 5000) await payFrom(v, who, lam, 'refund') }
       v.crowd.refunded = true; v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'takeover not funded in 7 days — contributions refunded' }); save()
     } catch (e: any) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'refund attempt failed: ' + String(e.message).slice(0, 80) }) }
   }
@@ -182,7 +183,7 @@ export async function redeem(mint: string, holder: string, tokensUi: number, txB
   if (!ix[1].programId.equals(prog) || ix[1].data[0] !== 12 || !ix[1].keys[0].pubkey.equals(hAta) || !ix[1].keys[2].pubkey.equals(vAta) || Buffer.from(ix[1].data.subarray(1, 9)).readBigUInt64LE() !== base || ix[1].data[9] !== d) throw new Error('token transfer mismatch')
   if (!ix[2].programId.equals(SystemProgram.programId) || !ix[2].keys[0].pubkey.equals(vp) || !ix[2].keys[1].pubkey.equals(hp) || Buffer.from(ix[2].data.subarray(4, 12)).readBigUInt64LE() !== BigInt(q.lamports)) throw new Error('sol transfer mismatch')
   if (!tx.signatures.find((s) => s.publicKey.equals(hp))?.signature) throw new Error('not signed by holder')
-  tx.partialSign(kp(v)); const sig = await conn.sendRawTransaction(tx.serialize(), { maxRetries: 3 }); await confirm(sig)
+  KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'redeem', q.sol); const sig = await conn.sendRawTransaction(tx.serialize(), { maxRetries: 3 }); await confirm(sig)
   v.redeemed = (v.redeemed || 0) + q.sol; await sync(v); v.activity.unshift({ t: Date.now(), kind: 'redeem', sol: q.sol, tokens: tokensUi, sig, msg: `burn-to-redeem by ${holder.slice(0, 4)}…` }); save()
   return { sig, sol: q.sol }
 }
@@ -230,7 +231,7 @@ export const PAPER = process.env.PAPER === '1'
 const jitter = (base: number, pct: number) => base * (1 + (Math.random() * 2 - 1) * pct)
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 async function trade(v: Vault, action: 'buy' | 'sell', amount: number | string, denominatedInSol: boolean, price: number): Promise<string> {
-  if (!PAPER) return pumpTrade(kp(v), action, v.mint!, amount, denominatedInSol)
+  if (!PAPER) return pumpTrade(kp(v), action, v.mint!, amount, denominatedInSol, 10, undefined, (tx) => KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'trade', action === 'buy' ? +amount : 0))
   if (action === 'buy') { const sol = +amount; v.chest -= sol; v.tokens += (sol / price) * 0.985 }
   else { const frac = typeof amount === 'string' ? parseFloat(amount) / 100 : +amount / v.tokens; const tok = v.tokens * frac; v.tokens -= tok; v.chest += tok * price * 0.985 }
   return 'paper-' + Math.random().toString(36).slice(2, 10)
@@ -296,7 +297,7 @@ async function tickOne(v: Vault) {
       try {
         const mb = R.minBlockSol(m); const want = +Math.max(jitter(v.chest * (v.mode === 'mm' ? 0.6 : 0.35), 0.1), mb).toFixed(3)
         if (!v.bidRefreshAt || now > v.bidRefreshAt) v.bidRefreshAt = now + 45000 + Math.random() * 60000 // re-quote at random 45–105s, not on the minute
-        if (R.deskOpen(m) && want >= 0.2 && v.chest * 0.7 >= want && !PAPER) { if (Math.abs(want - v.deskBid) > v.chest * 0.05 || now > v.bidRefreshAt - 1000) { const disc = Math.round(R.deskDiscountBps(R.sigma(v.samples)) + (Math.random() * 100 - 50)); await D.placeInternal(kp(v), 'VAULT', v.mint, want, disc, () => v.chest - 0.02); if (!v.deskBid) v.activity.unshift({ t: now, kind: 'bid', sol: want, msg: `vault bid resting on desk at −${(disc / 100).toFixed(1)}%` }); v.deskBid = want } }
+        if (R.deskOpen(m) && want >= 0.2 && v.chest * 0.7 >= want && !PAPER) { if (Math.abs(want - v.deskBid) > v.chest * 0.05 || now > v.bidRefreshAt - 1000) { const disc = Math.round(R.deskDiscountBps(R.sigma(v.samples)) + (Math.random() * 100 - 50)); await D.placeInternal(kp(v), 'VAULT', v.mint, want, disc, () => v.chest - 0.02, (tx, solOut) => { KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'desk_fill', solOut) }); if (!v.deskBid) v.activity.unshift({ t: now, kind: 'bid', sol: want, msg: `vault bid resting on desk at −${(disc / 100).toFixed(1)}%` }); v.deskBid = want } }
         else if (v.deskBid) { D.cancelInternal(v.pub, v.mint); v.deskBid = 0 }
       } catch {}
       v.ddPrev = ddNow
@@ -311,7 +312,7 @@ export async function respondRfq(mint: string, sizeSol: number, maxBps: number, 
   const v = Object.values(vaults).find((x) => x.mint === mint && x.armed); if (!v) return null
   const sol = +Math.min(sizeSol, v.chest * 0.6 - 0.02).toFixed(3); if (sol < 0.2) return null
   const m = await market(mint); if (!m || sol < R.minBlockSol(m)) return null
-  const b = await D.placeInternalRaw(kp(v), 'VAULT', mint, sol, 400, () => v.chest - 0.02, true); b.rfq = rfqId
+  const b = await D.placeInternalRaw(kp(v), 'VAULT', mint, sol, 400, () => v.chest - 0.02, true, (tx, solOut) => { KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'desk_fill', solOut) }); b.rfq = rfqId
   v.activity.unshift({ t: Date.now(), kind: 'bid', sol, msg: `answered block request at −4%` })
   return b
 }
