@@ -26,8 +26,17 @@ async function fromIndexer(mint: string) {
   return { mcapUsd, imcap: mcapUsd, ipx: priceSol, liqSol, onCurve, priceSol, symbol: p.baseToken.symbol, pair: p.pairAddress, dexId: p.dexId, vol1h: p.volume?.h1 || 0, t: Date.now(), exact: false }
 }
 const GT = 'https://api.geckoterminal.com/api/v2'
+const gCache = new Map<string, { t: number; v: any }>(); let gNext = 0
+/** GeckoTerminal allows ~30 calls/min: results cached 20s per mint, calls spaced ≥2.2s, one retry after a 429. */
 export async function fromGecko(mint: string) {
   if (process.env.GECKO === '0') return null
+  const c = gCache.get(mint); if (c && Date.now() - c.t < 20000) return c.v
+  const wait = Math.max(0, gNext - Date.now()); gNext = Date.now() + wait + 2200; if (wait) await new Promise((r) => setTimeout(r, wait))
+  let v = await geckoOnce(mint).catch((e) => { if (/429/.test(String(e.message))) return undefined; throw e })
+  if (v === undefined) { await new Promise((r) => setTimeout(r, 4000)); v = await geckoOnce(mint) }
+  gCache.set(mint, { t: Date.now(), v }); return v
+}
+async function geckoOnce(mint: string) {
   const r = await fetch(`${GT}/networks/solana/tokens/${mint}/pools?page=1`, { headers: { accept: 'application/json' } }); if (!r.ok) throw new Error('geckoterminal ' + r.status)
   const d: any = await r.json(); const pools: any[] = (d.data || []).filter((x: any) => x.relationships?.quote_token?.data?.id === 'solana_So11111111111111111111111111111111111111112')
   const p = pools.sort((a: any, b: any) => +(b.attributes.reserve_in_usd || 0) - +(a.attributes.reserve_in_usd || 0))[0]; if (!p) return null
