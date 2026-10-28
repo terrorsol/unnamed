@@ -11,17 +11,17 @@ export default function Launch(p: Props) {
   const [name, setName] = useState(''); const [symbol, setSymbol] = useState(''); const [desc, setDesc] = useState(''); const [file, setFile] = useState<File | undefined>()
   const [tw, setTw] = useState(''); const [tg, setTg] = useState(''); const [web, setWeb] = useState('')
   const [dev, setDev] = useState(0.5); const [stake, setStake] = useState(1); const [mode, setMode] = useState<'floor' | 'mm'>('mm'); const [ceiling, setCeiling] = useState(0.3); const [adv, setAdv] = useState(false)
-  const [cq, setCq] = useState(''); const [cres, setCres] = useState<D.Coin[]>([]); const [copyOf, setCopyOf] = useState<D.Coin | null>(null); const [venue, setVenue] = useState<Venue>(p.platformReady === false ? 'pump' : 'launchlab'); const [permTax, setPermTax] = useState(true)
+  const [cq, setCq] = useState(''); const [cres, setCres] = useState<D.Coin[]>([]); const [copyOf, setCopyOf] = useState<D.Coin | null>(null); const [venue, setVenue] = useState<Venue>(p.platformReady === false ? 'pump' : 'launchlab'); const [permTax, setPermTax] = useState(false)
   React.useEffect(() => { if (!cq.trim() || copyOf) { setCres([]); return } const t = setTimeout(() => D.search(cq).then((r) => setCres(r.slice(0, 5))).catch(() => {}), 300); return () => clearTimeout(t) }, [cq, copyOf])
   const ok = name.trim().length > 1 && symbol.trim().length > 0 && symbol.length <= 10 && !!file
   const total = dev + stake + (venue === 'launchlab' ? 0.1 : 0.02)
   return <div className="modal" onClick={p.onClose}><div className="box" onClick={(e) => e.stopPropagation()}>
     <div className="row"><h2>Launch a coin</h2><span className="sp" /><span className="tag live">{venue === 'launchlab' ? `${((p.taxBps ?? 200) / 100).toFixed(1)}% tax → chest` : 'pump.fun'}</span></div>
     <div className="venue">
-      <button className={venue === 'launchlab' ? 'on' : ''} disabled={p.platformReady === false} onClick={() => setVenue('launchlab')}><b>BANKER launchpad{p.platformReady === false ? ' · not set up yet' : ''}</b><span>every buy and sell pays {((p.taxBps ?? 200) / 100).toFixed(1)}% into the coin's chest · vault in block zero · copies can't touch your pool</span></button>
+      <button className={venue === 'launchlab' ? 'on' : ''} disabled={p.platformReady === false} onClick={() => setVenue('launchlab')}><b>BANKER launchpad{p.platformReady === false ? ' · not set up yet' : ''}</b><span>{((p.taxBps ?? 200) / 100).toFixed(1)}% of every curve trade → the coin's chest · desk fills skip it · vault from block zero</span></button>
       <button className={venue === 'pump' ? 'on' : ''} onClick={() => setVenue('pump')}><b>pump.fun</b><span>bigger crowd, no tax, no vamp defense — the vault still works</span></button>
     </div>
-    {venue === 'launchlab' && (p.permTaxBps ?? 100) > 0 && <label className="row" style={{ gap: 8, fontSize: 12, marginBottom: 8 }}><input type="checkbox" checked={permTax} onChange={(e) => setPermTax(e.target.checked)} /> permanent {((p.permTaxBps ?? 100) / 100).toFixed(1)}% tax on every transfer, forever, every venue (token-2022)</label>}
+    {venue === 'launchlab' && (p.permTaxBps ?? 0) > 0 && <label className="row" style={{ gap: 8, fontSize: 12, marginBottom: 8 }}><input type="checkbox" checked={permTax} onChange={(e) => setPermTax(e.target.checked)} /> {((p.permTaxBps ?? 100) / 100).toFixed(1)}% on every transfer, forever (token-2022)</label>}
     <div className="two">
       <div className="fld"><div className="lbl">Name</div><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Glass Frog" maxLength={32} /></div>
       <div className="fld"><div className="lbl">Ticker</div><input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} placeholder="GLASS" maxLength={10} /></div>

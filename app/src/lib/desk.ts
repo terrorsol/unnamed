@@ -34,7 +34,7 @@ async function j(path: string, body?: any) {
   const d = await r.json().catch(() => ({ error: 'bad response' })); if (!r.ok || d?.error) throw new Error(d?.error || 'server ' + r.status); return d
 }
 export const getBook = (mint: string, me?: string): Promise<Book> => j(`/book/${mint}${me ? '?me=' + me : ''}`)
-export const getBooks = (): Promise<{ mint: string; symbol: string; bids: number; sol: number; bestDisc: number }[]> => j('/books')
+export const getBooks = (): Promise<{ mint: string; symbol: string; bids: number; sol: number; bestDisc: number; asks?: number; askSol?: number }[]> => j('/books')
 export const health = () => j('/health')
 export const myBids = (me: string): Promise<BookBid[]> => j('/mybids?me=' + me)
 

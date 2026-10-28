@@ -77,7 +77,7 @@ export function useFlash(v: number | null | undefined) {
 /** A short confetti burst for a landed fill. */
 export function confetti() {
   const el = document.createElement('div'); el.className = 'confetti'
-  const cols = ['#1aff5f', '#d4af37', '#ffffff', '#9fb7ff']
+  const cols = ['#2bd46a', '#d4af37', '#ffffff', '#9fb7ff']
   for (let i = 0; i < 26; i++) { const p = document.createElement('i'); p.style.left = 30 + Math.random() * 40 + '%'; p.style.background = cols[i % cols.length]; p.style.animationDelay = Math.random() * 0.25 + 's'; p.style.animationDuration = 0.9 + Math.random() * 0.6 + 's'; el.appendChild(p) }
   document.body.appendChild(el); setTimeout(() => el.remove(), 1800)
 }

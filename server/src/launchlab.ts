@@ -19,7 +19,7 @@ export const PLATFORM_ADMIN = process.env.PLATFORM_ADMIN ? new PublicKey(process
 export const PLATFORM_ID = process.env.PLATFORM_ID ? new PublicKey(process.env.PLATFORM_ID) : PLATFORM_ADMIN ? getPdaPlatformId(PROGRAM, PLATFORM_ADMIN).publicKey : null
 /** fee wallet = server key that claims platform fees and holds the LP fee NFT (PLATFORM_SECRET base58; falls back to a key derived from VAULT_SECRET) */
 export const TAX_BPS = Math.min(500, Math.max(0, +(process.env.TAX_BPS || 200)))          // platform fee on every curve trade → chest. cap 500
-export const CREATOR_FEE_BPS = Math.min(50, Math.max(0, +(process.env.CREATOR_FEE_BPS || 50))) // → dev, on-chain. cap 50
+export const CREATOR_FEE_BPS = Math.min(50, Math.max(0, +(process.env.CREATOR_FEE_BPS || 0))) // on-chain creator fee. Default 0: the dev earns from the vault cut, which only grows with volume
 let platformKp: Keypair | null = null
 export function platformKeypair(): Keypair {
   if (platformKp) return platformKp
@@ -186,7 +186,7 @@ export async function buildHarvest(mint: string, feePayer: PublicKey): Promise<V
 // SOL on the pool → forwarded to the chest by the vault tick. Fee rate is fixed for the coin's life (LaunchLab holds the config authority until graduation).
 import { TOKEN_2022_PROGRAM_ID, getMint, getTransferFeeConfig, unpackAccount, getTransferFeeAmount, createHarvestWithheldTokensToMintInstruction, createWithdrawWithheldTokensFromMintInstruction, getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token'
 import { Transaction as LegacyTx } from '@solana/web3.js'
-export const PERM_TAX_BPS = Math.min(500, Math.max(0, +(process.env.PERM_TAX_BPS || 100))) // transfer fee on every move of the token, cap 5%
+export const PERM_TAX_BPS = Math.min(500, Math.max(0, +(process.env.PERM_TAX_BPS || 0))) // token-2022 transfer fee on every move of the token (buys too). Default 0 — one fee, the curve tax. cap 5%
 export function launchOpts(permTax: boolean) { return permTax && PERM_TAX_BPS > 0 ? { token2022: true, transferFeeExtensionParams: { transferFeeBasePoints: PERM_TAX_BPS, maxinumFee: new BN('18446744073709551615') } } : {} }
 /** is this a Token-2022 mint with a transfer fee we can withdraw? */
 export async function permTaxOf(mint: string): Promise<{ bps: number; withheldAtMint: bigint } | null> {

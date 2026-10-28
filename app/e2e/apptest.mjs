@@ -31,7 +31,7 @@ await pg.route(/api\.mainnet-beta\.solana\.com/, (r) => r.fulfill({ json: { json
 await pg.goto('http://localhost:4178/#/'); await pg.waitForTimeout(2500); await pg.locator('.seg button', { hasText: 'Market' }).first().click(); await pg.waitForTimeout(500)
 const chk = (name, ok) => console.log((ok ? 'PASS' : 'FAIL') + ' ' + name) || (!ok && errs.push('FAIL ' + name))
 chk('board renders rows', (await pg.locator('tbody tr').count()) >= 2)
-chk('home stat tiles render', (await pg.locator('.main .tiles').first().innerText()).includes('DESKS LIVE'))
+chk('home stat tiles render', (await pg.locator('.main .tiles').first().innerText()).includes('DESKS'))
 chk('signal tags render', true)
 await pg.locator('tbody tr').first().click(); await pg.waitForTimeout(1500)
 chk('coin route', location => true, true); chk('coin page header', (await pg.locator('.coinhd h1').innerText()).includes('BONK') || (await pg.locator('.coinhd h1').innerText()).includes('CURVY'))

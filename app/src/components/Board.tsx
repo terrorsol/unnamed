@@ -48,7 +48,7 @@ export default function Board(p: Props) {
             </tr>)}</tbody></table></div></div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div className="card"><h3><span className="status"><i className={p.live ? '' : 'off'} /></span>Live pump.fun launches</h3>
+        <div className="card"><h3>Live pump.fun launches</h3>
           <div className="feed">{p.fresh.slice(0, 25).map((t) => <div className="it" key={t.mint} style={{ cursor: 'pointer' }} onClick={() => p.go('coin/' + t.mint)}><Pfp mint={t.mint} c={p.freshCoins[t.mint]} /><div style={{ flex: 1, minWidth: 0 }}><div className="tk">{t.symbol}</div><div className="nm">{t.name.slice(0, 20)} · dev {short(t.creator || '', 3)}</div></div><div style={{ textAlign: 'right' }}><div className="num">{((t.mcapSol || 0) * p.solPrice) ? F((t.mcapSol || 0) * p.solPrice) : '—'}</div><div className="nm">{ago(t.ts)}</div></div></div>)}
             {!p.fresh.length && <div className="empty">Listening…</div>}</div></div>
         <div className="card"><h3>Runners <span className="dim" style={{ fontWeight: 500 }}>· 1h</span></h3>

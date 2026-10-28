@@ -15,7 +15,7 @@ export function Spark({ pool, tone }: { pool?: string; tone: 'up' | 'dn' | '' })
   const ref = React.useRef<HTMLCanvasElement>(null); const [pts, setPts] = React.useState<number[]>([])
   React.useEffect(() => { if (!pool) return; let on = true; const f = () => fetch(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${pool}/ohlcv/minute?aggregate=1&limit=90&currency=usd`, { headers: { accept: 'application/json' } }).then((r) => r.json()).then((d) => { if (!on) return; const l: number[][] = d?.data?.attributes?.ohlcv_list || []; setPts(l.sort((a, b) => a[0] - b[0]).map((x) => x[4])) }).catch(() => {}); f(); const i = setInterval(f, 30000); return () => { on = false; clearInterval(i) } }, [pool])
   React.useEffect(() => { const c = ref.current; if (!c || pts.length < 2) return; const dpr = devicePixelRatio || 1; const W = c.clientWidth, H = c.clientHeight; c.width = W * dpr; c.height = H * dpr; const ctx = c.getContext('2d')!; ctx.scale(dpr, dpr); ctx.clearRect(0, 0, W, H)
-    const mn = Math.min(...pts), mx = Math.max(...pts); const y = (v: number) => H - 3 - ((v - mn) / Math.max(1e-12, mx - mn)) * (H - 6); const col = getComputedStyle(c).getPropertyValue(tone === 'dn' ? '--dn' : '--up').trim() || '#1aff5f'
+    const mn = Math.min(...pts), mx = Math.max(...pts); const y = (v: number) => H - 3 - ((v - mn) / Math.max(1e-12, mx - mn)) * (H - 6); const col = getComputedStyle(c).getPropertyValue(tone === 'dn' ? '--dn' : '--up').trim() || '#2bd46a'
     ctx.beginPath(); pts.forEach((v, i) => { const x = (i / (pts.length - 1)) * W; i ? ctx.lineTo(x, y(v)) : ctx.moveTo(x, y(v)) }); ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.stroke()
     ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fillStyle = col + '22'; ctx.fill() }, [pts, tone])
   return <canvas ref={ref} style={{ width: '100%', height: 44, display: 'block' }} />
@@ -73,13 +73,13 @@ export default function Chart({ coin, solPrice, vault, fills, lot, orders, trade
     const mk: any[] = []
     const snap = (ms: number) => (Math.floor(ms / 1000 / TF[tf].sec) * TF[tf].sec) as UTCTimestamp
     const first = bars[0].time
-    for (const a of vault?.activity || []) { if (snap(a.t) < first) continue; if (a.kind === 'capture') mk.push({ time: snap(a.t), position: 'aboveBar', color: '#ff4d5e', shape: 'arrowDown', text: 'C' }); if (a.kind === 'buy') mk.push({ time: snap(a.t), position: 'belowBar', color: '#1aff5f', shape: 'arrowUp', text: a.msg?.includes('desk') ? 'OTC' : 'D' }); if (a.kind === 'redeem') mk.push({ time: snap(a.t), position: 'belowBar', color: '#d4af37', shape: 'circle', text: 'R' }) }
-    for (const f of fills) { if (f.mint !== coin.mint || snap(f.t) < first) continue; mk.push({ time: snap(f.t), position: f.side === 'sell' ? 'aboveBar' : 'belowBar', color: f.side === 'sell' ? '#ff4d5e' : '#1aff5f', shape: f.side === 'sell' ? 'arrowDown' : 'arrowUp', text: f.side === 'sell' ? 'you' : 'you' }) }
+    for (const a of vault?.activity || []) { if (snap(a.t) < first) continue; if (a.kind === 'capture') mk.push({ time: snap(a.t), position: 'aboveBar', color: '#ff4d5e', shape: 'arrowDown', text: 'C' }); if (a.kind === 'buy') mk.push({ time: snap(a.t), position: 'belowBar', color: '#2bd46a', shape: 'arrowUp', text: a.msg?.includes('desk') ? 'OTC' : 'D' }); if (a.kind === 'redeem') mk.push({ time: snap(a.t), position: 'belowBar', color: '#d4af37', shape: 'circle', text: 'R' }) }
+    for (const f of fills) { if (f.mint !== coin.mint || snap(f.t) < first) continue; mk.push({ time: snap(f.t), position: f.side === 'sell' ? 'aboveBar' : 'belowBar', color: f.side === 'sell' ? '#ff4d5e' : '#2bd46a', shape: f.side === 'sell' ? 'arrowDown' : 'arrowUp', text: f.side === 'sell' ? 'you' : 'you' }) }
     s.setMarkers(mk.sort((a, b) => a.time - b.time))
     // lines: entry, TP/SL
     lines.current.forEach((l) => s.removePriceLine(l)); lines.current = []
     if (lot && lot.tokens && lot.costSol) { /* entry in usd unknown precisely; skip */ }
-    for (const o of orders.filter((o) => o.mint === coin.mint)) lines.current.push(s.createPriceLine({ price: o.trigUsd, color: o.type === 'tp' ? '#1aff5f' : '#ff4d5e', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: o.type.toUpperCase() }))
+    for (const o of orders.filter((o) => o.mint === coin.mint)) lines.current.push(s.createPriceLine({ price: o.trigUsd, color: o.type === 'tp' ? '#2bd46a' : '#ff4d5e', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: o.type.toUpperCase() }))
     if (vault && vault.floor && solPrice) lines.current.push(s.createPriceLine({ price: vault.floor * solPrice, color: '#d4af37', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: 'floor' }))
   }, [bars, vault?.activity?.length, fills.length, orders.length, tf])
   useEffect(() => { try { localStorage.setItem('unnamed_tf', tf) } catch {} }, [tf])

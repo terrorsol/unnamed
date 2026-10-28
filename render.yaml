@@ -36,4 +36,6 @@ services:
       - key: TAX_BPS
         value: "200"  # platform fee on every curve trade of a coin launched here → that coin's chest (max 500)
       - key: CREATOR_FEE_BPS
-        value: "50"   # creator fee → the dev, on-chain (max 50)
+        value: "0"    # on-chain creator fee (max 50). 0: the dev earns from the vault cut only
+      - key: PERM_TAX_BPS
+        value: "0"    # token-2022 transfer tax on every move incl. buys (max 500). 0 = off

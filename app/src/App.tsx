@@ -24,7 +24,13 @@ import { S, short } from './lib/fmt'
 import type { Coin } from './lib/dex'
 
 // three mains + bag; everything else lives under More
-const NAV: [string, string, string, string][] = [['home', 'Home', 'runners · our coins', '◼'], ['vault', 'Vault', 'market maker', '◆'], ['desk', 'Desk', 'otc, off-chart', '⇄'], ['portfolio', 'Portfolio', 'positions · p&l', '◎']]
+const I = {
+  bank: <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"><path d="M3 9.5 12 4l9 5.5H3Z"/><path d="M5 9.5v8M9.5 9.5v8M14.5 9.5v8M19 9.5v8"/><path d="M3 17.5h18V20H3z"/></svg>,
+  safe: <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="12" cy="12" r="3.5"/><path d="M12 8.5v2M12 13.5v2M8.5 12h2M13.5 12h2"/><path d="M6 20v1.5M18 20v1.5"/></svg>,
+  desk: <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg>,
+  me: <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="8.5" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>,
+}
+const NAV: [string, string, string, React.ReactNode][] = [['home', 'Home', 'runners · our coins', I.bank], ['vault', 'Vault', 'market maker', I.safe], ['desk', 'Desk', 'otc, off-chart', I.desk], ['portfolio', 'Portfolio', 'positions · p&l', I.me]]
 const MORE: [string, string][] = [['dev', 'My launches'], ['vault/import', 'Import a coin'], ['settings', 'Settings'], ['docs', 'Docs']]
 
 function Tabs({ tabs, sel, go }: { tabs: [string, React.ReactNode][]; sel: string; go: (t: string) => void }) {
@@ -238,16 +244,16 @@ export default function App() {
 
   const content = () => {
     if (page === 'coin' && arg) { const h = ws.tokens.find((t) => t.mint === arg); return <CoinPage mint={arg} coin={byMint[arg]} solPrice={solPrice} holding={h} lot={ledger.lots[arg]} sol={ws.sol} connected={connected} busy={busy} onBuy={onBuy} onSell={onSell} needWallet={needWallet} quickSol={settings.quickBuy} watch={settings.watch} toggleWatch={toggleWatch} trades={allTrades} subscribe={fresh.subscribe} desk={{ owner: ws.owner, connected, bidder, deskUp, busy, takeBid, takeAsk, holdingUi: h?.amount || 0, solPrice }} deskTick={deskTick} vaultV={vaultV} onRenounce={renounce} onRedeem={onRedeem} onDeposit={onDeposit} onMode={onMode} onSwitch={onSwitch} go={go} ordersV={ordersV} bumpOrders={() => setOrdersV((v) => v + 1)} fills={ledger.fills} /> }
-    if (page === 'portfolio') return <Portfolio sol={ws.sol} tokens={ws.tokens} coins={byMint} lots={ledger.lots} fills={ledger.fills} solPrice={solPrice} go={go} owner={ws.owner} />
+    if (page === 'portfolio') return <Portfolio onConnect={needWallet} sol={ws.sol} tokens={ws.tokens} coins={byMint} lots={ledger.lots} fills={ledger.fills} solPrice={solPrice} go={go} owner={ws.owner} />
     if (page === 'settings') return <SettingsPage s={settings} set={setSettings} owner={ws.owner || undefined} signTx={ctx()?.sign} conn={connection} />
     if (page === 'about') return <About />
     if (page === 'compare') return <Compare coins={coins} vaults={vaultList} solPrice={solPrice} go={go} />
     if (page === 'docs') return <Tabs tabs={[['How it works', <About />], ['Simulate', <Simulate />], ['Vaulted vs not', <Compare coins={coins} vaults={vaultList} solPrice={solPrice} go={go} />], ['Leaderboard', <LeaderboardPage owner={ws.owner} />]]} sel={arg} go={(t) => go('docs/' + t)} />
     if (page === 'simulate') return <Simulate />
-    if (page === 'vault') return <Tabs tabs={[['Vaults', <VaultPage go={go} solPrice={solPrice} />], ['Import', <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={arg2 || ''} needWallet={needWallet} sol={ws.sol} />]]} sel={arg} go={(t) => go('vault/' + t)} />
+    if (page === 'vault') return <Tabs tabs={[['Vaults', <VaultPage go={go} solPrice={solPrice} onLaunch={() => setLaunch(true)} />], ['Import', <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={arg2 || ''} needWallet={needWallet} sol={ws.sol} />]]} sel={arg} go={(t) => go('vault/' + t)} />
     if (page === 'desk') return <DeskPage go={go} coins={coins} owner={ws.owner} bidder={bidder} />
     if (page === 'import') return <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={arg || ''} needWallet={needWallet} sol={ws.sol} />
-    if (page === 'dev' || page === 'mine') return <Tabs tabs={[['My launches', <MinePage owner={ws.owner} go={go} solPrice={solPrice} onRenounce={renounce} onClaim={onClaim} busy={busy} />], ['How it works', <About />]]} sel={arg} go={(t) => go('dev/' + t)} />
+    if (page === 'dev' || page === 'mine') return <MinePage owner={ws.owner} go={go} solPrice={solPrice} onRenounce={renounce} onClaim={onClaim} busy={busy} onConnect={needWallet} onLaunch={() => setLaunch(true)} />
     if (page === 'leaderboard') return <LeaderboardPage owner={ws.owner} />
     return <Home coins={q.trim() ? results : coins} byMint={byMint} vaults={vaultList} solPrice={solPrice} go={go} quick={quick} quickSol={settings.quickBuy} deskUp={deskUp} onLaunch={() => setLaunch(true)} fresh={fresh.list} freshCoins={freshCoins} trades={fresh.trades} live={fresh.live} err={err} watch={settings.watch} />
   }
@@ -257,13 +263,13 @@ export default function App() {
       <div className="search"><span className="dim">⌕</span><input placeholder="CA or ticker" value={q} onChange={(e) => { setQ(e.target.value); if (page !== 'home') go('') }} /><kbd>/</kbd></div>
       <div className="qb"><span>⚡ Quick buy</span>{[0.1, 0.5, 1, 2].map((v) => <button key={v} className={settings.quickBuy === v ? 'on' : ''} onClick={() => setSettings({ quickBuy: v })}>{v}</button>)}</div>
       <span className="sp" />
-      <button className="btn" onClick={() => setWp(true)}>{connected ? <><span className="status"><i /></span><span className="num">{ws.sol == null ? '…' : S(ws.sol) + ' SOL'}</span><span className="dim num">{short(activeKey!.toBase58(), 3)}</span>{mode === 'burner' && <span className="tag live">1-CLICK</span>}</> : (mode === 'burner' && B.hasBurner() ? 'Unlock wallet' : 'Connect wallet')}</button>
+      <button className="btn" onClick={() => setWp(true)}>{connected ? <><span className="num">{ws.sol == null ? '…' : S(ws.sol) + ' SOL'}</span><span className="dim num">{short(activeKey!.toBase58(), 3)}</span>{mode === 'burner' && <span className="tag live">1-CLICK</span>}</> : (mode === 'burner' && B.hasBurner() ? 'Unlock wallet' : 'Connect wallet')}</button>
       <button className="btn pri" onClick={() => setLaunch(true)}>Launch</button>
     </div>
     <div className="body">
       <nav className="side">{NAV.map(([k, l, d, i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={'nav' + (page === k ? ' on' : '')}><span className="ico">{i}</span><span className="lab"><b>{l}</b><small>{d}</small></span></a>)}
         <div className="cap">More</div>{MORE.map(([k, l]) => <a key={k} href={'#/' + k} className={'nav sub' + ((page + '/' + arg === k || page === k) ? ' on' : '')}><span className="lab"><b>{l}</b></span></a>)}
-        <div className="foot">Desk + vault: <span className={deskUp ? 'up' : 'dn'}>{deskUp ? 'online' : 'offline'}</span> · beta</div></nav>
+        <div className="foot">{deskUp ? 'beta' : <span className="dn">server offline</span>}</div></nav>
       <main className="main">{content()}</main>
     </div>
     <nav className="mnav">{NAV.map(([k, l, , i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={page === k ? 'on' : ''}><b>{i}</b>{l}</a>)}<a href="#" onClick={(e) => { e.preventDefault(); setMore(true) }} className={more ? 'on' : ''}><b>≡</b>More</a></nav>

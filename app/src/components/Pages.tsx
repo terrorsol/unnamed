@@ -20,8 +20,8 @@ function pnlCard(symbol: string, pnlSol: number, pct: number, held: string, solP
   x.fillStyle = 'rgba(255,255,255,.44)'; x.font = '500 28px Geist, sans-serif'; x.fillText(held + ' · held ' + new Date().toLocaleDateString(), 72, 560)
   return c.toDataURL('image/png')
 }
-export function Portfolio({ sol, tokens, coins, lots, fills, solPrice, go, owner }: { sol: number | null; tokens: Holding[]; coins: Record<string, Coin>; lots: Record<string, Lot>; fills: Fill[]; solPrice: number; go: (p: string) => void; owner: string }) {
-  if (!owner) return <div className="empty">Connect or unlock a wallet to see holdings</div>
+export function Portfolio({ sol, tokens, coins, lots, fills, solPrice, go, owner, onConnect }: { onConnect?: () => void; sol: number | null; tokens: Holding[]; coins: Record<string, Coin>; lots: Record<string, Lot>; fills: Fill[]; solPrice: number; go: (p: string) => void; owner: string }) {
+  if (!owner) return <div className="empty" style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>Your coins, P&amp;L and fills live here.<button className="btn pri big" onClick={onConnect}>Connect wallet</button></div>
   const rows = tokens.map((t) => { const c = coins[t.mint]; const val = c ? t.amount * c.priceUsd : 0; return { t, c, val, lot: lots[t.mint] } }).sort((a, b) => b.val - a.val)
   const tot = rows.reduce((a, r) => a + r.val, 0)
   const unreal = rows.reduce((a, r) => a + (r.lot && solPrice ? r.val / solPrice - r.lot.costSol : 0), 0)
@@ -66,10 +66,9 @@ export function SettingsPage({ s, set, owner, signTx, conn }: { s: Settings; set
   const [srvState, setSrvState] = useState<string>(''); const [adv, setAdv] = useState(false)
   const testSrv = async (u: string) => { setSrvState('…'); try { const r = await fetch(u.replace(/\/$/, '') + '/health'); const d = await r.json(); setSrvState(d.ok ? `up · ${d.vaults} vaults · desk ${d.desk?.openBids ?? 0} bids` : 'bad response') } catch { setSrvState('unreachable') } }
   return <div className="card" style={{ maxWidth: 560 }}><h3>Settings</h3><div className="panel">
-    <div className="fld"><div className="lbl">Server</div><div className="row" style={{ gap: 6 }}><input placeholder={K.SERVER} value={srv} onChange={(e) => setSrv(e.target.value)} /><button className="btn sm" onClick={() => testSrv(srv || K.SERVER)}>Test</button></div><div className="nm" style={{ marginTop: 4 }}>{srvState || `Using ${K.SERVER}${K.SERVER_SOURCE === 'live' ? ' (auto-discovered live desk)' : ''}`}</div></div>
     <div className="two"><div className="fld"><div className="lbl">Slippage %</div><input type="number" step={0.5} min={0.1} max={50} value={s.slippageBps / 100} onChange={(e) => set({ slippageBps: Math.round(+e.target.value * 100) })} /></div>
       <div className="fld"><div className="lbl">Priority fee (SOL)</div><input type="number" step={0.0001} min={0} value={s.priorityFeeSol} onChange={(e) => set({ priorityFeeSol: +e.target.value })} /></div></div>
-    <div className="two"><label className="row" style={{ gap: 8, fontSize: 12 }}><input type="checkbox" checked={s.autoFee} onChange={(e) => set({ autoFee: e.target.checked })} /> Auto priority fee (Helius estimate, High)</label><label className="row" style={{ gap: 8, fontSize: 12 }}><input type="checkbox" checked={s.mev} onChange={(e) => set({ mev: e.target.checked })} /> MEV protect: Jito tip on swaps ({s.jitoTipSol} SOL)</label></div>
+    <div className="two"><label className="row" style={{ gap: 8, fontSize: 12 }}><input type="checkbox" checked={s.autoFee} onChange={(e) => set({ autoFee: e.target.checked })} /> Auto priority fee</label><label className="row" style={{ gap: 8, fontSize: 12 }}><input type="checkbox" checked={s.mev} onChange={(e) => set({ mev: e.target.checked })} /> MEV protect: Jito tip on swaps ({s.jitoTipSol} SOL)</label></div>
     <div className="fld"><div className="lbl">Quick-buy size (SOL)</div><input type="number" step={0.05} min={0.01} value={s.quickBuy} onChange={(e) => set({ quickBuy: +e.target.value })} /></div>
     {llp && <div className="fld"><div className="lbl">Launchpad</div>
       {llp.chain?.exists ? <div className="nm">live · tax {(llp.chain.feeRate ?? 0).toFixed(2)}% → chests · creator {(llp.chain.creatorFeeRate ?? 0).toFixed(2)}% → dev · platform {llp.platformId?.slice(0, 8)}…</div>
@@ -78,6 +77,7 @@ export function SettingsPage({ s, set, owner, signTx, conn }: { s: Settings; set
         : <div className="nm">not set up yet · connect the admin wallet ({llp.admin?.slice(0, 6)}…) to create it</div>}
     </div>}
     <button className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => setAdv(!adv)}>{adv ? 'Hide advanced' : 'Advanced'}</button>
+    {adv && <div className="fld"><div className="lbl">Server</div><div className="row" style={{ gap: 6 }}><input placeholder={K.SERVER} value={srv} onChange={(e) => setSrv(e.target.value)} /><button className="btn sm" onClick={() => testSrv(srv || K.SERVER)}>Test</button></div><div className="nm" style={{ marginTop: 4 }}>{srvState || `Using ${K.SERVER}${K.SERVER_SOURCE === 'live' ? ' (auto-discovered live desk)' : ''}`}</div></div>}
     {adv && <div className="fld"><div className="lbl">RPC endpoint (Helius / Triton / QuickNode)</div><input value={rpc} onChange={(e) => setRpc(e.target.value)} /><div className="nm" style={{ marginTop: 4 }}>Applies after reload.</div></div>}
     <div className="row"><span className="sp" /><button className="btn pri" onClick={() => { set({ rpc }); if (srv.trim()) localStorage.setItem('unnamed_server', srv.trim().replace(/\/$/, '')); else localStorage.removeItem('unnamed_server'); location.reload() }}>Save &amp; reload</button></div>
   </div></div>
@@ -86,7 +86,7 @@ export function SettingsPage({ s, set, owner, signTx, conn }: { s: Settings; set
 export function About() {
   return <div className="prose">
     <h2>Launchpad</h2>
-    <p>Coins launched here run on our curve (Raydium LaunchLab). Every buy and sell pays 2% into the coin's chest and 0.5% to the dev. The chest is the coin's own market maker from block zero. Optional: a 1% tax on every transfer, forever, on every venue. A copy launched on pump can't touch your pool. pump.fun is still in the launch modal: bigger crowd, no tax, no defense.</p>
+    <p>Coins launched here run on our curve (Raydium LaunchLab). 2% of every curve trade goes into the coin's chest — its own market maker from block zero. Desk fills skip the tax. The dev earns from the vault cut, nothing else. A copy launched on pump can't touch your pool. pump.fun is still in the launch modal: bigger crowd, no tax, no defense.</p>
     <h2>Vault</h2>
     <p>Half the stake buys supply in the launch block, half is the chest. Stretched buy → it sells a slice into it. Dips → it buys at −20 / −35 / −50%. It bids on the desk and sells at spot on the desk, no fee. Never withdraws. Timing and size are randomized.</p>
     <h2>Desk</h2>
@@ -94,7 +94,7 @@ export function About() {
     <h2>Vamps</h2>
     <p>A VAMP tag is a younger copy of a coin that's moving: same name or ticker, launched right after, often the same wallet. One tap switches you to the original — through the vault's spot offer when it has one, so the switch doesn't hit the chart. A copy that launched here pays its tax to the original's chest.</p>
     <h2>Fees</h2>
-    <p>Desk fills 0.5% to treasury, 0 when the vault is the seller. Launchpad trades: 2% chest + 0.5% dev + 0.25% Raydium. pump coins: 1% pump + 0.5% PumpPortal. Network fees on everything.</p>
+    <p>Curve trades on our coins: 2% chest + 0.25% Raydium. Desk fills: 0.5%, 0 when the vault sells. pump coins: 1% pump + 0.5% PumpPortal. Network fees on everything.</p>
     <h2>Custody</h2>
     <p>Trading and the desk never see your keys. Vaults run on a server key behind a policy gate: per-tx and hourly caps, no withdrawals, 25 SOL max per chest. Read every tx in your wallet before you sign.</p>
   </div>
