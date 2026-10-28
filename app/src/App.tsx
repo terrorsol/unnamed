@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState, useEffect } from 'react'
+import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { Keypair, PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
 import * as K from './lib/desk'
@@ -47,6 +47,7 @@ export default function App() {
   const activeB58 = mode === 'burner' ? (burner ? burner.publicKey.toBase58() : '') : (wallet.publicKey ? wallet.publicKey.toBase58() : '')
   const activeKey = useMemo(() => (activeB58 ? new PublicKey(activeB58) : null), [activeB58])
   const ws = useWalletState(activeKey, rk)
+  const pendingVault = useRef<{ v: K.VaultPub; dev: string; stake: number; venue: string } | null>(null)
   const [busy, setBusy] = useState(''); const [launch, setLaunch] = useState(false); const [llp, setLlp] = useState<K.LLPlatform | null>(null); useEffect(() => { K.llPlatform().then(setLlp).catch(() => {}) }, [launch]); const [more, setMore] = useState(false); const [q, setQ] = useState(''); const [results, setResults] = useState<Coin[]>([])
   const [ledgerV, setLedgerV] = useState(0)
   const ledger = useMemo(() => loadLedger(ws.owner), [ws.owner, ledgerV])
@@ -205,15 +206,17 @@ export default function App() {
     const x = ctx(); if (!x) return needWallet()
     try {
       let vault: K.VaultPub | null = null
-      if (stake > 0) { setBusy('Creating vault…'); vault = await K.vaultCreate(ws.owner, stake, copyOf, mode, ceiling, venue).catch((e) => { toast({ kind: 'err', title: 'Vault server unreachable — launching without a vault', rows: [['Error', String(e.message)]] }); return null }) }
+      // a vault funded by a launch that failed later (expired blockhash, rejected signature) is reused on the retry instead of orphaning the stake
+      const pend = pendingVault.current; if (stake > 0 && pend && pend.dev === ws.owner && pend.stake === stake && pend.venue === venue) vault = pend.v
+      if (stake > 0 && !vault) { setBusy('Creating vault…'); vault = await K.vaultCreate(ws.owner, stake, copyOf, mode, ceiling, venue).catch((e) => { toast({ kind: 'err', title: 'Vault server unreachable — launching without a vault', rows: [['Error', String(e.message)]] }); return null }) }
       let sig: string, mint: string, bundled = false
       if (vault) {
-        // fund the vault first so it can buy in block zero
-        setBusy('Funding vault…'); const t = new Transaction().add(SystemProgram.transfer({ fromPubkey: x.owner, toPubkey: new PublicKey(vault.pub), lamports: Math.floor(stake * 1e9) })); t.feePayer = x.owner; t.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
-        const st = await signLegacy(t); const s2 = await connection.sendRawTransaction(st.serialize()); await confirmByPolling(connection, s2)
+        // fund the vault first so it can buy in block zero (skipped when retrying with an already-funded vault)
+        if (!pend || pend.v.id !== vault.id) { setBusy('Funding vault…'); const t = new Transaction().add(SystemProgram.transfer({ fromPubkey: x.owner, toPubkey: new PublicKey(vault.pub), lamports: Math.floor(stake * 1e9) })); t.feePayer = x.owner; t.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
+        const st = await signLegacy(t); const s2 = await connection.sendRawTransaction(st.serialize()); await confirmByPolling(connection, s2); pendingVault.current = { v: vault, dev: ws.owner, stake, venue } }
         const r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, vault, +(stake * 0.5).toFixed(4), { sendBundle: K.sendBundle, signMsg }) : await T.launchBlockZero(x, meta, dev, vault, +(stake * 0.5).toFixed(4), { bundleSign: K.bundleSign, sendBundle: K.sendBundle, signMsg }); sig = r.sig; mint = r.mint; bundled = r.bundled
       } else { const r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, null, 0, { sendBundle: K.sendBundle }) : await T.launch(x, meta, dev); sig = r.sig; mint = r.mint }
-      recordCreate(ws.owner, mint, meta.symbol, dev, sig); setLedgerV((v) => v + 1); setLaunch(false)
+      pendingVault.current = null; recordCreate(ws.owner, mint, meta.symbol, dev, sig); setLedgerV((v) => v + 1); setLaunch(false)
       toast({ kind: 'ok', title: `${meta.symbol} is live${venue === 'launchlab' ? ' on UNNAMED' : ' on pump'}${bundled ? ' · vault in block zero' : ''}`, rows: [['Mint', short(mint, 6)], ['Dev buy', S(dev) + ' SOL']], href: solscan(sig) }); go('coin/' + mint)
       if (vault) {
         try { setBusy('Arming vault…'); const v = await K.vaultArm(vault.id, mint, meta.symbol, meta.name, await K.devAuth(signMsg, 'arm', vault.id, mint)); setVaultV((n) => n + 1); toast({ kind: 'ok', title: `Vault armed · ${v.pct}% supply target`, rows: [['Stake', S(stake) + ' SOL'], ['Vault', short(v.pub, 6)]] }) }
@@ -221,7 +224,7 @@ export default function App() {
       }
       setTimeout(() => setRk((k) => k + 1), 1500)
     }
-    catch (e: any) { toast({ kind: 'err', title: 'Launch failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
+    catch (e: any) { toast({ kind: 'err', title: 'Launch failed', rows: [['Reason', String(e?.message || e).slice(0, 140)], ...(pendingVault.current ? [['Your stake', 'still in the vault — press Create again to retry']] as [string, string][] : [])] }) } finally { setBusy('') }
   }
   sellRef.current = onSell
   const quick = (c: Coin) => { if (!connected) return needWallet(); onBuy(c, settings.quickBuy) }

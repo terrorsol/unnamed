@@ -44,7 +44,7 @@ const server = createServer(async (req, res) => {
     if (p.startsWith('/vamp/')) { const m = p.slice(6); VM.watch(m); return json(res, 200, VM.forMint(m)) }
     if (p.startsWith('/family/')) return json(res, 200, await V.family(p.slice(8)))
     if (p.startsWith('/dev/')) return json(res, 200, V.byDev(p.slice(5)))
-    if (DESK_ONLY && (p.startsWith('/vault') || p.startsWith('/import') || p.startsWith('/redeem') || p === '/bundle' || p === '/ipfs' || p.startsWith('/tape'))) return json(res, 503, { error: 'this server runs the desk only — vaults live on the main server' })
+    if (DESK_ONLY && (p.startsWith('/vault') || p.startsWith('/import') || p.startsWith('/redeem') || p === '/bundle' || p === '/ipfs' || p.startsWith('/tape') || p.startsWith('/ll/launch') || p === '/ll/platform/build')) return json(res, 503, { error: 'this server runs the desk only — vaults live on the main server' })
     if (p === '/ipfs' && req.method === 'POST') { const b = await readBody(req); try { return json(res, 200, await uploadMetadata(b)) } catch (e: any) { return json(res, e.status || 400, { error: e.message }) } }
     if (p === '/redeem/quote' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, V.redeemQuote(b.mint, +b.tokens)) }
     if (p === '/redeem' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.redeem(b.mint, b.holder, +b.tokens, b.tx)) }
