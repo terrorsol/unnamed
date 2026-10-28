@@ -1,0 +1,100 @@
+{
+ "at": 1793153161544,
+ "out": [
+  {
+   "name": "dexscreener: SOL pairs shape",
+   "ok": true,
+   "info": "30 pairs · SOL $101.62 · dexIds orca,raydium,meteora,pumpswap · 76ms"
+  },
+  {
+   "name": "geckoterminal: pump-fun curve pools (dex id)",
+   "ok": true,
+   "info": "20 pools · picked UTYA / SOL mint HMzfNUuW… h24 $355844 · 87ms"
+  },
+  {
+   "name": "geckoterminal: pumpswap pools + ohlcv + trades",
+   "ok": true,
+   "info": "ELON2028 / SOL · 5 candles (newest first: false) · 300 trades · kind=buy vol=$0 · 9764ms"
+  },
+  {
+   "name": "dexscreener: curve + amm coin fields we use",
+   "ok": true,
+   "info": "curve dexId=pumpfun liq.quote=undefined mcap=5951.14 · amm dexId=pumpswap pair=EkB1x8 vol.h1=0 · 70ms"
+  },
+  {
+   "name": "token program: curve + amm mints",
+   "ok": true,
+   "info": "curve=token-2022 amm=spl-token · 51ms"
+  },
+  {
+   "name": "token-2022 share of top 50 pumpswap mints",
+   "ok": true,
+   "info": "4/40 are Token-2022 · 5110ms"
+  },
+  {
+   "name": "helius: priority estimate",
+   "ok": true,
+   "info": "10000 µlamports/CU · 28ms"
+  },
+  {
+   "name": "helius: sender ping",
+   "ok": true,
+   "info": "200 · https://sender.helius-rpc.com/fast?api-key=… · 72ms"
+  },
+  {
+   "name": "jito: getTipAccounts",
+   "ok": true,
+   "info": "8 accounts (DfXygS…) · 94ms"
+  },
+  {
+   "name": "jito: tip floor",
+   "ok": true,
+   "info": "p50 0.000006649 p75 0.00002362025 SOL · 376ms"
+  },
+  {
+   "name": "pumpportal: curve buy (single) → simulate",
+   "ok": true,
+   "info": "content-type=application/octet-stream · version=0 · 4 ix · buy ok · 140873 CU · Program 11111111111111111111111111111111 success | Program FAdo9NCw1ssek6Z6yeWzWjhLVsr8uiCwcWNUnKgzTnHe consumed 121033 of 150160 compute units | Program FAdo9N · 79ms"
+  },
+  {
+   "name": "pumpportal: amm buy (single) → simulate",
+   "ok": false,
+   "info": "HTTP 400 Bad Request · 81ms"
+  },
+  {
+   "name": "our sender tip appended to pumpportal tx → simulate",
+   "ok": true,
+   "info": "5 ix · tipped buy ok · 141023 CU · Program FAdo9NCw1ssek6Z6yeWzWjhLVsr8uiCwcWNUnKgzTnHe success | Program 11111111111111111111111111111111 invoke [1] | Program 11111111111111111111111111111111 su · 60ms"
+  },
+  {
+   "name": "pumpportal: bundle mode (array) → base58 txs → simulate",
+   "ok": true,
+   "info": "1 tx · jito tip account present=true · bundle buy ok · 129395 CU · Program 11111111111111111111111111111111 success | Program FAdo9NCw1ssek6Z6yeWzWjhLVsr8uiCwcWNUnKgzTnHe consumed 109555 of 150160 compute units | Program FAdo9N · 42ms"
+  },
+  {
+   "name": "pumpportal: create + dev buy (random mint) → shape only",
+   "ok": true,
+   "info": "5 ix · 2 signers (dev + mint) · mint signature applied=true · create ok · 240196 CU · Program 11111111111111111111111111111111 success | Program FAdo9NCw1ssek6Z6yeWzWjhLVsr8uiCwcWNUnKgzTnHe consumed 121036 of 200840 compute units | Program FAdo9N · 102ms"
+  },
+  {
+   "name": "pumpportal: collectCreatorFee → shape",
+   "ok": true,
+   "info": "6 ix · 45ms"
+  },
+  {
+   "name": "jupiter: api.jup.ag quote + swap → simulate",
+   "ok": true,
+   "info": "out 48081740 · impact 1% · v0 alts=1 · tipped swap ok · 73204 CU · Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success | Program 11111111111111111111111111111111 invoke [1] | Program 11111111111111111111111111111111 suc · 2359ms"
+  },
+  {
+   "name": "desk fill tx: build + verify on real mint",
+   "ok": true,
+   "info": "program=spl decimals=6 · 515 bytes · verify ok · 91ms"
+  },
+  {
+   "name": "helius ws: logsSubscribe on amm pool → decode one swap",
+   "ok": false,
+   "info": "timeout 45000ms · 45033ms"
+  }
+ ]
+}
