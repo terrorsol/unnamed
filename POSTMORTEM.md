@@ -36,3 +36,7 @@ Money: nothing lost. 0.5 SOL dev buy → 17.2M TEST (sold back from the in-app w
 ## Before the next launch (me, after your refund tap)
 - flip `MM_BUYS` to 1 in render.yaml (left at 0 so the armed TEST vault can't spend your 1.1 while it waits for the refund).
 - flip `MAX_CHEST_SOL` from 2 to whatever you want the beta cap to be.
+
+## Swap feed (per-coin tax attribution)
+- The pool websocket on Render connects, but helius closes it after inactivity ("1001 Connection closed due to inactivity") — it reconnects and re-subscribes; a 4-second polling fallback (`getSignaturesForAddress`) now runs alongside so no swap is missed on any rpc.
+- TEST's pool is empty now (bots round-tripped ~82 SOL in the first 30 min — that's the 1.64 SOL of fees — then everyone sold out), so per-coin crediting gets its first real check on the next launch: expect `platform fees claimed X → 1 chest` in the event log within ~3 min of the first trades.
