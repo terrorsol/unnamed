@@ -58,3 +58,12 @@ test('mm capture curve', () => {
   assert.ok(R.captureFrac(1.5, 1, 0.5, 500_000, 0.2, 0.5) <= 0.2)             // dev ceiling
   assert.equal(R.triggerRate(0), 0.4); assert.equal(R.triggerRate(10), 0.7); assert.ok(Math.abs(R.triggerRate(5) - 0.55) < 1e-9)
 })
+test('mm v2: inventory skew, vol-aware desk discount, z-stretch', () => {
+  assert.equal(R.inventorySkew(10, 10).capture, 1); assert.ok(R.inventorySkew(20, 10).capture > 1 && R.inventorySkew(20, 10).defend < 1); assert.ok(R.inventorySkew(2, 10).capture < 1)
+  assert.equal(R.deskDiscountBps(0), 400); assert.equal(R.deskDiscountBps(0.5), 400)
+  const calm = R.captureFracV2(1.05, 1, 0.5, 5e5, 0.02, 10, 10, 0.3, 0.5), wild = R.captureFracV2(1.05, 1, 0.5, 5e5, 0.3, 10, 10, 0.3, 0.5)
+  assert.ok(calm > wild, 'same +5% is more stretched on a calm coin')
+  assert.equal(R.captureFracV2(0.95, 1, 0.5, 5e5, 0.1, 10, 10), 0)
+  const long = R.captureFracV2(1.2, 1, 0.5, 5e5, 0.1, 25, 10, 0.3, 0.5), short = R.captureFracV2(1.2, 1, 0.5, 5e5, 0.1, 4, 10, 0.3, 0.5); assert.ok(long > short)
+  const t = Date.now(); const samples = Array.from({ length: 31 }, (_, i) => ({ t: t + i * 60000, p: 1 + 0.05 * Math.sin(i) })); assert.ok(R.sigma(samples) > 0.05 && R.sigma(samples) < 0.5)
+})

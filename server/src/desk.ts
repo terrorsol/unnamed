@@ -32,7 +32,7 @@ export async function placeInternal(kp: Keypair, label: string, mint: string, so
 export async function placeInternalRaw(kp: Keypair, label: string, mint: string, sol: number, discBps: number, maxSol: () => number, fresh = false): Promise<Bid> {
   const bidder = kp.publicKey.toBase58()
   const existing = fresh ? null : [...bids.values()].find((b) => b.bidder === bidder && b.mint === mint && b.status === 'open' && !b.rfq)
-  if (existing) { existing.sol = sol; existing.refreshedAt = Date.now(); return existing }
+  if (existing) { existing.sol = sol; existing.discBps = discBps; existing.refreshedAt = Date.now(); return existing }
   const m = await market(mint); if (!m) throw new Error('unknown market'); const why = R.validBid(sol, discBps, m); if (why) throw new Error(why)
   const id = 'v' + Math.random().toString(36).slice(2, 9)
   const b: Bid = { id, mint, symbol: m.symbol, bidder, sol, discBps, placedAt: Date.now(), refreshedAt: Date.now(), status: 'open', ws: null, fills: 0, internal: { kp, label, maxSol } }

@@ -22,8 +22,13 @@ import { loadLedger, recordBuy, recordSell, recordCreate } from './lib/positions
 import { S, short } from './lib/fmt'
 import type { Coin } from './lib/dex'
 
-const NAV: [string, string][] = [['home', 'Home'], ['portfolio', 'Portfolio'], ['desk', 'Desk'], ['vault', 'Vault'], ['mine', 'My launches'], ['import', 'Import coin'], ['simulate', 'Simulate'], ['leaderboard', 'Leaderboard'], ['settings', 'Settings'], ['about', 'How it works']]
+const NAV: [string, string][] = [['home', 'Home'], ['desk', 'Desk'], ['vault', 'Vault'], ['dev', 'Dev'], ['portfolio', 'Portfolio'], ['settings', 'Settings']]
 
+function Tabs({ tabs, sel, go }: { tabs: [string, React.ReactNode][]; sel: string; go: (t: string) => void }) {
+  const slug = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+  const cur = tabs.find(([t]) => slug(t) === sel) || tabs[0]
+  return <><div className="seg" style={{ marginBottom: 12 }}>{tabs.map(([t]) => <button key={t} className={cur[0] === t ? 'on' : ''} onClick={() => go(slug(t))}>{t}</button>)}</div>{cur[1]}</>
+}
 export default function App() {
   const { page, arg, go } = useRoute()
   const [settings, setSettings] = useSettings()
@@ -181,11 +186,10 @@ export default function App() {
     if (page === 'settings') return <SettingsPage s={settings} set={setSettings} />
     if (page === 'about') return <About />
     if (page === 'simulate') return <Simulate />
-    if (page === 'vault') return <VaultPage go={go} solPrice={solPrice} />
-    if (page === 'desk') return <DeskPage go={go} />
-    if (page === 'mine') return <MinePage owner={ws.owner} go={go} solPrice={solPrice} onRenounce={renounce} onClaim={onClaim} busy={busy} />
+    if (page === 'vault') return <Tabs tabs={[['Vaults', <VaultPage go={go} solPrice={solPrice} />], ['Simulate', <Simulate />]]} sel={arg} go={(t) => go('vault/' + t)} />
+    if (page === 'desk') return <Tabs tabs={[['Books', <DeskPage go={go} />], ['Leaderboard', <LeaderboardPage owner={ws.owner} />]]} sel={arg} go={(t) => go('desk/' + t)} />
+    if (page === 'dev' || page === 'mine' || page === 'import') return <Tabs tabs={[['My launches', <MinePage owner={ws.owner} go={go} solPrice={solPrice} onRenounce={renounce} onClaim={onClaim} busy={busy} />], ['Import a coin', <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} go={go} initialMint={page === 'import' ? arg : ''} needWallet={needWallet} sol={ws.sol} />], ['How it works', <About />]]} sel={page === 'import' ? 'import-a-coin' : arg} go={(t) => go('dev/' + t)} />
     if (page === 'leaderboard') return <LeaderboardPage owner={ws.owner} />
-    if (page === 'import') return <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} go={go} initialMint={arg} needWallet={needWallet} sol={ws.sol} />
     if (false) return <div className="prose"><h2>{page === 'vault' ? 'Vault' : 'Desk'} <span className="tag pre">PREVIEW</span></h2><p>{page === 'vault' ? 'Program-owned market maker funded by the dev\'s block-zero stake. Buys dips (≤40% of chest per crash), trims only above holder cost basis and 30-min VWAP, never withdraws. Ships on-chain in Beta v1 — the per-coin preview is on each coin page under Protocol.' : 'Escrowed block bids at −3–5%, 60s rest, all-or-none, min block 2% of pool reserve, open once a coin has graduated and holds $100K mc. Ships with the vault program; the gating is already computed live on each coin page.'}</p></div>
     return <Board coins={q.trim() ? results : coins} fresh={fresh.list} freshCoins={freshCoins} trades={fresh.trades} live={fresh.live} solPrice={solPrice} watch={settings.watch} go={go} quick={quick} quickSol={settings.quickBuy} err={err} vaulted={vaulted} />
   }
@@ -200,10 +204,10 @@ export default function App() {
     </div>
     <div className="body">
       <nav className="side">{NAV.map(([k, l]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={page === k ? 'on' : ''}>{l}</a>)}
-        <div className="foot">Non-custodial · mainnet-beta<br />Trades: pump.fun via PumpPortal, Jupiter<br />Data: DexScreener, pump.fun stream<br />Desk + vault: <span className={deskUp ? 'up' : 'dn'}>{deskUp ? 'online' : 'offline'}</span></div></nav>
+        <div className="foot"><a href="#/dev/how-it-works" style={{ color: 'var(--fg3)' }}>How it works</a> · <a href="#/vault/simulate" style={{ color: 'var(--fg3)' }}>Simulate</a><br />Non-custodial · mainnet-beta<br />Desk + vault: <span className={deskUp ? 'up' : 'dn'}>{deskUp ? 'online' : 'offline'}</span></div></nav>
       <main className="main">{content()}</main>
     </div>
-    <nav className="mnav">{([['home', 'Home', '◼'], ['desk', 'Desk', '⇄'], ['vault', 'Vault', '◆'], ['portfolio', 'Bag', '◎'], ['mine', 'Mine', '✦']] as [string, string, string][]).map(([k, l, i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={page === k ? 'on' : ''}><b>{i}</b>{l}</a>)}</nav>
+    <nav className="mnav">{([['home', 'Home', '◼'], ['desk', 'Desk', '⇄'], ['vault', 'Vault', '◆'], ['portfolio', 'Bag', '◎'], ['dev', 'Dev', '✦']] as [string, string, string][]).map(([k, l, i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={page === k ? 'on' : ''}><b>{i}</b>{l}</a>)}</nav>
     {wp && <WalletPanel onClose={() => setWp(false)} burner={burner} setBurner={setBurner} mode={mode} setMode={setMode} sol={ws.sol} onWithdraw={onWithdraw} />}
     {launch && <Launch onClose={() => setLaunch(false)} onLaunch={onLaunch} busy={busy} connected={connected} sol={ws.sol} needWallet={needWallet} />}
     <div className="toasts" style={{ bottom: 'auto', top: 64 }}>{pings.map((r) => <RfqPing key={r.id} r={r} bidder={bidder} onRespond={onRespond} onDismiss={() => setPings((l) => l.filter((x) => x.id !== r.id))} busy={busy} />)}</div>

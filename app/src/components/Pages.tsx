@@ -22,13 +22,16 @@ export function Portfolio({ sol, tokens, coins, lots, fills, solPrice, go, owner
   if (!owner) return <div className="empty">Connect or unlock a wallet to see holdings</div>
   const rows = tokens.map((t) => { const c = coins[t.mint]; const val = c ? t.amount * c.priceUsd : 0; return { t, c, val, lot: lots[t.mint] } }).sort((a, b) => b.val - a.val)
   const tot = rows.reduce((a, r) => a + r.val, 0)
+  const unreal = rows.reduce((a, r) => a + (r.lot && solPrice ? r.val / solPrice - r.lot.costSol : 0), 0)
+  const dayAgo = Date.now() - 86400000; const realized = fills.filter((f) => f.side === 'sell').reduce((a, f) => a + f.sol, 0) - fills.filter((f) => f.side === 'buy' || f.side === 'create').reduce((a, f) => a + f.sol, 0)
+  const today = fills.filter((f) => f.t > dayAgo).reduce((a, f) => a + (f.side === 'sell' ? f.sol : -f.sol), 0)
   return <>
     <div className="tiles" style={{ marginBottom: 14 }}>
-      <div className="tile"><div className="l">SOL</div><div className="v num">{sol == null ? '—' : S(sol)}</div><div className="s num">${S((sol || 0) * solPrice, 2)}</div></div>
-      <div className="tile"><div className="l">Tokens</div><div className="v num">{F(tot)}</div><div className="s">{rows.length} positions</div></div>
-      <div className="tile"><div className="l">Total</div><div className="v num">{F(tot + (sol || 0) * solPrice)}</div><div className="s">on-chain, live</div></div>
+      <div className="tile"><div className="l">Total</div><div className="v num">{F(tot + (sol || 0) * solPrice)}</div><div className="s num">{sol == null ? '—' : S(sol) + ' SOL'} cash · {F(tot)} tokens</div></div>
+      <div className="tile"><div className="l">Unrealized</div><div className={'v num ' + (unreal >= 0 ? 'up' : 'dn')}>{unreal >= 0 ? '+' : ''}{S(unreal)} SOL</div><div className="s num">${S(Math.abs(unreal) * solPrice, 0)} · {rows.filter((r) => r.lot).length} tracked</div></div>
+      <div className="tile"><div className="l">Net flow (all fills)</div><div className={'v num ' + (realized >= 0 ? 'up' : 'dn')}>{realized >= 0 ? '+' : ''}{S(realized)} SOL</div><div className="s">sells − buys, this browser</div></div>
+      <div className="tile"><div className="l">Today</div><div className={'v num ' + (today >= 0 ? 'up' : 'dn')}>{today >= 0 ? '+' : ''}{S(today)} SOL</div><div className="s">{fills.filter((f) => f.t > dayAgo).length} fills</div></div>
       <div className="tile"><div className="l">Wallet</div><div className="v num" style={{ fontSize: 13 }}>{short(owner, 6)}</div><div className="s"><a href={`https://solscan.io/account/${owner}`} target="_blank" rel="noreferrer">solscan ↗</a></div></div>
-      <div className="tile"><div className="l">Fills recorded</div><div className="v num">{fills.length}</div><div className="s">this browser</div></div>
     </div>
     <div className="lay">
       <div className="card"><h3>Holdings</h3><div style={{ overflowX: 'auto' }}><table><thead><tr><th>Token</th><th className="r">Amount</th><th className="r">Value</th><th className="r">Cost</th><th className="r">P&amp;L</th><th className="r">Held</th><th className="r">24h</th><th className="r"></th></tr></thead>

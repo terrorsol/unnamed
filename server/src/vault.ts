@@ -123,7 +123,7 @@ export async function redeem(mint: string, holder: string, tokensUi: number, txB
 function liveReadout(v: Vault) {
   const p = v.samples.at(-1)?.p || 0; const vw = R.vwap(v.samples); const now = Date.now(); const bpm = v.buyTimes ? v.buyTimes.filter((t) => now - t < 60000).length : 0
   const m = v.samples.length ? { mcapUsd: (v.supply || 1e9) * p * (SOLUSD || 150) } : { mcapUsd: 0 }
-  return { price: p, vwap30: vw, stretch: vw ? p / vw - 1 : 0, captureNow: v.mode === 'mm' ? R.captureFrac(p, vw, v.avgCost, m.mcapUsd, v.ceiling ?? R.MM_MAX_CAPTURE, 0.5) : 0, triggerRate: R.triggerRate(bpm), buysPerMin: bpm, tier: R.tierLabel(m.mcapUsd), tranchesFired: v.tranchesFired || [] }
+  return { price: p, vwap30: vw, stretch: vw ? p / vw - 1 : 0, captureNow: v.mode === 'mm' ? R.captureFracV2(p, vw, v.avgCost, m.mcapUsd, R.sigma(v.samples), v.supply ? (v.tokens / v.supply) * 100 : 0, v.pct || 5, v.ceiling ?? R.MM_MAX_CAPTURE, 0.5) : 0, triggerRate: R.triggerRate(bpm), buysPerMin: bpm, tier: R.tierLabel(m.mcapUsd), tranchesFired: v.tranchesFired || [], sigma: R.sigma(v.samples), skew: R.inventorySkew(v.supply ? (v.tokens / v.supply) * 100 : 0, v.pct || 5).q, deskDisc: R.deskDiscountBps(R.sigma(v.samples)) }
 }
 export function setMode(id: string, dev: string, mode: 'floor' | 'mm', ceiling?: number) { const v = vaults[id]; if (!v || v.dev !== dev) throw new Error('not yours'); v.mode = mode; if (ceiling != null) v.ceiling = Math.min(R.MM_MAX_CAPTURE, Math.max(0.05, ceiling)); v.activity.unshift({ t: Date.now(), kind: 'note', msg: `mode → ${mode}${mode === 'mm' ? ` · capture ceiling ${Math.round((v.ceiling) * 100)}%` : ''}` }); save(); return pub(v) }
 /** A buy was observed (stream or inferred). MM mode may counter it. */
@@ -132,7 +132,8 @@ export async function onBuy(v: Vault, solIn: number, m: any, p: number, now: num
   v.buyTimes = (v.buyTimes || []).filter((t) => now - t < 60000); v.buyTimes.push(now)
   const bpm = v.buyTimes.length; if (Math.random() > R.triggerRate(bpm)) return
   if (now - v.lastCapture < 4000) return
-  const frac = R.captureFrac(p, R.vwap(v.samples), v.avgCost, m.mcapUsd, v.ceiling ?? R.MM_MAX_CAPTURE); if (frac <= 0) return
+  const sig = R.sigma(v.samples); const vaultedPct = v.supply ? (v.tokens / v.supply) * 100 : 0
+  const frac = R.captureFracV2(p, R.vwap(v.samples), v.avgCost, m.mcapUsd, sig, vaultedPct, v.pct || 5, v.ceiling ?? R.MM_MAX_CAPTURE); if (frac <= 0) return
   const day = Math.floor(now / 86400000); if (day !== v.trimDay) { v.trimDay = day; v.trimmedToday = 0 }
   const wantSol = solIn * frac; let tokens = wantSol / p
   const vol1hSol = (m.vol1h || 0) / (SOLUSD || 150); tokens = Math.min(tokens, (vol1hSol * R.MM_VOL_CAP) / p, v.tokens * R.MM_DAY_CAP - v.trimmedToday, v.tokens * 0.05)
@@ -170,7 +171,7 @@ export async function tick() {
       // infer net buy flow on graduated coins from the pool's SOL reserve delta (curve coins get exact buys from the stream)
       if (!m.onCurve && m.liqSol) { if (v.lastLiq && now - v.lastLiqT < 20000) { const inflow = m.liqSol - v.lastLiq; if (inflow >= R.MM_MIN_BUY_SOL) await onBuy(v, inflow, m, p, now) } v.lastLiq = m.liqSol; v.lastLiqT = now }
       // defense: three tranches at −20 / −35 / −50 from the 15-min high, each a third of the defense budget (40% of chest in mm, 40% in floor)
-      const budget = v.chest * R.VAULT_MAX_CRASH_SPEND
+      const budget = v.chest * R.VAULT_MAX_CRASH_SPEND * R.inventorySkew(v.supply ? (v.tokens / v.supply) * 100 : 0, v.pct || 5).defend
       const level = R.DEFENSE_TRANCHES.findIndex((L, i) => dd <= L && !(v.tranchesFired || []).includes(i))
       if (level >= 0 && now - v.lastBuy > 15000) {
         const spend = +Math.min(budget / 3, v.chest - 0.02, Math.max(0, budget - v.spentEpisode)).toFixed(4)
@@ -195,7 +196,7 @@ export async function tick() {
       // standing vault bid on the desk: −5%, ≈35% of chest, only when the desk is open for this coin
       try {
         const mb = R.minBlockSol(m); const want = +Math.max(v.chest * (v.mode === 'mm' ? 0.6 : 0.35), mb).toFixed(3)
-        if (R.deskOpen(m) && want >= 0.2 && v.chest * 0.6 >= want) { if (Math.abs(want - v.deskBid) > 0.01) { await D.placeInternal(kp(v), 'VAULT', v.mint, want, 400, () => v.chest - 0.02); if (!v.deskBid) v.activity.unshift({ t: now, kind: 'bid', sol: want, msg: 'vault bid resting on desk at −4%' }); v.deskBid = want } }
+        if (R.deskOpen(m) && want >= 0.2 && v.chest * 0.6 >= want) { if (Math.abs(want - v.deskBid) > 0.01 || (now % 60000) < 5000) { const disc = R.deskDiscountBps(R.sigma(v.samples)); await D.placeInternal(kp(v), 'VAULT', v.mint, want, disc, () => v.chest - 0.02); if (!v.deskBid) v.activity.unshift({ t: now, kind: 'bid', sol: want, msg: `vault bid resting on desk at −${(disc / 100).toFixed(1)}%` }); v.deskBid = want } }
         else if (v.deskBid) { D.cancelInternal(v.pub, v.mint); v.deskBid = 0 }
       } catch {}
       if (v.activity.length > 200) v.activity.length = 200

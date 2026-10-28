@@ -73,4 +73,21 @@ export function captureFrac(price: number, vwap30: number, avgCost: number, mcap
 }
 /** probability a given buy gets countered, from buys-per-minute */
 export function triggerRate(buysPerMin: number) { return Math.min(0.70, Math.max(0.40, 0.40 + (buysPerMin / 10) * 0.30)) }
+/** Inventory skew (Avellaneda-Stoikov flavour): q = (vaulted% − target%)/target%. Long of target → capture more, defend less. */
+export function inventorySkew(vaultedPct: number, targetPct: number, k = 0.5) { const q = targetPct > 0 ? (vaultedPct - targetPct) / targetPct : 0; return { capture: Math.min(1.5, Math.max(0.5, 1 + k * q)), defend: Math.min(1.5, Math.max(0.5, 1 - k * q)), q } }
+/** realised volatility of 1-min returns over the sample window (fraction, e.g. 0.08 = 8%) */
+export function sigma(samples: { t: number; p: number }[]) { const by: number[] = []; let last = -1, lp = 0; for (const s of samples) { const m = Math.floor(s.t / 60000); if (m !== last) { if (lp > 0) by.push(Math.log(s.p / lp)); lp = s.p; last = m } } if (by.length < 3) return 0; const mu = by.reduce((a, b) => a + b, 0) / by.length; return Math.sqrt(by.reduce((a, b) => a + (b - mu) ** 2, 0) / (by.length - 1)) * Math.sqrt(by.length) }
+/** desk bid discount. Backtested 2026-10-27: widening with σ (3%+2σ) cut desk usage ~85% and vault P&L ~20% — sellers only use the desk when it beats chart impact, and most blocks sit at 4–8% impact. Flat 4% wins. */
+export function deskDiscountBps(_sig: number) { return 400 }
+/** stretch in σ units blended with raw %: calm coins need less % to be "stretched" */
+export function captureFracV2(price: number, vwap30: number, avgCost: number, mcapUsd: number, sig: number, vaultedPct: number, targetPct: number, ceiling = MM_MAX_CAPTURE, rnd = Math.random()) {
+  if (!vwap30 || price <= vwap30 || price <= avgCost * 1.02) return 0
+  const raw = price / vwap30 - 1; const z = sig > 0 ? raw / sig : raw / 0.1
+  const stretch = 0.5 * raw + 0.5 * Math.min(1, z * 0.1)   // 1σ over VWAP ≈ +10% raw
+  let f = Math.min(MM_MAX_CAPTURE, 0.10 + stretch * 0.40)
+  f *= mcapUsd < 100_000 ? 0.5 : mcapUsd < 1_000_000 ? 1 : 0.75
+  f *= inventorySkew(vaultedPct, targetPct).capture
+  f *= 0.8 + rnd * 0.4
+  return Math.max(0, Math.min(ceiling, f))
+}
 export function tierLabel(mcapUsd: number) { return mcapUsd < 100_000 ? 'early ×0.5' : mcapUsd < 1_000_000 ? 'core ×1' : 'large ×0.75' }
