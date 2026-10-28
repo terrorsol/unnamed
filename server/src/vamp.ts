@@ -86,7 +86,7 @@ function cluster(list: Coin[]): Coin[][] {
   for (const c of list) { const k = norm(c.symbol) || norm(c.name); if (!k || k.length < 2) continue; (by.get(k) || by.set(k, []).get(k)!).push(c) }
   // merge near-identical keys (1 edit) so "PEPE"/"PEPE2"/"PEPEE" land together
   const keys = [...by.keys()]; const used = new Set<string>(); const out: Coin[][] = []
-  for (const k of keys) { if (used.has(k)) continue; used.add(k); const group = [...by.get(k)!]; for (const k2 of keys) { if (used.has(k2)) continue; if (nameSim(k, k2) >= 0.65) { used.add(k2); group.push(...by.get(k2)!) } } out.push(group) }
+  for (const k of keys) { if (used.has(k)) continue; used.add(k); const group = [...by.get(k)!]; for (const k2 of keys) { if (used.has(k2)) continue; if (Math.min(k.length, k2.length) >= 5 && nameSim(k, k2) >= 0.8) { used.add(k2); group.push(...by.get(k2)!) } } out.push(group) }
   return out
 }
 /** Is `c` a vamp of `orig`? Needs: younger + smaller, name/ticker copied, and at least one more signal (same deployer, launched inside the runner's window, same image). */
