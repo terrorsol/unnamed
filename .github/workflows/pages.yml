@@ -36,8 +36,8 @@ jobs:
         run: |
           mkdir -p site/app
           cp -r app/dist/* site/app/
-          cp demo/index.html site/index.html
-          cp demo/*.md site/ || true
+          # root → the real app. the old simulated demo is no longer published anywhere.
+          printf '<!doctype html><meta charset=utf-8><meta http-equiv=refresh content="0;url=/unnamed/app/"><title>UNNAMED</title><a href="/unnamed/app/">open UNNAMED</a>' > site/index.html
           touch site/.nojekyll
       - name: Publish
         uses: peaceiris/actions-gh-pages@v4
