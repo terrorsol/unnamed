@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node --experimental-strip-types src/index.ts",
     "test": "node --experimental-strip-types --test test/*.test.mjs",
-    "smoke": "node --experimental-strip-types scripts/smoke.ts"
+    "smoke": "node --experimental-strip-types scripts/smoke.ts",
+    "preflight": "node --experimental-strip-types scripts/preflight.ts"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.8",

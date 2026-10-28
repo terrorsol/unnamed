@@ -1,0 +1,22 @@
+name: Mainnet preflight (no funds)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['server/**', '.github/workflows/preflight.yml']
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+        working-directory: server
+      - name: Preflight every live integration against mainnet (simulate only)
+        working-directory: server
+        env:
+          RPC_URL: ${{ secrets.HELIUS_RPC }}
+          JUP_KEY: ${{ secrets.JUP_KEY }}
+        run: node --experimental-strip-types scripts/preflight.ts

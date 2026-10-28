@@ -25,5 +25,9 @@ services:
         sync: false   # fee wallet pubkey
       - key: VAULT_SECRET
         generateValue: true
+      - key: PINATA_JWT
+        sync: false   # pinata.cloud JWT for launch metadata (pump.fun/api/ipfs is dead)
+      - key: PUMPPORTAL_KEY
+        sync: false   # optional: pumpportal api key (token-trade stream for curve coins; metered)
       - key: JITO
         value: "0"    # 1 = vault trades as Jito bundles via PumpPortal bundle mode (default: Helius Sender)
