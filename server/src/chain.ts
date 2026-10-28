@@ -72,7 +72,7 @@ export async function signSend(kp: Keypair, tx: VersionedTransaction, signer?: (
   } else if (FAST) await sendFast(conn, raw, RPC)
   else await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 })
   const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 2000)
-  try { await confirm(sig); return sig } finally { clearInterval(rb) }
+  try { await confirm(sig); return sig } catch (e: any) { e.sig = sig; throw e } finally { clearInterval(rb) }   // the signature rides on the error: a tx that lands after the timeout can still be booked
 }
 /** LaunchLab trade for a server-held key: built by the official SDK (no PumpPortal, no 0.5%), Jupiter if the build fails the dry-run. */
 export async function llTrade(kp: Keypair, action: 'buy' | 'sell', mint: string, amount: number | string, slippageBps = 1000, signer?: (tx: VersionedTransaction) => VersionedTransaction) {

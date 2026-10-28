@@ -80,8 +80,19 @@ async function book(v: Vault, sig: string | undefined, fallback = 0) {
   if (!v.shared) { v.chest = await balanceSol(v.pub); return }
   try { const d = await txDelta(sig, v.pub); v.chest = Math.max(0, +(v.chest + d).toFixed(9)) } catch (e: any) { v.chest = Math.max(0, v.chest + fallback); v.ledgerDirty = true; EV.log('error', `${v.symbol || v.id} ledger: ${String(e.message).slice(0, 80)} (fallback ${fallback})`, { mint: v.mint, sig }) }
 }
+/** trades whose confirmation timed out: the tx may still land. Retried every tick for ~10 min, booked by exact delta when it does. */
+const lateBooks: { id: string; sig: string; fallback: number; until: number }[] = []
+export function deferBook(v: Vault, sig: string | undefined, fallback: number) { if (!sig || PAPER) return; lateBooks.push({ id: v.id, sig, fallback, until: Date.now() + 10 * 60_000 }); EV.log('vault', `${v.symbol || v.id} tx ${sig.slice(0, 8)}… not confirmed in time — will book it if it lands`, { sig }) }
+export async function settleLateBooks() {
+  for (const lb of lateBooks.slice()) {
+    const v = vaults[lb.id]; if (!v) { lateBooks.splice(lateBooks.indexOf(lb), 1); continue }
+    const st = (await conn.getSignatureStatuses([lb.sig]).catch(() => null))?.value?.[0]
+    if (st && !st.err && (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized')) { await sync(v, lb.sig, lb.fallback).catch(() => {}); v.activity.unshift({ t: Date.now(), kind: 'note', sig: lb.sig, msg: 'late-landing tx booked' }); lateBooks.splice(lateBooks.indexOf(lb), 1); save() }
+    else if (st?.err || Date.now() > lb.until) lateBooks.splice(lateBooks.indexOf(lb), 1)
+  }
+}
 /** SOL in the shared wallet that no ledger claims (dust, fees paid by the platform, unattributed deposits). Never spent. */
-export async function sharedAudit() { if (!SHARED) return null; const bal = await balanceSol(SHARED.publicKey.toBase58()); const ledgers = Object.values(vaults).filter((v) => v.shared && !v.paper).reduce((a, v) => a + (v.chest || 0), 0); return { wallet: SHARED.publicKey.toBase58(), balanceSol: +bal.toFixed(6), ledgersSol: +ledgers.toFixed(6), unattributedSol: +(bal - ledgers).toFixed(6), vaults: Object.values(vaults).filter((v) => v.shared && v.armed).length } }
+export async function sharedAudit() { if (!SHARED) return null; const bal = await balanceSol(SHARED.publicKey.toBase58()); const ledgers = Object.values(vaults).filter((v) => v.shared && !v.paper).reduce((a, v) => a + (v.chest || 0), 0); if (bal - ledgers < -0.01) EV.log('error', `ledger drift: wallet ${bal.toFixed(4)} < ledgers ${ledgers.toFixed(4)} — a spend was not booked`, { bal, ledgers }); return { wallet: SHARED.publicKey.toBase58(), balanceSol: +bal.toFixed(6), ledgersSol: +ledgers.toFixed(6), unattributedSol: +(bal - ledgers).toFixed(6), vaults: Object.values(vaults).filter((v) => v.shared && v.armed).length } }
 const pub = (v: Vault) => ({ id: v.id, pub: v.pub, paper: !!v.paper, venue: v.venue || 'pump', taxClaimed: v.taxClaimed || 0, image: v.image, uri: v.uri, vampFlag: !!v.vampFlag, permTax: v.permTax || 0, crowd: v.crowd ? { goalSol: v.crowd.goalSol, raised: +v.crowd.raised.toFixed(3), backers: Object.keys(v.crowd.contributors).length, expiresAt: v.crowd.expiresAt, refunded: !!v.crowd.refunded } : undefined, mint: v.mint, symbol: v.symbol, name: v.name, dev: v.dev, stakeSol: v.stakeSol, pct: v.pct, cut: v.cut, armed: v.armed, renounced: v.renounced, avgCost: v.avgCost, tokens: v.tokens, chest: v.chest, devPaid: v.devPaid, activity: v.activity.slice(0, 50), createdAt: v.createdAt, copyOf: v.copyOf, imported: !!v.imported, mode: v.mode || 'floor', ceiling: v.ceiling ?? R.MM_MAX_CAPTURE, score: v.score || { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: 0 }, floor: v.supply ? v.chest / v.supply : 0, live: liveReadout(v), holders: v.holders || null, feePaid: v.feePaid || 0, depositedTokens: v.depositedTokens || 0, funders: v.funders || {}, streamed: v.streamed || 0, redeemed: v.redeemed || 0, supply: v.supply || 1e9, deskBid: v.deskBid || 0, shared: !!v.shared, vaultBuySol: v.vaultBuySol ?? null, mm: { spent: v.mmSpent || 0, got: v.mmGot || 0, tok: v.mmTok || 0, stopped: !!v.stoppedAt }, copies: Object.values(vaults).filter((c) => c.copyOf === v.mint && c.armed).map((c) => ({ mint: c.mint, symbol: c.symbol, pub: c.pub })) })
 export const vaultPct = (buySol: number) => Math.min(50, L.blockZero(0, buySol).vaultPct) // real curve: what the block-zero buy takes of supply (20–50% is the launch range)
 /** SOL the block-zero buy needs for `pct` of supply (binary search on the curve) */
@@ -328,13 +339,13 @@ export async function onBuy(v: Vault, solIn: number, m: any, p: number, now: num
   // no fingerprint: random 3–9s cooldown, random 0–2.5s delay before the sell lands, size already ±20% random in captureFracV2
   try {
     await wait(Math.random() * 2500)
-    const sig = await trade(v, 'sell', `${Math.max(1, Math.round(sellFrac * 100))}%`, false, p)
+    const sig = await trade(v, 'sell', `${Math.max(0.01, +(sellFrac * 100).toFixed(2))}%`, false, p)
     await sync(v, sig, tokens * p * 0.97); const got = v.chest - before; if (got > 0) { v.mmGot = (v.mmGot || 0) + got; v.mmTok = (v.mmTok || 0) - tokens }
     v.score.captured += got; v.score.captures++
     v.activity.unshift({ t: now, kind: 'capture', sol: got, tokens, price: p, sig, msg: `countered a ${solIn.toFixed(2)} SOL buy · ${Math.round(frac * 100)}% · stretch +${Math.round((p / R.vwap(v.samples) - 1) * 100)}%` }); EV.log('vault', `${v.symbol} capture ${got.toFixed(3)} SOL`, { mint: v.mint, sig })
     const profit = got - v.avgCost * tokens; const cut = v.cut > 0 ? Math.max(0, profit) * (v.cut / 100) : 0
     await payCut(v, cut, now, 'capture profit')
-  } catch (e: any) { v.activity.unshift({ t: now, kind: 'note', msg: 'capture failed: ' + String(e.message).slice(0, 80) }) }
+  } catch (e: any) { v.activity.unshift({ t: now, kind: 'note', msg: 'capture failed: ' + String(e.message).slice(0, 80) }); if (e?.sig) deferBook(v, e.sig, tokens * p * 0.97) }
 }
 /** the dev cut on realized profit. A copy (declared at launch, or flagged by the vamp detector) streams half of every cut to the original's chest. */
 async function payCut(v: Vault, cut: number, now: number, why: string) {
@@ -368,6 +379,7 @@ const inflight = new Set<string>()
 /** One pass over all armed vaults, concurrently; a vault still confirming a trade from the last pass is skipped, never queued. */
 export async function tick() {
   await Promise.all(Object.values(vaults).map((v) => tickOne(v)))
+  await settleLateBooks().catch(() => {})
   save()
 }
 async function tickOne(v: Vault) {
@@ -405,7 +417,7 @@ async function tickOne(v: Vault) {
       const NOBUY = process.env.MM_BUYS === '0'
       const dec = NOBUY ? null : MM.defense(v, m, p, now, dd, MM.sellerShare(recent(v.mint), now))
       if (dec) {
-        const { spend, level } = dec
+        const { spend, level } = dec; (v as any)._lastSpend = spend
         await wait(Math.random() * 4000)
         const before = v.tokens; const sig = await trade(v, 'buy', spend, true, p)
         await sync(v, sig, -spend); const got = v.tokens - before; MM.onDefended(v, spend, got, level, now)
@@ -414,7 +426,7 @@ async function tickOne(v: Vault) {
       }
       // tax-funded vault: under its supply target → small buys under VWAP from the chest (the 2% tax keeps refilling it)
       else if (!NOBUY && (() => { const a = MM.accumulate(v, m, p, now); if (a) (v as any)._acc = a; return !!a })()) {
-        const spend = (v as any)._acc as number; delete (v as any)._acc
+        const spend = (v as any)._acc as number; delete (v as any)._acc; (v as any)._lastSpend = spend
         const before = v.tokens; const sig = await trade(v, 'buy', spend, true, p)
         await sync(v, sig, -spend); const got = v.tokens - before; MM.onAccumulated(v, spend, got, now)
         v.score.redeployed += spend
@@ -429,7 +441,7 @@ async function tickOne(v: Vault) {
         const profit = got - v.avgCost * (v.tokens * frac / (1 - frac)); const cut = v.cut > 0 ? Math.max(0, profit) * (v.cut / 100) : 0
         await payCut(v, cut, now, 'trim profit')
       }
-      } catch (e: any) { v.activity.unshift({ t: now, kind: 'note', msg: 'trade failed: ' + String(e.message || e).slice(0, 100) }); EV.log('error', `${v.symbol} vault trade failed: ${String(e.message || e).slice(0, 120)}`, { mint: v.mint }) }
+      } catch (e: any) { v.activity.unshift({ t: now, kind: 'note', msg: 'trade failed: ' + String(e.message || e).slice(0, 100) }); EV.log('error', `${v.symbol} vault trade failed: ${String(e.message || e).slice(0, 120)}`, { mint: v.mint }); if (e?.sig) deferBook(v, e.sig, -((v as any)._lastSpend || 0)) }
       // standing switch offer: a slice of the vault's tokens at spot, fee 0 — the off-chart way INTO this coin for anyone leaving a vamp. Only when the desk is open.
       try {
         if (v.mode === 'mm' && v.tokens > 0 && R.deskOpen(m) && !PAPER) { const mb = R.minBlockSol(m); const want = +Math.max(Math.min(v.tokens * 0.1 * p, v.chest * 2), mb).toFixed(3)
