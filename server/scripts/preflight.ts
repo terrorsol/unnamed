@@ -231,19 +231,22 @@ await step('launchlab: reference platform + default config decode', async () => 
   return `raydium platform fee ${+pd.feeRate / 1e4}% creator ${+pd.creatorFeeRate / 1e4}% · config#${cd.index} curve ${cd.curveType} protocol fee ${+cd.tradeFeeRate / 1e4}% · ours: tax ${LL.TAX_BPS} bps creator ${LL.CREATOR_FEE_BPS} bps · platform ${LL.PLATFORM_ID?.toBase58() || 'unset (PLATFORM_ADMIN)'}`
 })
 await step('launchlab: live pool decode vs geckoterminal price', async () => {
-  const LL = await import('../src/launchlab.ts'); await sleep(2500)
-  let dexId = ''
-  for (const pg of [1, 2, 3]) { const d: any = await (await fetch(`${GT}/networks/solana/dexes?page=${pg}`, { headers: { accept: 'application/json' } })).json(); const hit = (d.data || []).find((x: any) => /launchlab|launch-lab/i.test(x.id)); if (hit) { dexId = hit.id; break } await sleep(2200) }
-  if (!dexId) throw new Error('no launchlab dex id on geckoterminal')
-  await sleep(2200); const d: any = await (await fetch(`${GT}/networks/solana/dexes/${dexId}/pools?page=1&sort=h24_volume_usd_desc`, { headers: { accept: 'application/json' } })).json()
+  const LL = await import('../src/launchlab.ts')
+  // raydium's own launchpad api lists live pools; shapes tried in order
+  let list: any[] = []; const tried: string[] = []
+  for (const url of ['https://launch-mint-v1.raydium.io/get/list?sort=lastTrade&size=10&mintType=default&includeNsfw=false', 'https://launch-mint-v1.raydium.io/get/list?sort=marketCap&size=10&mintType=default&includeNsfw=false', 'https://launch-mint-v1.raydium.io/get/list?size=10']) {
+    try { const d: any = await (await timeout(fetch(url), 10000)).json(); const rows = d?.data?.rows || d?.data?.data || d?.data || []; if (Array.isArray(rows) && rows.length) { list = rows; break } tried.push(url.slice(36, 60) + ':' + JSON.stringify(d).slice(0, 60)) } catch (e: any) { tried.push(String(e.message).slice(0, 40)) }
+  }
+  if (!list.length) throw new Error('raydium launch api gave no rows · ' + tried.join(' | '))
+  const d = { data: list.map((x: any) => ({ relationships: { base_token: { data: { id: 'solana_' + (x.mint || x.mintA || x.address) } } }, attributes: { name: x.symbol || x.name || '?', base_token_price_native_currency: String(x.priceSol ?? x.price ?? 0) } })) }
   const notes: string[] = []
   for (const p of (d.data || []).slice(0, 8)) {
     const mint = p.relationships.base_token.data.id.replace('solana_', ''); const pl = await LL.pool(mint, 0)
     if (!pl) { notes.push(`${p.attributes.name}: no pool pda`); continue }
     if (pl.migrated) { notes.push(`${p.attributes.name}: migrated`); continue }
-    const gpx = +p.attributes.base_token_price_native_currency; const dev = Math.abs(pl.priceSol / gpx - 1) * 100
+    const gpx = +p.attributes.base_token_price_native_currency; const dev = gpx ? Math.abs(pl.priceSol / gpx - 1) * 100 : NaN
     LLX.mint = mint; LLX.platformId = pl.platformId
-    return `dex ${dexId} · ${p.attributes.name} · pool ${pl.poolId.slice(0, 8)}… status ${pl.status} sold ${pl.soldPct}% · ours ${pl.priceSol.toPrecision(4)} vs gecko ${gpx.toPrecision(4)} (${dev.toFixed(1)}% apart) · liq ${pl.liqSol.toFixed(1)} SOL · platform ${pl.platformId.slice(0, 8)}… fee pending ${(Number(pl.platformFee) / 1e9).toFixed(4)} SOL` + (notes.length ? ' · skipped ' + notes.join('; ') : '')
+    return `${p.attributes.name} · pool ${pl.poolId.slice(0, 8)}… status ${pl.status} sold ${pl.soldPct}% · ours ${pl.priceSol.toPrecision(4)} vs gecko ${gpx.toPrecision(4)} (${dev.toFixed(1)}% apart) · liq ${pl.liqSol.toFixed(1)} SOL · platform ${pl.platformId.slice(0, 8)}… fee pending ${(Number(pl.platformFee) / 1e9).toFixed(4)} SOL` + (notes.length ? ' · skipped ' + notes.join('; ') : '')
   }
   throw new Error('no live (unmigrated) launchlab pool in top 8 · ' + notes.join('; '))
 })
@@ -271,7 +274,7 @@ await step('launchlab: launch bundle [create+dev buy, vault buy] → decode + si
   const LL = await import('../src/launchlab.ts'); const { LAUNCHPAD_PLATFORM } = await import('@raydium-io/raydium-sdk-v2')
   const built = await LL.buildLaunch(PAYER, { name: 'preflight', symbol: 'PRE', uri: 'https://ipfs.io/ipfs/bafkreigh2akiscaildc' }, 0.05, LAUNCHPAD_PLATFORM)
   const txs = built.txs.map((b) => VersionedTransaction.deserialize(Buffer.from(b, 'base64')))
-  const vt = await LL.buildTrade(PAYER, 'buy', built.mint, 0.1, { poolState: built.afterDev, fromCreate: true, slippageBps: 3000 })
+  const vt = await LL.buildTrade(PAYER, 'buy', built.mint, 0.1, { poolState: built.afterDev, fromCreate: true, slippageBps: 3000, platformId: LAUNCHPAD_PLATFORM, tipLamports: 1_000_000 })
   const progs = vt.message.compiledInstructions.map((ix) => vt.message.staticAccountKeys[ix.programIdIndex]?.toBase58().slice(0, 6)).join(',')
   const z = LL.blockZero(0.05, 0.1)
   const sims: string[] = []; for (const [i, t] of txs.entries()) sims.push(await sim(t, `create#${i}`).catch((e) => `create#${i} simulate: ` + String(e.message).slice(0, 120)))

@@ -7,9 +7,11 @@ import { Connection, Keypair, PublicKey, VersionedTransaction } from '@solana/we
 import BN from 'bn.js'
 import { Raydium, TxVersion, LAUNCHPAD_PROGRAM, LAUNCHPAD_PLATFORM, LaunchpadPool, LaunchpadConfig, PlatformConfig, Curve, getPdaLaunchpadConfigId, getPdaLaunchpadPoolId, getPdaPlatformId } from '@raydium-io/raydium-sdk-v2'
 import bs58 from 'bs58'
+import { createHash } from 'node:crypto'
 import { conn, RPC } from './chain.ts'
 
 export const WSOL = new PublicKey('So11111111111111111111111111111111111111112')
+export const JITO_TIP = '96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5'
 export const PROGRAM = LAUNCHPAD_PROGRAM
 export const CONFIG_ID = getPdaLaunchpadConfigId(PROGRAM, WSOL, 0, 0).publicKey // default SOL constant-product config
 /** platform admin = the owner's wallet (signs CreatePlatformConfig once); platform id is its PDA */
@@ -22,7 +24,7 @@ let platformKp: Keypair | null = null
 export function platformKeypair(): Keypair {
   if (platformKp) return platformKp
   if (process.env.PLATFORM_SECRET) platformKp = Keypair.fromSecretKey(bs58.decode(process.env.PLATFORM_SECRET))
-  else { const { createHash } = require('node:crypto'); platformKp = Keypair.fromSeed(createHash('sha256').update('unnamed-platform:' + (process.env.VAULT_SECRET || 'dev')).digest()) }
+  else platformKp = Keypair.fromSeed(createHash('sha256').update('unnamed-platform:' + (process.env.VAULT_SECRET || 'dev')).digest())
   return platformKp!
 }
 
@@ -112,14 +114,15 @@ export function blockZero(devSol: number, vaultSol: number) {
 }
 
 /** a buy/sell on a LaunchLab pool for `owner`, unsigned. `poolState` lets the vault buy in the launch bundle before the pool exists. */
-export async function buildTrade(owner: PublicKey, action: 'buy' | 'sell', mint: string, amount: number | string, opts: { slippageBps?: number; poolState?: State; fromCreate?: boolean; tip?: boolean } = {}): Promise<VersionedTransaction> {
+export async function buildTrade(owner: PublicKey, action: 'buy' | 'sell', mint: string, amount: number | string, opts: { slippageBps?: number; poolState?: State; fromCreate?: boolean; tipLamports?: number; platformId?: PublicKey } = {}): Promise<VersionedTransaction> {
   const mintA = new PublicKey(mint)
   const slippage = new BN(Math.min(9999, Math.max(1, opts.slippageBps ?? 1000)))
-  const base = { programId: PROGRAM, mintA, mintB: WSOL, slippage, txVersion: TxVersion.V0 as const, computeBudgetConfig: { units: 300_000, microLamports: 100_000 } }
+  const base: any = { programId: PROGRAM, mintA, mintB: WSOL, slippage, txVersion: TxVersion.V0 as const, computeBudgetConfig: { units: 300_000, microLamports: 100_000 } }
+  if (opts.tipLamports) base.txTipConfig = { address: new PublicKey(JITO_TIP), amount: new BN(opts.tipLamports) }
   let poolInfo: any
   if (opts.poolState) {
     const s = opts.poolState; const bn = (x: bigint) => new BN(x.toString())
-    poolInfo = { configId: CONFIG_ID, platformId: PLATFORM_ID, mintA, mintB: WSOL, virtualA: bn(s.virtualA), virtualB: bn(s.virtualB), realA: bn(s.realA), realB: bn(s.realB), totalSellA: bn(CURVE0.totalSellA), totalFundRaisingB: bn(CURVE0.totalFundRaisingB), mintDecimalsA: 6, mintDecimalsB: 9, supply: bn(CURVE0.supply), status: 0, migrateFee: new BN(0), vestingSchedule: { totalLockedAmount: new BN(0), cliffPeriod: new BN(0), unlockPeriod: new BN(0), startTime: new BN(0), totalAllocatedShare: new BN(0) }, totalLockedAmount: new BN(0), cliffPeriod: new BN(0), unlockPeriod: new BN(0), mintProgramFlag: 0, creator: owner, platformFee: new BN(0), protocolFee: new BN(0), epoch: new BN(0), bump: 0, migrateType: 1, cpmmCreatorFeeOn: 0, platformVestingShare: new BN(0) }
+    poolInfo = { configId: CONFIG_ID, platformId: opts.platformId || PLATFORM_ID, mintA, mintB: WSOL, virtualA: bn(s.virtualA), virtualB: bn(s.virtualB), realA: bn(s.realA), realB: bn(s.realB), totalSellA: bn(CURVE0.totalSellA), totalFundRaisingB: bn(CURVE0.totalFundRaisingB), mintDecimalsA: 6, mintDecimalsB: 9, supply: bn(CURVE0.supply), status: 0, migrateFee: new BN(0), vestingSchedule: { totalLockedAmount: new BN(0), cliffPeriod: new BN(0), unlockPeriod: new BN(0), startTime: new BN(0), totalAllocatedShare: new BN(0) }, totalLockedAmount: new BN(0), cliffPeriod: new BN(0), unlockPeriod: new BN(0), mintProgramFlag: 0, creator: owner, platformFee: new BN(0), protocolFee: new BN(0), epoch: new BN(0), bump: 0, migrateType: 1, cpmmCreatorFeeOn: 0, platformVestingShare: new BN(0) }
   }
   const r: any = await withOwner(owner, (r) => action === 'buy'
     ? r.launchpad.buyToken({ ...base, buyAmount: new BN(Math.floor(+amount * 1e9)), poolInfo, fromCreate: !!opts.fromCreate, skipCheckMintA: !!opts.poolState })
