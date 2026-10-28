@@ -2,7 +2,8 @@
 import { Connection, PublicKey, VersionedTransaction } from '@solana/web3.js'
 import * as J from './jupiter'
 import * as P from './pumpportal'
-import { sendAndConfirm, priorityFee } from './rpc'
+import { sendAndConfirm, priorityFee, type Fast } from './rpc'
+import { MIN_TIP_LAMPORTS } from './fast'
 import bs58 from 'bs58'
 import { SOL_MINT, LAMPORTS } from './fmt'
 import type { Settings } from './store'
@@ -10,6 +11,8 @@ import type { Settings } from './store'
 export type Signer = (t: VersionedTransaction) => Promise<VersionedTransaction>
 export type Ctx = { conn: Connection; owner: PublicKey; sign: Signer; settings: Settings; onStatus?: (s: string) => void }
 
+/** Sender tip when MEV protection is on: the tip buys priority routing (validators + SWQOS), the CU price is still set by priorityFee. */
+function fast(ctx: Ctx): Fast | undefined { return ctx.settings.mev ? { rpc: ctx.settings.rpc, payer: ctx.owner, tipLamports: Math.max(MIN_TIP_LAMPORTS, Math.floor(ctx.settings.jitoTipSol * LAMPORTS)) } : undefined }
 async function fee(ctx: Ctx) { return ctx.settings.autoFee ? priorityFee(ctx.conn, ctx.settings.priorityFeeSol) : ctx.settings.priorityFeeSol }
 export async function buy(ctx: Ctx, mint: string, sol: number, onCurve: boolean): Promise<string> {
   const { conn, owner, sign, onStatus } = ctx; const settings = { ...ctx.settings, priorityFeeSol: await fee(ctx) }
@@ -18,19 +21,19 @@ export async function buy(ctx: Ctx, mint: string, sol: number, onCurve: boolean)
   if (onCurve) {
     onStatus?.('Building pump.fun buy…')
     const tx = await P.buildTrade({ publicKey: pk, action: 'buy', mint, amount: sol, denominatedInSol: true, slippage: slipPct, priorityFee: settings.priorityFeeSol, pool: 'auto' })
-    return sendAndConfirm(conn, tx, sign, onStatus)
+    return sendAndConfirm(conn, tx, sign, onStatus, fast(ctx))
   }
   try {
     onStatus?.('Quoting on Jupiter…')
     const q = await J.quote(SOL_MINT, mint, Math.floor(sol * LAMPORTS), settings.slippageBps)
     onStatus?.('Building swap…')
-    const tx = await J.buildSwap(q, pk, Math.floor(settings.priorityFeeSol * LAMPORTS), settings.mev ? Math.floor(settings.jitoTipSol * LAMPORTS) : 0)
-    return await sendAndConfirm(conn, tx, sign, onStatus)
+    const tx = await J.buildSwap(q, pk, Math.floor(settings.priorityFeeSol * LAMPORTS), 0)
+    return await sendAndConfirm(conn, tx, sign, onStatus, fast(ctx))
   } catch (e: any) {
     if (/signature|reject|user/i.test(String(e?.message))) throw e
     onStatus?.('Jupiter unavailable, trying PumpPortal…')
     const tx = await P.buildTrade({ publicKey: pk, action: 'buy', mint, amount: sol, denominatedInSol: true, slippage: slipPct, priorityFee: settings.priorityFeeSol, pool: 'auto' })
-    return sendAndConfirm(conn, tx, sign, onStatus)
+    return sendAndConfirm(conn, tx, sign, onStatus, fast(ctx))
   }
 }
 
@@ -43,20 +46,20 @@ export async function sell(ctx: Ctx, mint: string, frac: number, rawAmount: bigi
   if (onCurve) {
     onStatus?.('Building pump.fun sell…')
     const tx = await P.buildTrade({ publicKey: pk, action: 'sell', mint, amount: `${pct}%`, denominatedInSol: false, slippage: slipPct, priorityFee: settings.priorityFeeSol, pool: 'auto' })
-    return sendAndConfirm(conn, tx, sign, onStatus)
+    return sendAndConfirm(conn, tx, sign, onStatus, fast(ctx))
   }
   const amt = frac >= 0.999 ? rawAmount : (rawAmount * BigInt(Math.round(frac * 10000))) / 10000n
   try {
     onStatus?.('Quoting on Jupiter…')
     const q = await J.quote(mint, SOL_MINT, amt, settings.slippageBps)
     onStatus?.('Building swap…')
-    const tx = await J.buildSwap(q, pk, Math.floor(settings.priorityFeeSol * LAMPORTS), settings.mev ? Math.floor(settings.jitoTipSol * LAMPORTS) : 0)
-    return await sendAndConfirm(conn, tx, sign, onStatus)
+    const tx = await J.buildSwap(q, pk, Math.floor(settings.priorityFeeSol * LAMPORTS), 0)
+    return await sendAndConfirm(conn, tx, sign, onStatus, fast(ctx))
   } catch (e: any) {
     if (/signature|reject|user/i.test(String(e?.message))) throw e
     onStatus?.('Jupiter unavailable, trying PumpPortal…')
     const tx = await P.buildTrade({ publicKey: pk, action: 'sell', mint, amount: `${pct}%`, denominatedInSol: false, slippage: slipPct, priorityFee: settings.priorityFeeSol, pool: 'auto' })
-    return sendAndConfirm(conn, tx, sign, onStatus)
+    return sendAndConfirm(conn, tx, sign, onStatus, fast(ctx))
   }
 }
 

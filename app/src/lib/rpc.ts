@@ -1,4 +1,6 @@
 import { Connection, PublicKey, VersionedTransaction } from '@solana/web3.js'
+import { addTip, sendFast } from './fast'
+export type Fast = { rpc: string; payer: PublicKey; tipLamports: number }
 export const TOKEN_PROGRAM = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
 export const TOKEN_2022 = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb')
 export type Holding = { mint: string; amount: number; decimals: number; raw: string }
@@ -22,12 +24,13 @@ export async function priorityFee(conn: Connection, fallbackSol: number): Promis
 }
 let bhCache: { bh: string; t: number } | null = null
 export async function warmBlockhash(conn: Connection) { try { const b = await conn.getLatestBlockhash('confirmed'); bhCache = { bh: b.blockhash, t: Date.now() }; return b.blockhash } catch { return bhCache?.bh } }
-export async function sendAndConfirm(conn: Connection, tx: VersionedTransaction, signTx: (t: VersionedTransaction) => Promise<VersionedTransaction>, onStatus?: (s: string) => void) {
+export async function sendAndConfirm(conn: Connection, tx: VersionedTransaction, signTx: (t: VersionedTransaction) => Promise<VersionedTransaction>, onStatus?: (s: string) => void, fast?: Fast) {
+  if (fast && fast.tipLamports > 0) { try { tx = await addTip(conn, tx, fast.payer, fast.tipLamports) } catch { fast = undefined } }
   onStatus?.('Waiting for your signature…')
   const signed = await signTx(tx)
   onStatus?.('Sending…')
   const raw = signed.serialize()
-  const sig = await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0, preflightCommitment: 'confirmed' })
+  const sig = fast ? await sendFast(conn, raw, fast.rpc) : await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0, preflightCommitment: 'confirmed' })
   // re-broadcast a few times while confirming — the cheap way to beat dropped txs without a Jito bundle
   const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 2000); setTimeout(() => clearInterval(rb), 20000)
   try { onStatus?.('Confirming…'); await confirmByPolling(conn, sig); return sig } finally { clearInterval(rb) }
