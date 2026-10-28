@@ -29,7 +29,7 @@ export function platformKeypair(): Keypair {
 }
 
 let rdP: Promise<Raydium> | null = null
-const rd = () => (rdP ||= Raydium.load({ connection: conn, disableLoadToken: true, disableFeatureCheck: true, cluster: 'mainnet' }))
+const rd = () => (rdP ||= Raydium.load({ connection: conn, disableLoadToken: true, disableFeatureCheck: true, cluster: 'mainnet' }).catch((e) => { rdP = null; throw e }))
 // the SDK keeps one owner; serialize builds so two callers never interleave
 let chain: Promise<any> = Promise.resolve()
 function withOwner<T>(owner: PublicKey, f: (r: Raydium) => Promise<T>): Promise<T> { const p = chain.then(async () => { const r = await rd(); r.setOwner(owner); return f(r) }); chain = p.catch(() => {}); return p }

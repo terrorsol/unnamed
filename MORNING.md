@@ -10,6 +10,8 @@ Decision from 4am: **UNNAMED is a launchpad on Raydium LaunchLab, pump stays as 
 
 Tests: server 23/23 unit, app 20/20, e2e desk 50 · app 22 · mm 10 · import 16 · **launch 16** (new, end to end in the browser), mainnet preflight 30 checks.
 
+**Never rotate `VAULT_SECRET` once the platform exists** — the platform's fee wallet is derived from it; back it up from Render's env page. (Or set `PLATFORM_SECRET` to a base58 key you hold.)
+
 **You have two things to do before anyone launches:** set `PLATFORM_ADMIN` on Render to your wallet, then in the app → Settings → "Set up launchpad · 1 signature" with that wallet. That creates our platform on-chain (rent ≈ 0.01 SOL). Until then the modal defaults to pump.
 
 Then do the checklist below. Nothing else needs you.
