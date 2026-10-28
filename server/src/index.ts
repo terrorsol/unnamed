@@ -1,4 +1,5 @@
 import { existsSync, createReadStream } from 'node:fs'
+import { uploadMetadata } from './ipfs.ts'
 import { createServer } from 'node:http'
 import { WebSocketServer, type WebSocket } from 'ws'
 import nacl from 'tweetnacl'
@@ -10,7 +11,7 @@ import { streamStats } from './stream.ts'
 
 const PORT = +(process.env.PORT || 8787)
 const json = (res: any, code: number, body: any) => { res.writeHead(code, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'GET,POST,OPTIONS' }); res.end(JSON.stringify(body)) }
-const readBody = (req: any) => new Promise<any>((ok, no) => { let s = ''; req.on('data', (c: any) => { s += c; if (s.length > 200_000) { no(new Error('body too large')); req.destroy() } }); req.on('end', () => { try { ok(JSON.parse(s || '{}')) } catch { ok({}) } }) })
+const readBody = (req: any) => new Promise<any>((ok, no) => { let s = ''; req.on('data', (c: any) => { s += c; if (s.length > 2_500_000) { no(new Error('body too large')); req.destroy() } }); req.on('end', () => { try { ok(JSON.parse(s || '{}')) } catch { ok({}) } }) })
 // per-IP token bucket: 300 reads / 60 writes per 10s — a phone polls ~1 req/s, carrier NAT shares one IP across many phones
 const buckets = new Map<string, { t: number; n: number }>()
 function limited(ip: string, write: boolean) { const now = Date.now(); const k = ip + (write ? 'w' : 'r'); const b = buckets.get(k) || { t: now, n: 0 }; if (now - b.t > 10_000) { b.t = now; b.n = 0 } b.n++; buckets.set(k, b); return b.n > (write ? 60 : 300) }
@@ -31,6 +32,7 @@ const server = createServer(async (req, res) => {
     if (p === '/leaderboard') return json(res, 200, D.leaderboard())
     if (p.startsWith('/family/')) return json(res, 200, await V.family(p.slice(8)))
     if (p.startsWith('/dev/')) return json(res, 200, V.byDev(p.slice(5)))
+    if (p === '/ipfs' && req.method === 'POST') { const b = await readBody(req); try { return json(res, 200, await uploadMetadata(b)) } catch (e: any) { return json(res, e.status || 400, { error: e.message }) } }
     if (p === '/redeem/quote' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, V.redeemQuote(b.mint, +b.tokens)) }
     if (p === '/redeem' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.redeem(b.mint, b.holder, +b.tokens, b.tx)) }
     if (p.startsWith('/book/')) return json(res, 200, await D.book(p.slice(6), u.searchParams.get('me') || undefined))

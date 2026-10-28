@@ -1,7 +1,7 @@
 // Desk: an order book of resting SOL bids for blocks of tokens, 3–5% under spot. Non-custodial:
 // the fill is a single transaction co-signed by seller and bidder; the server only matches and relays.
 import { Transaction, Keypair } from '@solana/web3.js'
-import { conn, confirm } from './chain.ts'
+import { conn, confirm, tokenProgram } from './chain.ts'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import type { WebSocket } from 'ws'
 import * as R from './rules.ts'
@@ -73,9 +73,9 @@ export async function quote(id: string, seller: string) {
   if (!b.rfq && !R.restable(b.placedAt)) throw new Error(`bid resting — fillable in ${Math.ceil((R.REST_MS - (Date.now() - b.placedAt)) / 1000)}s`)
   if (b.bidder === seller) throw new Error('cannot fill your own bid')
   const m = await market(b.mint, R.QUOTE_MAX_AGE_MS); if (!m) throw new Error('no market')
-  const d = await dec(b.mint); const q = R.fillQuote(b.sol, b.discBps, m.priceSol, d)
+  const d = await dec(b.mint); const tp = await tokenProgram(b.mint); const q = R.fillQuote(b.sol, b.discBps, m.priceSol, d)
   const rf = b.rfq ? rfqs.get(b.rfq) : null; const drift = rf ? m.priceSol / rf.priceSol - 1 : 0
-  return { bid: pubBid(b), mint: b.mint, bidder: b.bidder, seller, treasury: TREASURY, decimals: d, priceSol: m.priceSol, refAgeMs: Date.now() - ((m as any).t || Date.now()), drift, needsConfirm: !!rf && drift < -R.SELLER_DRIFT, anchorPrice: rf?.priceSol || null, px: q.px, tokens: q.tokens, base: q.base.toString(), lamports: q.lamports.toString(), sellerLamports: q.sellerLamports.toString(), fee: q.fee.toString() }
+  return { bid: pubBid(b), mint: b.mint, bidder: b.bidder, seller, treasury: TREASURY, decimals: d, tokenProgram: tp, priceSol: m.priceSol, refAgeMs: Date.now() - ((m as any).t || Date.now()), drift, needsConfirm: !!rf && drift < -R.SELLER_DRIFT, anchorPrice: rf?.priceSol || null, px: q.px, tokens: q.tokens, base: q.base.toString(), lamports: q.lamports.toString(), sellerLamports: q.sellerLamports.toString(), fee: q.fee.toString() }
 }
 /** Seller submits a seller-signed tx; server verifies structure vs a fresh quote, relays to bidder to co-sign + send */
 export async function fill(id: string, seller: string, txB64: string): Promise<{ sig: string }> {
@@ -84,7 +84,7 @@ export async function fill(id: string, seller: string, txB64: string): Promise<{
   const q = await quote(id, seller)
   const tx = Transaction.from(Buffer.from(txB64, 'base64'))
   const sellerSig = tx.signatures.find((s) => s.publicKey.toBase58() === seller); if (!sellerSig?.signature) throw new Error('tx not signed by seller')
-  const why = verifyFill(tx, { mint: b.mint, seller, bidder: b.bidder, treasury: TREASURY, base: BigInt(q.base), sellerLamports: BigInt(q.sellerLamports), fee: BigInt(q.fee) })
+  const why = verifyFill(tx, { mint: b.mint, seller, bidder: b.bidder, treasury: TREASURY, base: BigInt(q.base), sellerLamports: BigInt(q.sellerLamports), fee: BigInt(q.fee), tokenProgram: q.tokenProgram, decimals: q.decimals })
   if (why) throw new Error('fill rejected: ' + why)
   if ((await balanceSol(b.bidder)) < b.sol + 0.005) { bids.delete(id); throw new Error('bidder balance dropped — bid removed') }
   b.status = 'filling'
@@ -98,7 +98,7 @@ export async function fill(id: string, seller: string, txB64: string): Promise<{
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => { pending.delete(id); if (b.status === 'filling') b.status = 'open'; reject(new Error('bidder did not respond in time')) }, 25000)
     pending.set(id, { resolve, reject, timer, seller, tokens: q.tokens } as any)
-    b.ws!.send(JSON.stringify({ type: 'fill', bidId: id, tx: txB64, expect: { mint: b.mint, seller, bidder: b.bidder, treasury: TREASURY, base: q.base, sellerLamports: q.sellerLamports, fee: q.fee, priceSol: q.priceSol, discBps: b.discBps, decimals: q.decimals } }))
+    b.ws!.send(JSON.stringify({ type: 'fill', bidId: id, tx: txB64, expect: { mint: b.mint, seller, bidder: b.bidder, treasury: TREASURY, base: q.base, sellerLamports: q.sellerLamports, fee: q.fee, priceSol: q.priceSol, discBps: b.discBps, tokenProgram: q.tokenProgram, decimals: q.decimals } }))
   })
 }
 /** Bidder's answer to a relayed fill */

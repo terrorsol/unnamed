@@ -6,11 +6,15 @@ import bs58 from 'bs58'
 export type NewToken = { mint: string; name: string; symbol: string; uri?: string; image?: string; creator?: string; ts: number; solAmount?: number; mcapSol?: number; pool?: string }
 export type TradeEvt = { mint: string; txType: 'buy' | 'sell'; sol: number; tokens: number; trader: string; mcapSol: number; ts: number }
 
+// Since May 2026 subscribeTokenTrade/subscribeAccountTrade need a PumpPortal api key + funded wallet (metered); subscribeNewToken is free.
+// Without a key we only stream new tokens; per-coin trades come from our server's swap feed instead.
+const ppKey = () => { try { return localStorage.getItem('unnamed_pp_key') || (import.meta as any).env?.VITE_PP_KEY || '' } catch { return '' } }
 export function openStream(onNew: (t: NewToken) => void, onTrade?: (t: TradeEvt) => void, mints: string[] = []) {
   let ws: WebSocket | null = null, closed = false, timer: any
+  const canTrades = () => !!ppKey()
   const connect = () => {
-    ws = new WebSocket('wss://pumpportal.fun/api/data')
-    ws.onopen = () => { ws!.send(JSON.stringify({ method: 'subscribeNewToken' })); if (mints.length) ws!.send(JSON.stringify({ method: 'subscribeTokenTrade', keys: mints })) }
+    ws = new WebSocket('wss://pumpportal.fun/api/data' + (ppKey() ? '?api-key=' + ppKey() : ''))
+    ws.onopen = () => { ws!.send(JSON.stringify({ method: 'subscribeNewToken' })); if (mints.length && canTrades()) ws!.send(JSON.stringify({ method: 'subscribeTokenTrade', keys: mints })) }
     ws.onmessage = (m) => {
       try {
         const d = JSON.parse(m.data)
@@ -22,7 +26,7 @@ export function openStream(onNew: (t: NewToken) => void, onTrade?: (t: TradeEvt)
     ws.onerror = () => ws?.close()
   }
   connect()
-  return { close: () => { closed = true; clearTimeout(timer); ws?.close() }, subscribe: (ms: string[]) => { if (ws?.readyState === 1 && ms.length) ws.send(JSON.stringify({ method: 'subscribeTokenTrade', keys: ms })) } }
+  return { close: () => { closed = true; clearTimeout(timer); ws?.close() }, subscribe: (ms: string[]) => { if (ws?.readyState === 1 && ms.length && canTrades()) ws.send(JSON.stringify({ method: 'subscribeTokenTrade', keys: ms })) } }
 }
 
 type TradeArgs = { publicKey: string; action: 'buy' | 'sell'; mint: string; amount: number | string; denominatedInSol: boolean; slippage: number; priorityFee: number; pool?: 'pump' | 'raydium' | 'pump-amm' | 'auto' }
@@ -36,16 +40,12 @@ export async function buildTrade(a: TradeArgs): Promise<VersionedTransaction> {
 }
 
 export type CreateMeta = { name: string; symbol: string; description: string; file?: File; twitter?: string; telegram?: string; website?: string }
-/** Uploads metadata+image to pump.fun IPFS, returns metadata URI */
-export async function uploadMetadata(m: CreateMeta): Promise<string> {
-  const fd = new FormData()
-  if (m.file) fd.append('file', m.file)
-  fd.append('name', m.name); fd.append('symbol', m.symbol); fd.append('description', m.description || '')
-  if (m.twitter) fd.append('twitter', m.twitter); if (m.telegram) fd.append('telegram', m.telegram); if (m.website) fd.append('website', m.website)
-  fd.append('showName', 'true')
-  const r = await fetch('https://pump.fun/api/ipfs', { method: 'POST', body: fd })
-  if (!r.ok) throw new Error('metadata upload failed: ' + r.status)
-  const d = await r.json(); return d.metadataUri
+/** Uploads image + metadata JSON to IPFS through our server (Pinata; pump.fun/api/ipfs is dead). Returns the metadata URI. */
+export async function uploadMetadata(m: CreateMeta, server: string): Promise<string> {
+  const image = m.file ? await new Promise<string>((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result)); fr.onerror = rej; fr.readAsDataURL(m.file!) }) : undefined
+  const r = await fetch(server + '/ipfs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: m.name, symbol: m.symbol, description: m.description || '', twitter: m.twitter, telegram: m.telegram, website: m.website, image }) })
+  if (!r.ok) throw new Error('metadata upload failed: ' + (await r.text().catch(() => r.status)))
+  const d = await r.json(); return d.uri as string
 }
 /** Builds the create (+ optional dev buy) tx. Returns tx and the mint keypair that must co-sign. */
 export async function buildCreate(publicKey: string, meta: { name: string; symbol: string; uri: string }, devBuySol: number, slippage: number, priorityFee: number) {

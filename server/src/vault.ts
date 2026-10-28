@@ -116,11 +116,11 @@ export async function redeem(mint: string, holder: string, tokensUi: number, txB
   const q = redeemQuote(mint, tokensUi); const v = vaults[q.vaultId]
   const tx = Transaction.from(Buffer.from(txB64, 'base64')); const ix = tx.instructions
   const d = await decimals(mint); const base = BigInt(Math.floor(tokensUi * 10 ** d))
-  const hp = new PublicKey(holder), vp = new PublicKey(v.pub), mp = new PublicKey(mint)
-  const vAta = getAssociatedTokenAddressSync(mp, vp, true), hAta = getAssociatedTokenAddressSync(mp, hp, true)
+  const hp = new PublicKey(holder), vp = new PublicKey(v.pub), mp = new PublicKey(mint), prog = new PublicKey(await C.tokenProgram(mint))
+  const vAta = getAssociatedTokenAddressSync(mp, vp, true, prog), hAta = getAssociatedTokenAddressSync(mp, hp, true, prog)
   if (ix.length !== 3 || !tx.feePayer?.equals(hp)) throw new Error('bad tx shape')
   if (!ix[0].programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID) || !ix[0].keys[1].pubkey.equals(vAta) || !ix[0].keys[2].pubkey.equals(vp)) throw new Error('ix0')
-  if (!ix[1].programId.equals(TOKEN_PROGRAM_ID) || ix[1].data[0] !== 3 || !ix[1].keys[0].pubkey.equals(hAta) || !ix[1].keys[1].pubkey.equals(vAta) || Buffer.from(ix[1].data.subarray(1, 9)).readBigUInt64LE() !== base) throw new Error('token transfer mismatch')
+  if (!ix[1].programId.equals(prog) || ix[1].data[0] !== 12 || !ix[1].keys[0].pubkey.equals(hAta) || !ix[1].keys[2].pubkey.equals(vAta) || Buffer.from(ix[1].data.subarray(1, 9)).readBigUInt64LE() !== base || ix[1].data[9] !== d) throw new Error('token transfer mismatch')
   if (!ix[2].programId.equals(SystemProgram.programId) || !ix[2].keys[0].pubkey.equals(vp) || !ix[2].keys[1].pubkey.equals(hp) || Buffer.from(ix[2].data.subarray(4, 12)).readBigUInt64LE() !== BigInt(q.lamports)) throw new Error('sol transfer mismatch')
   if (!tx.signatures.find((s) => s.publicKey.equals(hp))?.signature) throw new Error('not signed by holder')
   tx.partialSign(kp(v)); const sig = await conn.sendRawTransaction(tx.serialize(), { maxRetries: 3 }); await confirm(sig)
@@ -187,7 +187,8 @@ async function tickOne(v: Vault) {
       // graduated coins: exact per-swap buys from the pool websocket; reserve-delta only while the stream isn't attached
       if (!m.onCurve && m.pair && !watched.has(v.id)) { watched.set(v.id, watchPool(m.pair, async (sw) => { D.broadcast({ type: 'swap', mint: v.mint, symbol: v.symbol, ...sw }); tape(v.mint!, { t: sw.t, side: sw.side, sol: sw.sol, trader: sw.trader, sig: sw.sig }); if (sw.side !== 'buy' || sw.trader === v.pub) return; try { const mm = await market(v.mint!); if (mm) { await onBuy(v, sw.sol, mm, mm.priceSol, Date.now()); save() } } catch {} })) }
       // reserve-delta fallback when the pool websocket is not delivering (not connected, or no subscription yet)
-      if (!m.onCurve && m.liqSol && (!watched.has(v.id) || !streamStats().connected)) { if (v.lastLiq && now - v.lastLiqT < 20000) { const inflow = m.liqSol - v.lastLiq; if (inflow >= R.MM_MIN_BUY_SOL) await onBuy(v, inflow, m, p, now) } v.lastLiq = m.liqSol; v.lastLiqT = now }
+      const curveNoStream = m.onCurve && !process.env.PUMPPORTAL_KEY
+      if (m.liqSol && ((!m.onCurve && (!watched.has(v.id) || !streamStats().connected)) || curveNoStream)) { if (v.lastLiq && now - v.lastLiqT < 20000) { const inflow = m.liqSol - v.lastLiq; if (inflow >= R.MM_MIN_BUY_SOL) await onBuy(v, inflow, m, p, now) } v.lastLiq = m.liqSol; v.lastLiqT = now }
       // defense: three tranches at −20 / −35 / −50 from the 15-min high, each a third of the defense budget (40% of chest in mm, 40% in floor)
       const budget = v.chest * R.VAULT_MAX_CRASH_SPEND * R.inventorySkew(v.supply ? (v.tokens / v.supply) * 100 : 0, v.pct || 5).defend
       const level = R.DEFENSE_TRANCHES.findIndex((L, i) => dd <= L && !(v.tranchesFired || []).includes(i))
@@ -239,7 +240,9 @@ let pws: any = null
 export function startStream() {
   const WS = (globalThis as any).WebSocket; if (!WS) return
   const connect = () => {
-    try { pws = new WS('wss://pumpportal.fun/api/data') } catch { return }
+    // token-trade streams are key-gated + metered since May 2026 (PUMPPORTAL_KEY, linked wallet ≥0.02 SOL). Without a key we skip the stream and curve coins use the reserve-delta fallback.
+    if (!process.env.PUMPPORTAL_KEY) return
+    try { pws = new WS('wss://pumpportal.fun/api/data?api-key=' + process.env.PUMPPORTAL_KEY) } catch { return }
     pws.onopen = () => { const mints = Object.values(vaults).filter((v) => v.armed && v.mint).map((v) => v.mint!); if (mints.length) pws.send(JSON.stringify({ method: 'subscribeTokenTrade', keys: mints })) }
     pws.onmessage = async (ev: any) => { try { const d = JSON.parse(ev.data); if (d.txType !== 'buy' && d.txType !== 'sell') return; const v = Object.values(vaults).find((x) => x.mint === d.mint && x.armed); if (!v) return; tape(v.mint!, { t: Date.now(), side: d.txType, sol: +d.solAmount || 0, trader: d.traderPublicKey, sig: d.signature }); if (d.txType !== 'buy' || v.pub === d.traderPublicKey) return; const m = await market(v.mint!); if (!m) return; await onBuy(v, +d.solAmount || 0, m, m.priceSol, Date.now()); save() } catch {} }
     pws.onclose = () => setTimeout(connect, 5000); pws.onerror = () => { try { pws.close() } catch {} }

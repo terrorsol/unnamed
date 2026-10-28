@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import * as R from '../src/rules.ts'
 import { verifyFill } from '../src/verify.ts'
 import { Transaction, SystemProgram, Keypair, PublicKey } from '@solana/web3.js'
-import { createAssociatedTokenAccountIdempotentInstruction, createTransferInstruction, getAssociatedTokenAddressSync } from '@solana/spl-token'
+import {createAssociatedTokenAccountIdempotentInstruction, createTransferInstruction, getAssociatedTokenAddressSync , createTransferCheckedInstruction, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token'
 
 const M = { mcapUsd: 250_000, liqSol: 100, onCurve: false, priceSol: 0.00001 }
 test('gate + min block + discount band', () => {
@@ -25,15 +25,18 @@ test('vault policy', () => {
 })
 test('verifyFill accepts a well-formed fill and rejects tampering', () => {
   const seller = Keypair.generate(), bidder = Keypair.generate(), mint = Keypair.generate().publicKey, treasury = Keypair.generate().publicKey
-  const e = { mint: mint.toBase58(), seller: seller.publicKey.toBase58(), bidder: bidder.publicKey.toBase58(), treasury: treasury.toBase58(), base: 123456n, sellerLamports: 1_990_000_000n, fee: 10_000_000n }
+  const e = { mint: mint.toBase58(), seller: seller.publicKey.toBase58(), bidder: bidder.publicKey.toBase58(), treasury: treasury.toBase58(), base: 123456n, sellerLamports: 1_990_000_000n, fee: 10_000_000n, tokenProgram: TOKEN_PROGRAM_ID.toBase58(), decimals: 6 }
   const bAta = getAssociatedTokenAddressSync(mint, bidder.publicKey, true), sAta = getAssociatedTokenAddressSync(mint, seller.publicKey, true)
   const build = (base, sl, fee) => { const tx = new Transaction(); tx.feePayer = seller.publicKey; tx.recentBlockhash = '11111111111111111111111111111111'
-    tx.add(createAssociatedTokenAccountIdempotentInstruction(seller.publicKey, bAta, bidder.publicKey, mint), createTransferInstruction(sAta, bAta, seller.publicKey, base), SystemProgram.transfer({ fromPubkey: bidder.publicKey, toPubkey: seller.publicKey, lamports: sl }), SystemProgram.transfer({ fromPubkey: bidder.publicKey, toPubkey: treasury, lamports: fee })); return tx }
+    tx.add(createAssociatedTokenAccountIdempotentInstruction(seller.publicKey, bAta, bidder.publicKey, mint), createTransferCheckedInstruction(sAta, mint, bAta, seller.publicKey, base, 6), SystemProgram.transfer({ fromPubkey: bidder.publicKey, toPubkey: seller.publicKey, lamports: sl }), SystemProgram.transfer({ fromPubkey: bidder.publicKey, toPubkey: treasury, lamports: fee })); return tx }
   assert.equal(verifyFill(build(123456n, 1_990_000_000n, 10_000_000n), e), null)
   assert.match(verifyFill(build(123455n, 1_990_000_000n, 10_000_000n), e), /amount/)
   assert.match(verifyFill(build(123456n, 2_990_000_000n, 10_000_000n), e), /ix2/)
   assert.match(verifyFill(build(123456n, 1_990_000_000n, 0n), e), /ix3/)
   const t = build(123456n, 1_990_000_000n, 10_000_000n); t.add(SystemProgram.transfer({ fromPubkey: bidder.publicKey, toPubkey: seller.publicKey, lamports: 1 })); assert.match(verifyFill(t, e), /count/)
+  // Token-2022 mint: ATAs and program must follow the mint's program
+  const e22 = { ...e, tokenProgram: TOKEN_2022_PROGRAM_ID.toBase58() }; assert.match(verifyFill(build(123456n, 1_990_000_000n, 10_000_000n), e22), /ix0/)
+  assert.match(verifyFill(build(123456n, 1_990_000_000n, 10_000_000n), { ...e, decimals: 9 }), /decimals/)
   // seller + bidder co-sign round trip
   const tx = build(123456n, 1_990_000_000n, 10_000_000n); tx.partialSign(seller)
   const wire = tx.serialize({ requireAllSignatures: false }); const tx2 = Transaction.from(wire); tx2.partialSign(bidder)

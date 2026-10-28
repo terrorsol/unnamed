@@ -7,6 +7,7 @@ import { MIN_TIP_LAMPORTS } from './fast'
 import bs58 from 'bs58'
 import { SOL_MINT, LAMPORTS } from './fmt'
 import type { Settings } from './store'
+import { SERVER } from './desk'
 
 export type Signer = (t: VersionedTransaction) => Promise<VersionedTransaction>
 export type Ctx = { conn: Connection; owner: PublicKey; sign: Signer; settings: Settings; onStatus?: (s: string) => void }
@@ -66,7 +67,7 @@ export async function sell(ctx: Ctx, mint: string, frac: number, rawAmount: bigi
 export async function launch(ctx: Ctx, meta: P.CreateMeta, devBuySol: number): Promise<{ sig: string; mint: string }> {
   const { conn, owner, sign, settings, onStatus } = ctx
   onStatus?.('Uploading metadata…')
-  const uri = await P.uploadMetadata(meta)
+  const uri = await P.uploadMetadata(meta, SERVER)
   onStatus?.('Building create transaction…')
   const { tx, mint } = await P.buildCreate(owner.toBase58(), { name: meta.name, symbol: meta.symbol, uri }, devBuySol, settings.slippageBps / 100, settings.priorityFeeSol)
   const sig = await sendAndConfirm(conn, tx, sign, onStatus)
@@ -86,7 +87,7 @@ export async function collectCreatorFee(ctx: Ctx, mint: string): Promise<string>
 /** Launch with the vault in block zero: PumpPortal builds [create+dev buy, vault buy]; dev signs #1 (+mint), the server signs #2 with the vault key; both go to Jito as one bundle. Falls back to a plain launch if the bundle path fails before anything is sent. */
 export async function launchBlockZero(ctx: Ctx, meta: P.CreateMeta, devBuySol: number, vault: { id: string; pub: string }, vaultBuySol: number, deps: { bundleSign: (id: string, mint: string, tx: string, maxSol: number) => Promise<{ tx: string }>; sendBundle: (txs: string[]) => Promise<{ bundleId: string }> }): Promise<{ sig: string; mint: string; bundled: boolean }> {
   const { conn, owner, sign, settings, onStatus } = ctx
-  onStatus?.('Uploading metadata…'); const uri = await P.uploadMetadata(meta)
+  onStatus?.('Uploading metadata…'); const uri = await P.uploadMetadata(meta, SERVER)
   try {
     onStatus?.('Building block-zero bundle…')
     const { mint, createTx, vaultTx } = await P.buildLaunchBundle(owner.toBase58(), vault.pub, { name: meta.name, symbol: meta.symbol, uri }, devBuySol, vaultBuySol, settings.slippageBps / 100, settings.priorityFeeSol)

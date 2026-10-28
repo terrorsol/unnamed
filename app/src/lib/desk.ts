@@ -1,6 +1,9 @@
 // Desk client. Bidder: holds a websocket, co-signs relayed fills after verifying them locally. Seller: builds + signs the fill tx.
 import { Connection, Keypair, PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
-import { createAssociatedTokenAccountIdempotentInstruction, createTransferInstruction, getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
+import { createAssociatedTokenAccountIdempotentInstruction, createTransferCheckedInstruction, getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
+/** Owner program of a mint (SPL Token or Token-2022). Cached per session. */
+const progCache = new Map<string, PublicKey>()
+export async function tokenProgram(conn: Connection, mint: string): Promise<PublicKey> { const c = progCache.get(mint); if (c) return c; const i = await conn.getAccountInfo(new PublicKey(mint)); if (!i) throw new Error('mint not found'); progCache.set(mint, i.owner); return i.owner }
 import nacl from 'tweetnacl'
 import bs58 from 'bs58'
 import { confirmByPolling } from './rpc'
@@ -9,7 +12,7 @@ export const SERVER = (import.meta as any).env?.VITE_SERVER_URL || localStorage.
 const WS = SERVER.replace(/^http/, 'ws')
 export type BookBid = { id: string; mint: string; symbol: string; sol: number; discBps: number; placedAt: number; restable: boolean; status: string; bidder: string; mine: boolean }
 export type Book = { open: boolean; minBlock: number | null; market: any; bids: BookBid[]; rules: { discMin: number; discMax: number; restMs: number; feeBps: number; gateUsd: number } }
-export type Expect = { mint: string; seller: string; bidder: string; treasury: string; base: string; sellerLamports: string; fee: string; priceSol: number; discBps: number; decimals: number }
+export type Expect = { mint: string; seller: string; bidder: string; treasury: string; base: string; sellerLamports: string; fee: string; priceSol: number; discBps: number; decimals: number; tokenProgram: string }
 
 async function j(path: string, body?: any) {
   const r = await fetch(SERVER + path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : undefined)
@@ -24,10 +27,12 @@ export function verifyFill(tx: Transaction, e: Expect): string | null {
   const ix = tx.instructions; if (ix.length !== 4) return 'wrong instruction count'
   if (!tx.feePayer || tx.feePayer.toBase58() !== e.seller) return 'fee payer must be seller'
   const bidder = new PublicKey(e.bidder), seller = new PublicKey(e.seller), mint = new PublicKey(e.mint)
-  const bAta = getAssociatedTokenAddressSync(mint, bidder, true), sAta = getAssociatedTokenAddressSync(mint, seller, true)
-  const a = ix[0]; if (!a.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID) || a.data[0] !== 1 || !a.keys[0].pubkey.equals(seller) || !a.keys[1].pubkey.equals(bAta) || !a.keys[2].pubkey.equals(bidder) || !a.keys[3].pubkey.equals(mint)) return 'ix0 bad'
-  const t = ix[1]; if (!t.programId.equals(TOKEN_PROGRAM_ID) || t.data[0] !== 3 || !t.keys[0].pubkey.equals(sAta) || !t.keys[1].pubkey.equals(bAta) || !t.keys[2].pubkey.equals(seller)) return 'ix1 bad'
+  const prog = new PublicKey(e.tokenProgram); if (!prog.equals(TOKEN_PROGRAM_ID) && !prog.equals(TOKEN_2022_PROGRAM_ID)) return 'unknown token program'
+  const bAta = getAssociatedTokenAddressSync(mint, bidder, true, prog), sAta = getAssociatedTokenAddressSync(mint, seller, true, prog)
+  const a = ix[0]; if (!a.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID) || a.data[0] !== 1 || !a.keys[0].pubkey.equals(seller) || !a.keys[1].pubkey.equals(bAta) || !a.keys[2].pubkey.equals(bidder) || !a.keys[3].pubkey.equals(mint) || !a.keys[5].pubkey.equals(prog)) return 'ix0 bad'
+  const t = ix[1]; if (!t.programId.equals(prog) || t.data[0] !== 12 || !t.keys[0].pubkey.equals(sAta) || !t.keys[1].pubkey.equals(mint) || !t.keys[2].pubkey.equals(bAta) || !t.keys[3].pubkey.equals(seller)) return 'ix1 bad'
   const amt = new DataView(t.data.buffer, t.data.byteOffset + 1, 8).getBigUint64(0, true); if (amt !== BigInt(e.base)) return 'token amount mismatch'
+  if (t.data[9] !== e.decimals) return 'decimals mismatch'
   const dv = (d: Uint8Array) => new DataView(d.buffer, d.byteOffset + 4, 8).getBigUint64(0, true)
   const s = ix[2]; if (!s.programId.equals(SystemProgram.programId) || !s.keys[0].pubkey.equals(bidder) || !s.keys[1].pubkey.equals(seller) || dv(s.data) !== BigInt(e.sellerLamports)) return 'sol transfer mismatch'
   const f = ix[3]; if (!f.programId.equals(SystemProgram.programId) || !f.keys[0].pubkey.equals(bidder) || f.keys[1].pubkey.toBase58() !== e.treasury || dv(f.data) !== BigInt(e.fee)) return 'fee mismatch'
@@ -85,9 +90,10 @@ export async function takeBid(conn: Connection, seller: string, bidId: string, s
   if (q.refAgeMs > 3000) throw new Error('reference price is stale — try again')
   if (gate && !(await gate(q))) throw new Error('cancelled')
   const sellerPk = new PublicKey(seller), bidderPk = new PublicKey(q.bidder), mint = new PublicKey(q.mint)
-  const bAta = getAssociatedTokenAddressSync(mint, bidderPk, true), sAta = getAssociatedTokenAddressSync(mint, sellerPk, true)
+  const prog = new PublicKey(q.tokenProgram)
+  const bAta = getAssociatedTokenAddressSync(mint, bidderPk, true, prog), sAta = getAssociatedTokenAddressSync(mint, sellerPk, true, prog)
   const tx = new Transaction(); tx.feePayer = sellerPk; tx.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash
-  tx.add(createAssociatedTokenAccountIdempotentInstruction(sellerPk, bAta, bidderPk, mint), createTransferInstruction(sAta, bAta, sellerPk, BigInt(q.base)),
+  tx.add(createAssociatedTokenAccountIdempotentInstruction(sellerPk, bAta, bidderPk, mint, prog), createTransferCheckedInstruction(sAta, mint, bAta, sellerPk, BigInt(q.base), q.decimals, [], prog),
     SystemProgram.transfer({ fromPubkey: bidderPk, toPubkey: sellerPk, lamports: BigInt(q.sellerLamports) }), SystemProgram.transfer({ fromPubkey: bidderPk, toPubkey: new PublicKey(q.treasury), lamports: BigInt(q.fee) }))
   onStatus?.('Sign to deliver tokens…')
   const signed = await signTx(tx)
@@ -120,9 +126,10 @@ export const redeemQuote = (mint: string, tokens: number): Promise<{ vaultId: st
 export async function redeem(conn: Connection, holder: string, mint: string, tokensUi: number, decimals: number, signTx: (t: Transaction) => Promise<Transaction>, onStatus?: (s: string) => void) {
   onStatus?.('Quoting…'); const q = await redeemQuote(mint, tokensUi)
   const hp = new PublicKey(holder), vp = new PublicKey(q.vaultPub), mp = new PublicKey(mint)
-  const vAta = getAssociatedTokenAddressSync(mp, vp, true), hAta = getAssociatedTokenAddressSync(mp, hp, true)
+  const prog = await tokenProgram(conn, mint)
+  const vAta = getAssociatedTokenAddressSync(mp, vp, true, prog), hAta = getAssociatedTokenAddressSync(mp, hp, true, prog)
   const tx = new Transaction(); tx.feePayer = hp; tx.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash
-  tx.add(createAssociatedTokenAccountIdempotentInstruction(hp, vAta, vp, mp), createTransferInstruction(hAta, vAta, hp, BigInt(Math.floor(tokensUi * 10 ** decimals))), SystemProgram.transfer({ fromPubkey: vp, toPubkey: hp, lamports: q.lamports }))
+  tx.add(createAssociatedTokenAccountIdempotentInstruction(hp, vAta, vp, mp, prog), createTransferCheckedInstruction(hAta, mp, vAta, hp, BigInt(Math.floor(tokensUi * 10 ** decimals)), decimals, [], prog), SystemProgram.transfer({ fromPubkey: vp, toPubkey: hp, lamports: q.lamports }))
   onStatus?.('Sign to redeem…'); const signed = await signTx(tx)
   onStatus?.('Vault co-signing…'); const r = await j('/redeem', { mint, holder, tokens: tokensUi, tx: btoa(String.fromCharCode(...signed.serialize({ requireAllSignatures: false }))) })
   return { sig: r.sig as string, sol: r.sol as number }
@@ -146,7 +153,7 @@ export async function payImport(conn: Connection, owner: string, v: VaultPub & {
 export async function depositToVault(conn: Connection, from: string, v: VaultPub, sol: number, tokensUi: number, decimals: number, signTx: (t: Transaction) => Promise<Transaction>, onStatus?: (s: string) => void) {
   const fp = new PublicKey(from), vp = new PublicKey(v.pub); const tx = new Transaction(); tx.feePayer = fp; tx.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash
   if (sol > 0) tx.add(SystemProgram.transfer({ fromPubkey: fp, toPubkey: vp, lamports: Math.floor(sol * 1e9) }))
-  if (tokensUi > 0) { const mp = new PublicKey(v.mint!); const vAta = getAssociatedTokenAddressSync(mp, vp, true), fAta = getAssociatedTokenAddressSync(mp, fp, true); tx.add(createAssociatedTokenAccountIdempotentInstruction(fp, vAta, vp, mp), createTransferInstruction(fAta, vAta, fp, BigInt(Math.floor(tokensUi * 10 ** decimals)))) }
+  if (tokensUi > 0) { const mp = new PublicKey(v.mint!); const prog = await tokenProgram(conn, v.mint!); const vAta = getAssociatedTokenAddressSync(mp, vp, true, prog), fAta = getAssociatedTokenAddressSync(mp, fp, true, prog); tx.add(createAssociatedTokenAccountIdempotentInstruction(fp, vAta, vp, mp, prog), createTransferCheckedInstruction(fAta, mp, vAta, fp, BigInt(Math.floor(tokensUi * 10 ** decimals)), decimals, [], prog)) }
   onStatus?.('Sign deposit…'); const signed = await signTx(tx); const sig = await conn.sendRawTransaction(signed.serialize(), { maxRetries: 3 }); onStatus?.('Confirming…'); await confirmByPolling(conn, sig)
   onStatus?.('Recording…'); await new Promise((r) => setTimeout(r, 1500)); return { sig, vault: await vaultDeposit(v.id, from, sig) }
 }

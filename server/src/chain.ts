@@ -15,6 +15,13 @@ export async function confirm(sig: string, timeoutMs = 60000) {
   throw new Error('confirm timeout ' + sig)
 }
 export async function decimals(mint: string) { return (await conn.getTokenSupply(new PublicKey(mint))).value.decimals }
+const progCache = new Map<string, string>()
+/** Owner program of the mint account: classic SPL Token or Token-2022 (newer pump.fun create_v2 coins). Never guess from the address. */
+export async function tokenProgram(mint: string): Promise<string> {
+  const c = progCache.get(mint); if (c) return c
+  const info = await conn.getAccountInfo(new PublicKey(mint)); if (!info) throw new Error('mint not found')
+  const o = info.owner.toBase58(); progCache.set(mint, o); return o
+}
 export async function tokenBalance(owner: string, mint: string) {
   const r = await conn.getParsedTokenAccountsByOwner(new PublicKey(owner), { mint: new PublicKey(mint) })
   const a = r.value[0]; return a ? { ui: +(a.account.data as any).parsed.info.tokenAmount.uiAmount, raw: BigInt((a.account.data as any).parsed.info.tokenAmount.amount) } : { ui: 0, raw: 0n }
@@ -41,11 +48,11 @@ export async function pumpTrade(kp: Keypair, action: 'buy' | 'sell', mint: strin
 /** Helius Sender when the RPC is Helius (or FAST=1): tip + CU price, dual-routed. FAST=0 forces plain RPC. */
 export const FAST = process.env.FAST ? process.env.FAST === '1' : /helius/.test(RPC)
 export const TIP_LAMPORTS = Math.max(MIN_TIP_LAMPORTS, Math.floor(+(process.env.TIP_SOL || 0.001) * 1e9))
-/** Jito bundle: ≤5 signed txs, base58 (default encoding). Helius RPC proxies sendBundle (5 rps) so it is the default when the RPC is Helius. */
+/** Jito bundle: ≤5 signed txs, base64 (Jito: base58 is "slow, DEPRECATED"; default is still base58 so the encoding option is explicit). Helius RPC proxies sendBundle (5 rps) so it is the default when the RPC is Helius. */
 export async function sendBundle(raws: Uint8Array[]): Promise<string> {
   if (raws.length > 5) throw new Error('bundle > 5 txs')
   const u = process.env.JITO_URL || (/helius/.test(RPC) ? RPC : 'https://mainnet.block-engine.jito.wtf/api/v1/bundles')
-  const b = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'sendBundle', params: [raws.map((x) => bs58.encode(x))] }) })
+  const b = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'sendBundle', params: [raws.map((x) => Buffer.from(x).toString('base64')), { encoding: 'base64' }] }) })
   const d: any = await b.json(); if (d.error) throw new Error('jito: ' + JSON.stringify(d.error)); return d.result as string
 }
 
