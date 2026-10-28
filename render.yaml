@@ -29,6 +29,8 @@ services:
         sync: false   # base58 secret of the brand wallet (BANK…): every vault trades from it, so it is the top holder on every coin. Unset = one fresh key per vault
       - key: MAX_CHEST_SOL
         value: "2"    # beta: no chest holds more than this
+      - key: MM_BUYS
+        value: "0"    # beta: vaults never buy from the pool (no dip tranches / accumulation) — captures, the standing ask and the desk bid still run. Set 1 for the full policy
       - key: MINT_SUFFIX
         value: "BANK" # launched mints end in this; pool fed by `npm run mints -- grind 50 push <url> <ADMIN_KEY>` from any machine with solana-keygen
       - key: PINATA_JWT
