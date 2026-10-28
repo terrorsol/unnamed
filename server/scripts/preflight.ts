@@ -47,9 +47,13 @@ await step('geckoterminal: pump-fun curve pools (dex id)', async () => {
   return `${pools.length} pools · picked ${live.attributes.name} mint ${ctx.curveMint.slice(0, 8)}… h24 $${(+live.attributes.volume_usd.h24).toFixed(0)}`
 })
 await sleep(2500)
-await step('geckoterminal: pumpswap pools + ohlcv + trades', async () => {
-  const r = await timeout(fetch(`${GT}/networks/solana/dexes/pumpswap/pools?page=1&sort=h24_volume_usd_desc`), 10000); if (!r.ok) throw new Error('HTTP ' + r.status)
-  const d: any = await r.json(); const p = (d.data || []).filter((x: any) => +x.attributes.volume_usd.h1 > 2000 && +x.attributes.transactions?.h1?.buys > 20).sort((a: any, b: any) => +b.attributes.volume_usd.h1 - +a.attributes.volume_usd.h1)[0] || d.data?.[0]; if (!p) throw new Error('no pools')
+await step('geckoterminal: active pumpswap pool (trending) + ohlcv + trades', async () => {
+  // dexes/pumpswap/pools sorted by h24 volume returns stale pools; trending_pools filtered to pumpswap gives coins that trade right now
+  const tr1: any = await (await timeout(fetch(`${GT}/networks/solana/trending_pools?page=1`), 10000)).json(); await sleep(2500)
+  const tr2: any = await (await timeout(fetch(`${GT}/networks/solana/trending_pools?page=2`), 10000)).json()
+  const cands = [...(tr1.data || []), ...(tr2.data || [])].filter((p: any) => p.relationships?.dex?.data?.id === 'pumpswap' && +p.attributes.volume_usd.h1 > 5000 && +(p.attributes.transactions?.m5?.buys || 0) > 0)
+    .sort((a: any, b: any) => +b.attributes.volume_usd.h1 - +a.attributes.volume_usd.h1)
+  const p = cands[0]; if (!p) throw new Error('no active pumpswap pool in trending')
   ctx.ammPool = p.attributes.address; ctx.ammMint = p.relationships.base_token.data.id.replace('solana_', '')
   await sleep(2500)
   const o = await (await fetch(`${GT}/networks/solana/pools/${ctx.ammPool}/ohlcv/minute?aggregate=1&limit=5&currency=usd`)).json() as any
@@ -57,7 +61,7 @@ await step('geckoterminal: pumpswap pools + ohlcv + trades', async () => {
   await sleep(2500)
   const tr = await (await fetch(`${GT}/networks/solana/pools/${ctx.ammPool}/trades`)).json() as any
   const a = tr.data?.[0]?.attributes; if (!a || !('kind' in a) || !('volume_in_usd' in a) || !('block_timestamp' in a)) throw new Error('trades shape')
-  return `${p.attributes.name} · ${l.length} candles (newest first: ${l[0][0] > l[1][0]}) · ${tr.data.length} trades · kind=${a.kind} vol=$${(+a.volume_in_usd).toFixed(0)}`
+  return `${p.attributes.name} h1 $${(+p.attributes.volume_usd.h1).toFixed(0)} m5 buys ${p.attributes.transactions.m5.buys} · ${l.length} candles (newest first: ${l[0][0] > l[1][0]}) · ${tr.data.length} trades · last ${a.kind} $${(+a.volume_in_usd).toFixed(0)}`
 })
 await step('dexscreener: curve + amm coin fields we use', async () => {
   const r = await fetch(`${DEX}/tokens/v1/solana/${ctx.curveMint},${ctx.ammMint}`); const p: any[] = await r.json()
