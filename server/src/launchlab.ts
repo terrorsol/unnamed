@@ -171,17 +171,17 @@ export const platformVault = () => getPdaPlatformVault(PROGRAM, PLATFORM_ID!, WS
 /** SOL waiting in the platform fee vault (all pools) */
 export async function platformVaultSol(): Promise<number> { try { const b = await conn.getTokenAccountBalance(platformVault()); return +(b.value.uiAmount || 0) } catch { return 0 } }
 /** one tx: claim the platform vault → claim wallet's WSOL ATA → close ATA (unwrap to SOL). Signed by the platform key. */
-export async function buildClaimVault(): Promise<VersionedTransaction> {
+export async function buildClaimVault(payer?: PublicKey): Promise<VersionedTransaction> {
   const { claimPlatformFeeFromVault, getPdaPlatformFeeVaultAuth } = await import('@raydium-io/raydium-sdk-v2')
   const { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, createCloseAccountInstruction, TOKEN_PROGRAM_ID } = await import('@solana/spl-token')
   const { TransactionMessage, ComputeBudgetProgram } = await import('@solana/web3.js')
-  const pk = platformKeypair(); const ata = getAssociatedTokenAddressSync(WSOL, pk.publicKey)
+  const kp = platformKeypair(); const pk = { publicKey: payer || kp.publicKey }; const ata = getAssociatedTokenAddressSync(WSOL, pk.publicKey)
   const ixs = [ComputeBudgetProgram.setComputeUnitLimit({ units: 120_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
     createAssociatedTokenAccountIdempotentInstruction(pk.publicKey, ata, pk.publicKey, WSOL),
     claimPlatformFeeFromVault(PROGRAM, PLATFORM_ID!, pk.publicKey, getPdaPlatformFeeVaultAuth(PROGRAM).publicKey, platformVault(), ata, WSOL, TOKEN_PROGRAM_ID),
     createCloseAccountInstruction(ata, pk.publicKey, pk.publicKey)]
   const msg = new TransactionMessage({ payerKey: pk.publicKey, recentBlockhash: (await conn.getLatestBlockhash('confirmed')).blockhash, instructions: ixs }).compileToV0Message()
-  const tx = new VersionedTransaction(msg); tx.sign([pk]); return tx
+  const tx = new VersionedTransaction(msg); if (!payer || payer.equals(kp.publicKey)) tx.sign([kp]); return tx
 }
 /** unclaimed platform fee sitting in the pool (lamports) */
 export async function pendingFee(mint: string): Promise<number> { const p = await pool(mint, 0); return p ? Number(p.platformFee) / 1e9 : 0 }

@@ -35,3 +35,10 @@ try { const { PublicKey: PK } = await import('@solana/web3.js'); const { getPdaL
     console.log('  logs', (tx.meta.logMessages || []).filter((l) => /fee|Fee|Instruction:/.test(l)).slice(0, 10).join(' | '))
   }
 } catch (e) { console.log('tx trace error', e.message) }
+
+// the new platform-vault claim, simulated as the real claim wallet (unsigned, sigVerify off)
+try { const { PublicKey: PK } = await import('@solana/web3.js'); const pv = LL.platformVault(); console.log('platform vault', pv.toBase58(), 'holds', await LL.platformVaultSol(), 'SOL')
+  const tx = await LL.buildClaimVault(new PK('BANKYubgHd48UQt2VFtEytyE8QyeBHhiuptC3tHmfVPH'))
+  const sim = await C.conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true })
+  console.log('VAULT CLAIM sim err', JSON.stringify(sim.value.err)); console.log((sim.value.logs || []).slice(-10).join('\n'))
+} catch (e) { console.log('VAULT CLAIM build error', e.message) }
