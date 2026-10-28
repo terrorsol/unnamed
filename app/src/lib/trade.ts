@@ -87,13 +87,13 @@ export async function collectCreatorFee(ctx: Ctx, mint: string): Promise<string>
 }
 
 /** Launch with the vault in block zero: PumpPortal builds [create+dev buy, vault buy]; dev signs #1 (+mint), the server signs #2 with the vault key; both go to Jito as one bundle. Falls back to a plain launch if the bundle path fails before anything is sent. */
-export async function launchBlockZero(ctx: Ctx, meta: P.CreateMeta, devBuySol: number, vault: { id: string; pub: string }, vaultBuySol: number, deps: { bundleSign: (id: string, mint: string, tx: string, maxSol: number) => Promise<{ tx: string }>; sendBundle: (txs: string[]) => Promise<{ bundleId: string }> }): Promise<{ sig: string; mint: string; bundled: boolean }> {
+export async function launchBlockZero(ctx: Ctx, meta: P.CreateMeta, devBuySol: number, vault: { id: string; pub: string }, vaultBuySol: number, deps: { bundleSign: (id: string, mint: string, tx: string, maxSol: number, createTx?: string) => Promise<{ tx: string }>; sendBundle: (txs: string[]) => Promise<{ bundleId: string }> }): Promise<{ sig: string; mint: string; bundled: boolean }> {
   const { conn, owner, sign, settings, onStatus } = ctx
   onStatus?.('Uploading metadata…'); const uri = await P.uploadMetadata(meta, SERVER)
   try {
     onStatus?.('Building block-zero bundle…')
     const { mint, createTx, vaultTx } = await P.buildLaunchBundle(owner.toBase58(), vault.pub, { name: meta.name, symbol: meta.symbol, uri }, devBuySol, vaultBuySol, settings.slippageBps / 100, settings.priorityFeeSol)
-    onStatus?.('Vault signing…'); const signedVault = await deps.bundleSign(vault.id, mint, Buffer.from(vaultTx.serialize()).toString('base64'), vaultBuySol)
+    onStatus?.('Vault signing…'); const signedVault = await deps.bundleSign(vault.id, mint, Buffer.from(vaultTx.serialize()).toString('base64'), vaultBuySol, Buffer.from(createTx.serialize()).toString('base64'))
     onStatus?.('Sign the create…'); const signedCreate = await sign(createTx)
     onStatus?.('Sending bundle…'); await deps.sendBundle([Buffer.from(signedCreate.serialize()).toString('base64'), signedVault.tx])
     onStatus?.('Confirming…'); await confirmByPollingB58(conn, signedCreate)

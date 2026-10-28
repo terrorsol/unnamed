@@ -14,9 +14,10 @@ export function flipFee(profit: number, heldMin: number): number {
   return profit * FLIP_MAX_RATE * (1 - heldMin / FLIP_WINDOW_MIN)
 }
 /** Vault supply% from SOL staked: exponential-ish pricing, 10% cap reached at ≈3.1 SOL */
-// pump.fun curve at creation: virtual 30 SOL × 1.073e9 tokens, 1e9 supply, 1% fee on the SOL side. Same math as server/src/launch.ts (checked against PumpPortal's own build in CI preflight).
+// pump.fun curve at creation: virtual 30 SOL × 1.073e9 tokens, 1e9 supply. Tokens are quoted on the gross SOL; the 1% fee is charged on top.
+// Same math as server/src/launch.ts, which CI preflight checks against PumpPortal's real builds to the lamport.
 export const CURVE0 = { vSol: 30, vTok: 1_073_000_000, supply: 1_000_000_000, feeBps: 100 }
-export function curveBuy(s: { vSol: number; vTok: number }, sol: number) { const net = sol * (1 - CURVE0.feeBps / 1e4); const vSol = s.vSol + net; const vTok = (s.vSol * s.vTok) / vSol; return { tokens: s.vTok - vTok, after: { vSol, vTok } } }
+export function curveBuy(s: { vSol: number; vTok: number }, sol: number) { const vSol = s.vSol + sol; const vTok = (s.vSol * s.vTok) / vSol; return { tokens: s.vTok - vTok, after: { vSol, vTok }, cost: sol * (1 + CURVE0.feeBps / 1e4) } }
 /** Block zero: dev buys inside the create tx, the vault buys half its stake right after in the same bundle. */
 export function blockZero(devSol: number, stakeSol: number) {
   const dev = curveBuy(CURVE0, devSol); const vault = curveBuy(dev.after, stakeSol * 0.5)

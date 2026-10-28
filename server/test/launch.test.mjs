@@ -14,14 +14,19 @@ function buyIx(tokens, maxSol, user = vault.publicKey, m = mint) {
 }
 const tx = (ixs, payer = vault.publicKey) => new VersionedTransaction(new TransactionMessage({ payerKey: payer, recentBlockhash: bh, instructions: ixs }).compileToV0Message())
 
-test('block-zero math: dev then vault on the fresh curve', () => {
+test('block-zero math matches PumpPortal to the lamport (real bundle from preflight: 0.05 dev, 0.1 vault)', () => {
+  const z = blockZero(0.05, 0.1)
+  assert.ok(Math.abs(z.devTokens - 1785357.737104) < 1e-3, 'dev tokens ' + z.devTokens)
+  assert.ok(Math.abs(z.vaultTokens - 3552950.720606) < 1e-3, 'vault tokens ' + z.vaultTokens)
+  const { bundleCost } = { bundleCost: (d, v) => import('../src/launch.ts').then((L) => L.bundleCost(d, v)) }
+  return bundleCost(1785357.737104, 3552950.720606).then((r) => { assert.ok(Math.abs(r.sol - 0.1) < 1e-9, 'real SOL ' + r.sol); assert.ok(Math.abs(r.cost - 0.101) < 1e-9, 'with 1% fee ' + r.cost) })
+})
+test('block-zero shape: second buyer pays more, mcap after ≈ 30 + SOL in', () => {
   const z = blockZero(1, 1)
-  assert.ok(z.devTokens > 34e6 && z.devTokens < 34.5e6, 'dev 1 SOL ≈ 34.3M tokens: ' + z.devTokens)
-  assert.ok(z.vaultTokens < z.devTokens, 'second buyer gets fewer tokens')
-  assert.ok(Math.abs(z.devPct - 3.43) < 0.05 && z.vaultPct < z.devPct)
-  assert.ok(z.mcapSol > 31.5 && z.mcapSol < 32, 'mcap after 2 SOL in ≈ 31.8 SOL: ' + z.mcapSol)
-  const one = curveBuy({ vSol: CURVE0.vSol, vTok: CURVE0.vTok }, 2); assert.ok(Math.abs(one.after.vSol - z.priceSol * z.mcapSol / CURVE0.supply * CURVE0.supply) < 1e-6 || true)
+  assert.ok(z.vaultTokens < z.devTokens && z.vaultAvgCost > 1 / z.devTokens)
+  assert.ok(z.mcapSol > 31.7 && z.mcapSol < 31.9, 'mcap after 2 SOL in: 32 × 1e9/vTok ≈ 31.8 — ' + z.mcapSol)
   assert.equal(blockZero(0, 0).vaultTokens, 0)
+  const one = curveBuy({ vSol: CURVE0.vSol, vTok: CURVE0.vTok }, 1); assert.ok(Math.abs(one.cost - 1.01) < 1e-12)
 })
 
 test('inspectBuy accepts the PumpPortal shape and reports the real max SOL out', () => {

@@ -167,13 +167,14 @@ await step('launch bundle: [create+dev buy, vault buy] → decode + math check',
   const c = L.inspectCreate(t0, mint, 6, k0); const b = L.inspectBuy(t1, PAYER.toBase58(), mint, 6, k1)
   const z = L.blockZero(devSol, vaultSol)
   const devDev = c.buy ? (c.buy.tokens - z.devTokens) / z.devTokens * 100 : NaN, vaultDev = (b.tokens - z.vaultTokens) / z.vaultTokens * 100
-  // implied fee from PumpPortal's own quote on the fresh curve: tokens = vTok − k/(vSol + sol·(1−fee))
-  const impliedFee = c.buy ? (1 - ((L.CURVE0.vSol * L.CURVE0.vTok) / (L.CURVE0.vTok - c.buy.tokens) - L.CURVE0.vSol) / devSol) * 100 : NaN
-  if (Math.abs(devDev) > 2 || Math.abs(vaultDev) > 2) throw new Error(`our block-zero math is off: dev ${devDev.toFixed(2)}% vault ${vaultDev.toFixed(2)}% (implied fee ${impliedFee.toFixed(2)}%)`)
-  if (b.maxSolCost > vaultSol * 1.1 + 1e-9) throw new Error('vault max_sol_cost above amount×(1+slippage): ' + b.maxSolCost)
+  if (Math.abs(devDev) > 0.5 || Math.abs(vaultDev) > 0.5) throw new Error(`our block-zero math is off: dev ${devDev.toFixed(3)}% vault ${vaultDev.toFixed(3)}%`)
+  // the real cost of the vault buy is fixed by the create tx's dev buy + our token amount; PumpPortal's max_sol_cost is only a ceiling
+  const real = L.bundleCost(c.buy?.tokens || 0, b.tokens)
+  if (!(b.maxSolCost >= real.cost)) throw new Error(`max_sol_cost ${b.maxSolCost} below the real cost ${real.cost}`)
+  if (Math.abs(real.sol - vaultSol) / vaultSol > 0.005) throw new Error(`real cost ${real.sol.toFixed(5)} ≠ requested ${vaultSol}`)
   if (!c.tipSol && !b.tipSol) throw new Error('no Jito tip in either tx')
   const simNote = await sim(t0, 'create').catch((e) => 'create simulate: ' + String(e.message).slice(0, 100))
-  return `tip on ${c.tipSol ? 'tx0' : 'tx1'} ${(c.tipSol || b.tipSol).toFixed(4)} SOL · dev ${(c.buy!.tokens / 1e6).toFixed(2)}M tok (ours ${(z.devTokens / 1e6).toFixed(2)}M, ${devDev >= 0 ? '+' : ''}${devDev.toFixed(2)}%) · vault ${(b.tokens / 1e6).toFixed(2)}M (ours ${(z.vaultTokens / 1e6).toFixed(2)}M, ${vaultDev >= 0 ? '+' : ''}${vaultDev.toFixed(2)}%) · implied fee ${impliedFee.toFixed(2)}% · vault max out ${b.solOut.toFixed(4)} SOL · ixs ${b.ixs.join(',')} · ${simNote}`
+  return `${c.created} · tip on ${c.tipSol ? 'tx0' : 'tx1'} ${(c.tipSol || b.tipSol).toFixed(4)} SOL · dev ${(c.buy!.tokens / 1e6).toFixed(3)}M tok (ours ${(z.devTokens / 1e6).toFixed(3)}M, ${devDev >= 0 ? '+' : ''}${devDev.toFixed(3)}%) · vault ${(b.tokens / 1e6).toFixed(3)}M (ours ${(z.vaultTokens / 1e6).toFixed(3)}M, ${vaultDev >= 0 ? '+' : ''}${vaultDev.toFixed(3)}%) via ${b.via} · real cost ${real.cost.toFixed(4)} SOL vs max_sol_cost ${b.maxSolCost.toFixed(4)} (${(b.maxSolCost / real.cost).toFixed(2)}× pad) · ixs ${b.ixs.join(',')} · ${simNote}`
 })
 await step('pumpportal: collectCreatorFee → shape', async () => {
   const r = await timeout(fetch(PP, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ publicKey: PAYER.toBase58(), action: 'collectCreatorFee', priorityFee: 0.000001 }) }), 15000)

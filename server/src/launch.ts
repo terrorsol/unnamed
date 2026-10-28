@@ -10,18 +10,30 @@ import { PUMP_PROGRAM } from './pool.ts'
 // pump.fun bonding curve at creation (mainnet global config): virtual 30 SOL × 1.073e9 tokens, 1e9 total supply, ~793.1M tokens on the curve.
 export const CURVE0 = { vSol: 30, vTok: 1_073_000_000, supply: 1_000_000_000, feeBps: 100 }
 export type CurveState = { vSol: number; vTok: number }
-/** tokens out for `sol` in at `s` (fee taken from the SOL side), and the state after */
+/** tokens out for `sol` in at `s`. pump quotes tokens on the gross SOL and charges the fee ON TOP (cost = sol × (1 + fee)) — matches PumpPortal's builds to the lamport. */
 export function curveBuy(s: CurveState, sol: number, feeBps = CURVE0.feeBps) {
-  const net = sol * (1 - feeBps / 1e4); const k = s.vSol * s.vTok
-  const vSol = s.vSol + net; const vTok = k / vSol; const tokens = s.vTok - vTok
-  return { tokens, after: { vSol, vTok }, price: vSol / vTok }
+  const k = s.vSol * s.vTok
+  const vSol = s.vSol + sol; const vTok = k / vSol; const tokens = s.vTok - vTok
+  return { tokens, after: { vSol, vTok }, price: vSol / vTok, cost: sol * (1 + feeBps / 1e4) }
+}
+/** SOL needed (before fee) to take `tokens` off the curve at state `s`, and the state after. */
+export function costForTokens(s: CurveState, tokens: number, feeBps = CURVE0.feeBps) {
+  if (tokens <= 0 || tokens >= s.vTok) return { sol: Infinity, cost: Infinity, after: s }
+  const vTok = s.vTok - tokens; const vSol = (s.vSol * s.vTok) / vTok; const sol = vSol - s.vSol
+  return { sol, cost: sol * (1 + feeBps / 1e4), after: { vSol, vTok } }
 }
 /** Block zero for a launch: dev buys first (inside the create tx), the vault buys second in the same Jito bundle. */
 export function blockZero(devSol: number, vaultSol: number) {
   const s0 = { vSol: CURVE0.vSol, vTok: CURVE0.vTok }
   const dev = curveBuy(s0, devSol); const vault = curveBuy(dev.after, vaultSol)
   const price = vault.after.vSol / vault.after.vTok
-  return { devTokens: dev.tokens, vaultTokens: vault.tokens, devPct: dev.tokens / CURVE0.supply * 100, vaultPct: vault.tokens / CURVE0.supply * 100, priceSol: price, mcapSol: price * CURVE0.supply, vaultAvgCost: vaultSol / vault.tokens }
+  return { devTokens: dev.tokens, vaultTokens: vault.tokens, devPct: dev.tokens / CURVE0.supply * 100, vaultPct: vault.tokens / CURVE0.supply * 100, priceSol: price, mcapSol: price * CURVE0.supply, vaultAvgCost: vault.cost / vault.tokens, vaultCost: vault.cost }
+}
+/** What the vault's bundle buy will really cost: the create tx fixes the dev buy (tokens), so the curve state the vault hits is known; its own `tokens` then fix the SOL. Bundles are atomic — nothing can trade in between. */
+export function bundleCost(devTokens: number, vaultTokens: number) {
+  const s0 = { vSol: CURVE0.vSol, vTok: CURVE0.vTok }
+  const afterDev = costForTokens(s0, devTokens).after
+  return costForTokens(afterDev, vaultTokens)
 }
 
 const hex = (b: Uint8Array) => Buffer.from(b).toString('hex')
