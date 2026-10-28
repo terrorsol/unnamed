@@ -19,6 +19,10 @@ Money: nothing lost. 0.5 SOL dev buy → 17.2M TEST (sold back from the in-app w
 | 11 | vault card = 12 zero tiles for a vault that hasn't armed | — | funded-not-armed = one line ("arming itself"); mm stats only once it has traded; deposit/redeem only when armed | — |
 | 12 | phantom "could be malicious" / "domain is new" | blowfish reputation on a 2-hour-old domain | review request to phantom (form answers below); "new domain" clears on its own; launch modal says so | — |
 
+## Verified on mainnet since (no SOL of yours involved)
+- **platform fee claim**: the new `claim_platform_fee_from_vault` path ran live at 19:15 UTC and moved **1.1607 SOL** of accrued fees from the launchlab vault into `BANKY…` (balance now 2.45). That's TEST's trading (bots/snipers traded it after launch) × 2%. It sits as unattributed treasury because the vault wasn't tracking volume yet; from now on each coin's share lands in its chest every ~3 min.
+- **paper vault** on a live coin ("Something", auto-picked, 1 SOL virtual): the coin fell 74% during the run; the policy fired two dip tranches (0.16 SOL) and the **drawdown stop held** at −35% on the deployed leg — no further buys. Added a 10-min no-buy warmup after arming so a vault seeded mid-crash doesn't treat the seed price as the high.
+
 ## What a launch is now
 1 modal · 2 signatures (stake transfer, create) · **zero** message signatures · the vault arms itself · bundle via jito, plain-rpc fallback · tax claimed to the chest every ~3 min.
 
