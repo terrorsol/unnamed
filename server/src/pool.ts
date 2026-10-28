@@ -14,7 +14,14 @@ const cache = new Map<string, PoolSpot>()
 export const curvePda = (mint: string) => PublicKey.findProgramAddressSync([Buffer.from('bonding-curve'), new PublicKey(mint).toBuffer()], PUMP_PROGRAM)[0]
 
 /** pump.fun bonding curve: 8-byte discriminator, then u64 LE virtual_token_reserves, virtual_sol_reserves, real_token_reserves, real_sol_reserves, token_total_supply, u8 complete */
-export async function curveSpot(mint: string, tokenDecimals = 6): Promise<PoolSpot | null> {
+const decCache = new Map<string, number>()
+/** token decimals, cached forever per mint (pump mints are 6, but not every curve coin is) */
+export async function decimalsOf(mint: string): Promise<number> {
+  if (decCache.has(mint)) return decCache.get(mint)!
+  const d = (await conn.getTokenSupply(new PublicKey(mint))).value.decimals; decCache.set(mint, d); return d
+}
+export async function curveSpot(mint: string, tokenDecimals?: number): Promise<PoolSpot | null> {
+  if (tokenDecimals == null) tokenDecimals = await decimalsOf(mint).catch(() => 6)
   const info = await conn.getAccountInfo(curvePda(mint), 'processed'); if (!info || info.data.length < 49) return null
   const d = info.data; const u = (o: number) => Number(d.readBigUInt64LE(o))
   const vTok = u(8), vSol = u(16), rSol = u(32), complete = d[48] === 1
@@ -37,7 +44,7 @@ export async function poolSpot(mint: string, m: { onCurve: boolean; pair?: strin
   const c = cache.get(mint); if (c && Date.now() - c.t < 1000) return c
   let s: PoolSpot | null = null
   try {
-    if (m.onCurve) s = await curveSpot(mint, m.decimals ?? 6)
+    if (m.onCurve) s = await curveSpot(mint, m.decimals)
     else if (m.dexId === 'pumpswap' && m.pair) s = await pumpswapSpot(m.pair, mint)
   } catch { s = null }
   if (s) cache.set(mint, s)

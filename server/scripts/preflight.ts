@@ -42,9 +42,19 @@ await step('dexscreener: SOL pairs shape', async () => {
 await step('geckoterminal: pump-fun curve pools (dex id)', async () => {
   const r = await timeout(fetch(`${GT}/networks/solana/dexes/pump-fun/pools?page=1&sort=h24_volume_usd_desc`), 10000); if (!r.ok) throw new Error('HTTP ' + r.status)
   const d: any = await r.json(); const pools = d.data || []; if (!pools.length) throw new Error('no pools')
-  const live = pools.filter((p: any) => +p.attributes.volume_usd.h1 > 500).sort((a: any, b: any) => +b.attributes.volume_usd.h1 - +a.attributes.volume_usd.h1)[0] || pools[0]
+  const cands = pools.filter((p: any) => +p.attributes.volume_usd.h1 > 500).sort((a: any, b: any) => +b.attributes.volume_usd.h1 - +a.attributes.volume_usd.h1)
+  const { curveSpot } = await import('../src/pool.ts'); const skipped: string[] = []; let live: any = null
+  for (const p of cands.slice(0, 8)) {
+    const m = p.relationships.base_token.data.id.replace('solana_', '')
+    try { const info = await conn.getAccountInfo(new PublicKey(m)); const sp = await curveSpot(m); const dec = (await conn.getTokenSupply(new PublicKey(m))).value.decimals
+      if (!info || info.owner.toBase58() !== 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') { skipped.push(`${p.attributes.name}: token-2022/mayhem`); continue }
+      if (!sp || sp.complete) { skipped.push(`${p.attributes.name}: ${sp ? 'graduated' : 'no curve'}`); continue }
+      if (dec !== 6) { skipped.push(`${p.attributes.name}: ${dec} decimals`); continue }
+      live = p; break } catch (e: any) { skipped.push(`${p.attributes.name}: ${String(e.message).slice(0, 40)}`) }
+  }
+  if (!live) throw new Error('no plain live curve coin among ' + cands.length + ' · ' + skipped.join('; '))
   ctx.curveMint = live.relationships.base_token.data.id.replace('solana_', '')
-  return `${pools.length} pools · picked ${live.attributes.name} mint ${ctx.curveMint.slice(0, 8)}… h24 $${(+live.attributes.volume_usd.h24).toFixed(0)}`
+  return `${pools.length} pools · picked ${live.attributes.name} mint ${ctx.curveMint.slice(0, 8)}… h24 $${(+live.attributes.volume_usd.h24).toFixed(0)}` + (skipped.length ? ` · skipped ${skipped.join('; ')}` : '')
 })
 await sleep(2500)
 await step('geckoterminal: active pumpswap pool (trending) + ohlcv + trades', async () => {
@@ -79,7 +89,7 @@ await step('pool price: curve reserves vs dexscreener', async () => {
 await step('pool price: pumpswap vaults vs dexscreener', async () => {
   const { pumpswapSpot } = await import('../src/pool.ts'); const sp = await pumpswapSpot(ctx.ammPool!, ctx.ammMint!)
   if (!sp) throw new Error('pool vaults not found'); const r = await fetch(`${DEX}/tokens/v1/solana/${ctx.ammMint}`); const p: any = (await r.json())[0]; const ipx = +p.priceNative
-  const dev = Math.abs(sp.priceSol / ipx - 1); if (dev > 0.05) throw new Error(`pool ${sp.priceSol.toPrecision(4)} vs indexer ${ipx.toPrecision(4)} (${(dev * 100).toFixed(1)}% off)`)
+  const dev = Math.abs(sp.priceSol / ipx - 1); if (dev > 0.10) throw new Error(`pool ${sp.priceSol.toPrecision(4)} vs indexer ${ipx.toPrecision(4)} (${(dev * 100).toFixed(1)}% off)`) // the indexer lags a busy pool by seconds; >10% means we decoded the wrong vaults
   return `pool ${sp.priceSol.toPrecision(4)} SOL · indexer ${ipx.toPrecision(4)} · ${(dev * 100).toFixed(2)}% apart · ${sp.liqSol.toFixed(1)} SOL in pool`
 })
 // ---------- token program on real mints ----------

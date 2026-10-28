@@ -49,6 +49,14 @@ Plus the parts every terminal needs: 1-click wallet, fast board, signals, TP/SL,
 - 2026-10-27 · yield question (should vault profit ever leave the chest?) · 100 SOL pool · 30 SOL chest · 12h · 40 seeds. Paying out 0→75% of *realized capture profit* changes nothing on the chart (final 2.26x→2.25x) because realized profit is tiny: 0.06–0.71 SOL per 12h on 30 SOL. Skimming *gross* captures (bundler model) pays 0.9/1.7/3.2 SOL at 25/50/100% skim, costs 4–20% of desk+dip support and stops the chest compounding. Decision: no yield, no payout; the vault redeploys everything. `payout`/`skim` stay as sim params for anyone who wants to re-run it.
 - 2026-10-27 · 100 SOL pool · 6h · 24 seeds · 30% chest: v1 vs +skew vs +zstretch vs +volDisc. skew/zstretch within noise (±0.1 SOL P&L); volDisc −7 SOL P&L at calm flow, off-chart fills 8.1 → 0.4 SOL. Kept skew + zstretch, dropped volDisc.
 
+## Overnight 2026-10-28 (simulated, no funds)
+- **Keeper**: every vault signature now goes through `server/src/keeper.ts` with a purpose and a SOL-out amount. Caps: ≤75% of chest per tx, ≤100% per hour across trades/fills/redeems; treasury payouts and refunds are structural and exempt (and don't count toward the hour). `/health` → `beta.keeper`. Unit test walks the whole cap sequence.
+- **Launch path, checked against mainnet**: CI preflight now builds the real 2-tx launch bundle through PumpPortal (random mint, simulate only) and saves the txs to `reports-preflight/launch-bundle.json`. Findings: txs are v0 with one lookup table; the create is pump `create_v2` (disc `d6904cec5f8b31b4`), and the buy is routed through PumpPortal's wrapper program `FAdo9N…` (their 0.5%), same data layout as pump `buy` (u64 tokens, u64 max_sol_cost). pump quotes tokens on the **gross** SOL and charges the 1% fee on top — `blockZero(0.05, 0.1)` reproduces PumpPortal's 1,785,357.737104 / 3,552,950.720606 tokens exactly. PumpPortal pads `max_sol_cost` ~3× in bundle mode (0.303 for a 0.1 SOL buy), so the server computes the **real** cost from the create tx's dev buy + our token amount (bundles are atomic) and signs only when that is inside policy; the tx is also refused if it touches any program but ComputeBudget / ATA / pump / PumpPortal, moves SOL anywhere but a Jito tip account, has a second signer, or credits another wallet.
+- `arm()` no longer trusts "signed block-zero": if the vault wallet holds no tokens after the bundle (Jito dropped it), it seeds on the open market instead of sitting unseeded.
+- Launch modal / server supply-target used a made-up `stake/(stake+1)×13.3%` curve. Replaced by the real curve: 1 SOL stake → 0.5 SOL at block zero → ≈1.7% of supply (was shown as 6.65%).
+- **Tranche timing** (mm e2e): with the wick filter (two ticks below trigger, 3.5–6.5 s apart) plus the 0–4 s random delay, a −25% dump is bought 8–17 s after it prints. The e2e budget was 13 s and flaked; now 22 s. Product behaviour unchanged — a dip buy is not a race.
+- UI: every live number cell ticks (green/red flash on change) via `Mc`/`Ch`/`Live`; new tape and feed rows slide in; the coin page "Rules" tab lost its PREVIEW rows (early-flip fee, wallet cap, stake pricing — all v2 program things) and now states what is enforced today.
+
 ## Status after this pass (v1 scope)
 | Area | State |
 |---|---|
@@ -58,7 +66,7 @@ Plus the parts every terminal needs: 1-click wallet, fast board, signals, TP/SL,
 | Smart sell → desk when it beats the chart | live |
 | Desk: resting bids, RFQ (max loss + clock, pings, counters), vault bid, leaderboard, fills | live (server) |
 | Vault: MM mode (capture, tranches, redeploy), floor mode, redeem, deposits, import, copies | live (server, custodial) |
-| Block-zero launch: create + dev buy + vault buy in one Jito bundle | built, needs mainnet try |
+| Block-zero launch: create + dev buy + vault buy in one Jito bundle | shape + math verified against PumpPortal's real builds in CI; server signs on the real cost; needs one funded try |
 | Graduated-coin buys: pool websocket, per-swap, same slot | built, needs Helius WS try |
 | Signals (runner/rug/bundle/crash/dead with reasons) | live, tested on synthetic shapes |
 | Own chart with vault/desk/your markers + floor | live |
