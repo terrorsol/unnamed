@@ -55,6 +55,7 @@ export default function Launch(p: Props) {
     <div className="kv"><span>Cost now</span><b className="num">{S(total, 2)} SOL</b></div>
     <div className="nm">dev buy {S(dev, 2)}{vaultBuy ? ` + vault buy ${S(vaultBuy, 2)}` : ''} + chest {S(chest, 2)} + {venue === 'launchlab' ? '0.1 pool rent' : '0.02 fees'}</div>
     <div className="kv"><span>Wallet</span><b className="num">{p.sol == null ? '—' : S(p.sol) + ' SOL'}</b></div>
+    <div className="nm">{chest > 0 ? 'Two signatures: the vault stake, then the create. The vault arms itself once the coin is on chain. ' : 'One signature. '}Phantom may show a "new domain" warning on this site — it is reputation, not the transaction.</div>
     <div className="row"><button className="btn" onClick={p.onClose}>Cancel</button><span className="sp" />
       <button className="btn pri" disabled={!!p.busy || (p.connected && (!ok || (p.sol != null && total > p.sol)))} onClick={() => !p.connected ? p.needWallet() : p.onLaunch({ name: name.trim(), symbol: symbol.trim(), description: desc.trim(), file, twitter: tw || undefined, telegram: tg || undefined, website: web || undefined }, dev, stake, copyOf?.mint, mode, ceiling, venue, venue === 'launchlab' && permTax, vaultBuy, pct)}>{p.busy || (!p.connected ? 'Connect wallet' : 'Create coin')}</button></div>
   </div></div>

@@ -172,9 +172,16 @@ export function CoinVault({ mint, v, isDev, onRenounce, solPrice, onMode }: { mi
   if (!v) return <div className="panel"><div className="note">No vault yet. Launch here with a stake and it's free, or <a href={'#/import/' + mint} style={{ textDecoration: 'underline' }}>import this coin and activate a vault</a> for 15 SOL (5 seeds the chest). Then vault your bag.</div></div>
   const last = v.activity.find((a) => ['capture', 'buy', 'bid', 'redeem', 'trim'].includes(a.kind))
   const floorUsd = v.floor * solPrice
+  const traded = (v.score?.captures || 0) + (v.score?.dips || 0) + (v.score?.deskFills || 0) > 0
+  // a vault that is funded but not armed yet: one line, no zero tiles. the server arms it on its own the moment the coin is on chain.
+  if (!v.armed) return <div className="panel" style={{ gap: 10 }}><div className="card" style={{ padding: 14 }}>
+    <div style={{ fontSize: 15, fontWeight: 600 }}>Vault funded · arming</div>
+    <div className="nm" style={{ marginTop: 4, fontSize: 12.5, lineHeight: 1.5 }}>{S(v.chest, 2)} SOL is in the vault wallet. The moment the coin is on chain the vault buys its {v.vaultBuySol ? S(v.vaultBuySol, 2) + ' SOL of ' : ''}supply and starts quoting — nothing to click. {v.activity[0]?.msg ? <span className="dim">Last: {v.activity[0].msg}</span> : null}</div>
+    <div className="nm" style={{ marginTop: 6 }}><a href={`https://solscan.io/account/${v.pub}`} target="_blank" rel="noreferrer">vault wallet ↗</a></div>
+  </div></div>
   return <div className="panel" style={{ gap: 10 }}>
     <div className="card" style={{ padding: 14 }}>
-      <div style={{ fontSize: 15, fontWeight: 600 }}>This coin has a vault</div>
+      <div style={{ fontSize: 15, fontWeight: 600 }}>This coin has a vault{!traded && <span className="tag live" style={{ marginLeft: 8 }}>LIVE · waiting for trades</span>}</div>
       <div className="nm" style={{ marginTop: 4, fontSize: 12.5, lineHeight: 1.5 }}>SOL and {v.symbol} owned by the holders. Buys dips, takes sellers off-chart, never cashes out.</div>
       <div className="tiles" style={{ marginTop: 10, gridTemplateColumns: v.venue === 'launchlab' ? 'repeat(4,1fr)' : 'repeat(3,1fr)' }}>
         <div className="tile"><div className="l">Floor</div><div className="v num"><Live v={floorUsd}>{floorUsd ? '$' + floorUsd.toPrecision(2) : '—'}</Live></div><div className="s">what every {v.symbol} is backed by right now</div></div>
@@ -185,7 +192,7 @@ export function CoinVault({ mint, v, isDev, onRenounce, solPrice, onMode }: { mi
       <div className="row" style={{ marginTop: 8 }}><span className="sp" /><button className="btn sm" onClick={() => setMore(!more)}>{more ? 'Less' : 'Details'}</button></div>
     </div>
     {more && <>
-    <VaultScore v={v} solPrice={solPrice} />
+    {traded && <VaultScore v={v} solPrice={solPrice} />}
     <div className="tiles" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>
       <div className="tile"><div className="l">Chest</div><div className="v num"><Live v={v.chest}>{S(v.chest)} SOL</Live></div><div className="s">buys dips, never withdraws</div></div>
       <div className="tile"><div className="l">Vault supply</div><div className="v num"><Live v={v.tokens}>{v.tokens.toLocaleString(undefined, { maximumFractionDigits: 0 })}</Live></div><div className="s">{v.pct}% target · avg {v.avgCost ? (v.avgCost * solPrice).toPrecision(3) : '—'} USD</div></div>
