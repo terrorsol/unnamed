@@ -20,7 +20,7 @@ a{color:inherit;text-decoration:none}button{font:inherit;color:inherit;backgroun
 .side .cap{font-size:10px;letter-spacing:.1em;color:var(--fg4);padding:14px 10px 4px;text-transform:uppercase}
 .side .foot{margin-top:auto;padding:10px;font-size:11px;color:var(--fg4);line-height:1.5}
 .main{padding:18px 22px 60px;min-width:0}
-.tiles{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+.tiles{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.tiles.four{grid-template-columns:repeat(4,1fr)}
 .tile{background:var(--s1);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
 .tile .l{font-size:10px;color:var(--fg3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.08em;font-weight:600}.tile .v{font-size:21px;font-weight:600;letter-spacing:-.02em}.tile .s{font-size:11px;color:var(--fg3);margin-top:3px}
 .row{display:flex;align-items:center;gap:10px}
@@ -64,11 +64,11 @@ th.r,td.r{text-align:right}td{padding:9px 12px;border-bottom:1px solid var(--lin
 .wallet-adapter-modal-title{color:var(--fg)!important}.wallet-adapter-modal-list .wallet-adapter-button{background:var(--s2)!important}
 .spark{width:84px;height:24px}
 .status{font-size:11px;color:var(--fg3);display:flex;align-items:center;gap:6px}.status i{width:6px;height:6px;border-radius:50%;background:var(--up);display:inline-block}.status i.off{background:var(--fg4)}
-@media(max-width:1000px){.body{grid-template-columns:1fr}.side{display:none}.tiles{grid-template-columns:repeat(2,1fr)}.lay{grid-template-columns:1fr}.chart{height:340px}.search{display:none}.qb{display:none}}
+@media(max-width:1000px){.body{grid-template-columns:1fr}.side{display:none}.tiles{grid-template-columns:repeat(2,1fr)}.tiles.four{grid-template-columns:repeat(2,1fr)}.lay{grid-template-columns:1fr}.chart{height:340px}.search{display:none}.qb{display:none}}
 .lay>*{min-width:0}.card{min-width:0}.main{overflow-x:hidden}
 .mnav{display:none}
 @media(max-width:1000px){
-  .main{padding:12px 12px 76px}.tiles{grid-template-columns:repeat(2,1fr)}.tiles .tile:nth-child(n+5){display:none}
+  .main{padding:12px 12px 76px}.tiles,.tiles.four{grid-template-columns:repeat(2,1fr)}.tiles .tile:nth-child(n+5){display:none}
   .lay>*:nth-child(2){order:-1} /* phone: buy/sell first, chart second */
   th:nth-child(3),td:nth-child(3),th:nth-child(7),td:nth-child(7),th:nth-child(8),td:nth-child(8){display:none}
   .top{gap:8px;padding:0 10px}.logo span{display:none}.btn{padding:0 10px}

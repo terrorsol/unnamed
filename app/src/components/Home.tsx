@@ -35,7 +35,7 @@ export default function Home(p: Props) {
       const offChartToday = fills24.reduce((a, f) => a + f.sol, 0) + tape.filter((a: any) => Date.now() - a.t < 86400000 && (a.kind === 'buy' || a.kind === 'bid')).reduce((a: number, x: any) => a + (x.sol || 0), 0)
       const avg = (xs: number[]) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null
       const vaultedCh = avg(ours.filter((x) => x.c).map((x) => x.c!.ch24)); const marketCh = avg(p.coins.map((c) => c.ch24))
-      return <div className="tiles" style={{ marginBottom: 12, gridTemplateColumns: 'repeat(4,1fr)' }}>
+      return <div className="tiles four" style={{ marginBottom: 12 }}>
         <div className="tile"><div className="l">Desks live</div><div className="v num"><Live v={desksLive}>{desksLive}</Live><span className="dim" style={{ fontSize: 13 }}> / {desks.length} open</span></div><div className="s status"><i className={p.deskUp ? '' : 'off'} />{p.deskUp ? 'desk online' : 'desk offline'}</div></div>
         <div className="tile"><div className="l">Vaults live</div><div className="v num"><Live v={p.vaults.filter((v) => v.armed).length}>{p.vaults.filter((v) => v.armed).length}</Live></div><div className="s num">{chest > 0 ? `${S(chest, 1)} SOL in chests · ${ours.filter((x) => x.sg?.label === 'RUNNER').length} running` : 'holder-owned market makers'}</div></div>
         <div className="tile"><div className="l">Off-chart volume today</div><div className="v num"><Live v={offChartToday}>{S(offChartToday, 1)} SOL</Live></div><div className="s num">{fills24.length} desk fills · ${S(offChartToday * p.solPrice, 0)}</div></div>
