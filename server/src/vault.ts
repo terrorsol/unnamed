@@ -145,11 +145,12 @@ export async function arm(id: string, mint: string, symbol: string, name = '', a
 /** Every 15s: a funded vault whose coin is on chain but which never armed (bundle dropped, arm never signed, tab closed) arms itself —
  *  the dev already authorized the launch; arm needs no second signature. Unfunded vaults older than 2h are dropped. */
 let armingNow = false
+const AUTOARM_SINCE = Date.parse('2026-10-28T18:00:00Z') // vaults from before this feature (the first live launch, refunded by hand) are left alone
 export async function autoArm() {
   if (armingNow || PAPER) return; armingNow = true
   try {
     for (const v of Object.values(vaults)) {
-      if (v.armed || v.imported || v.paper) continue
+      if (v.armed || v.imported || v.paper || v.createdAt < AUTOARM_SINCE) continue
       const funded = v.activity.filter((a) => a.kind === 'stake').reduce((a, x) => a + (x.sol || 0), 0)
       if (!v.mint) { if (Date.now() - v.createdAt > 2 * 3600_000 && funded === 0 && v.chest === 0) { delete vaults[v.id]; save() } continue }
       if (v.shared ? funded < v.stakeSol * 0.95 - 0.001 : false) continue
