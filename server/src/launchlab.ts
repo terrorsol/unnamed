@@ -9,6 +9,7 @@ import { Raydium, TxVersion, LAUNCHPAD_PROGRAM, LAUNCHPAD_PLATFORM, LaunchpadPoo
 import bs58 from 'bs58'
 import { createHash } from 'node:crypto'
 import { conn, RPC } from './chain.ts'
+import * as MP from './mintpool.ts'
 
 export const WSOL = new PublicKey('So11111111111111111111111111111111111111112')
 export const JITO_TIP = '96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5'
@@ -98,12 +99,13 @@ export async function buildLaunch(dev: PublicKey, meta: { name: string; symbol: 
   if (!platformId) throw new Error('no platform configured (PLATFORM_ADMIN)')
   // until our platform config is on chain (platform wallet funded → ensurePlatform), launches still go out under Raydium's own platform: no tax to the chest, but nothing blocks a launch
   if (platformId.equals(PLATFORM_ID!) && !platformExists) { const p = await platform(); if (p?.exists) platformExists = true; else platformId = LAUNCHPAD_PLATFORM }
-  const mintKp = Keypair.generate()
-  const r: any = await withOwner(dev, (r) => r.launchpad.createLaunchpad({
+  const { kp: mintKp, branded } = MP.next()
+  let r: any
+  try { r = await withOwner(dev, (r) => r.launchpad.createLaunchpad({
     programId: PROGRAM, platformId, mintA: mintKp.publicKey, decimals: 6, name: meta.name, symbol: meta.symbol.slice(0, 10), uri: meta.uri, migrateType: 'cpmm',
     configId: CONFIG_ID, buyAmount: new BN(Math.floor(devBuySol * 1e9)), createOnly: devBuySol <= 0, slippage: new BN(1000), txVersion: TxVersion.V0, extraSigners: [mintKp],
     computeBudgetConfig: { units: 600_000, microLamports: 100_000 }, ...launchOpts(permTax),
-  }))
+  })) } catch (e) { if (branded) MP.unuse(mintKp); throw e }
   const txs: VersionedTransaction[] = r.transactions
   for (const t of txs) { const keys = t.message.staticAccountKeys.map((k) => k.toBase58()); if (keys.includes(mintKp.publicKey.toBase58()) && t.message.header.numRequiredSignatures > 1) t.sign([mintKp]) }
   const z = quoteFresh(devBuySol)

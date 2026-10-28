@@ -12,6 +12,7 @@ import * as D from './desk.ts'
 import * as V from './vault.ts'
 import * as INV from './invite.ts'
 import * as EV from './events.ts'
+import * as MP from './mintpool.ts'
 import { TREASURY, RPC } from './chain.ts'
 import * as R from './rules.ts'
 import * as C from './chain.ts'
@@ -38,7 +39,7 @@ const server = createServer(async (req, res) => {
   try {
     // pubkey-shaped path params only
     for (const seg of [p.startsWith('/book/') && p.slice(6), p.startsWith('/vault/mint/') && p.slice(12), p.startsWith('/family/') && p.slice(8), p.startsWith('/vamp/') && p.slice(6), p.startsWith('/dev/') && p.slice(5), p.startsWith('/import/quote/') && p.slice(14)]) if (seg && !isPk(seg)) throw new Error('bad address')
-    if (p === '/health') return json(res, 200, { ok: true, gate: INV.GATE, invites: INV.stats(), rpc: RPC.replace(/api-key=.*/, 'api-key=…'), treasury: TREASURY, desk: D.stats(), vaults: V.list().length, vaultWallet: V.sharedPub(), stream: streamStats(), beta: { deskOnly: DESK_ONLY, paper: V.PAPER, importFeeSol: R.IMPORT_FEE_SOL, importSeedSol: R.IMPORT_SEED_SOL, keeper: KEEP.status(), feeBps: R.CROSS_FEE_BPS, maxChestSol: V.MAX_CHEST_SOL, pumpStream: !!process.env.PUMPPORTAL_KEY, ipfs: !!process.env.PINATA_JWT, landing: process.env.JITO === '1' ? 'jito' : C.FAST ? 'sender' : 'rpc', lastRoute: C.lastRoute } })
+    if (p === '/health') return json(res, 200, { ok: true, gate: INV.GATE, invites: INV.stats(), rpc: RPC.replace(/api-key=.*/, 'api-key=…'), treasury: TREASURY, desk: D.stats(), vaults: V.list().length, vaultWallet: V.sharedPub(), mints: MP.stats(), stream: streamStats(), beta: { deskOnly: DESK_ONLY, paper: V.PAPER, importFeeSol: R.IMPORT_FEE_SOL, importSeedSol: R.IMPORT_SEED_SOL, keeper: KEEP.status(), feeBps: R.CROSS_FEE_BPS, maxChestSol: V.MAX_CHEST_SOL, pumpStream: !!process.env.PUMPPORTAL_KEY, ipfs: !!process.env.PINATA_JWT, landing: process.env.JITO === '1' ? 'jito' : C.FAST ? 'sender' : 'rpc', lastRoute: C.lastRoute } })
     if (p === '/ask/quote' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await D.askQuote(b.askId, b.buyer, b.sol ? +b.sol : undefined)) }
     if (p === '/ask/fill' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await D.askFill(b.askId, b.buyer, b.tx, b.sol ? +b.sol : undefined)) }
     if (p === '/myasks') { const me = u.searchParams.get('me') || ''; if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(me)) return json(res, 400, { error: 'me' }); return json(res, 200, D.myAsks(me)) }
@@ -66,6 +67,7 @@ const server = createServer(async (req, res) => {
     if (p === '/invite/redeem' && req.method === 'POST') { const b = await readBody(req); const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0]; const rr = INV.redeem(String(b.code || ''), String(b.wallet || ''), String(b.msg || ''), String(b.sig || ''), ip); EV.log('gate', 'key redeemed', { wallet: rr.wallet }); return json(res, 200, rr) }
     if (p === '/invite/session' && req.method === 'POST') { const b = await readBody(req); const w = INV.session(String(b.token || '')); return json(res, w ? 200 : 401, w ? { ok: true, wallet: w } : { ok: false, gate: INV.GATE }) }
     if (p === '/admin/events' && req.method === 'GET') { if (!process.env.ADMIN_KEY || u.searchParams.get('key') !== process.env.ADMIN_KEY) return json(res, 403, { error: 'admin key' }); return json(res, 200, { stats: EV.stats(), events: EV.since(+(u.searchParams.get('since') || 0)).slice(-300) }) }
+    if (p === '/admin/mints' && req.method === 'POST') { if (!process.env.ADMIN_KEY || u.searchParams.get('key') !== process.env.ADMIN_KEY) return json(res, 403, { error: 'admin key' }); const b = await readBody(req); const out: any = { added: [], rejected: [] }; for (const k of (b.keys || [])) { try { out.added.push(MP.add(k)) } catch (e: any) { out.rejected.push(String(e.message).slice(0, 80)) } } return json(res, 200, { ...out, pool: MP.stats() }) }
     if (p === '/admin/wallet' && req.method === 'GET') { if (!process.env.ADMIN_KEY || u.searchParams.get('key') !== process.env.ADMIN_KEY) return json(res, 403, { error: 'admin key' }); return json(res, 200, await V.sharedAudit()) }
     if (p === '/invite/redeemed' && req.method === 'GET') { if (!process.env.ADMIN_KEY || u.searchParams.get('key') !== process.env.ADMIN_KEY) return json(res, 403, { error: 'admin key' }); return json(res, 200, INV.redeemed()) }
     if (p === '/waitlist' && req.method === 'POST') { const b = await readBody(req); const wallet = String(b.wallet || '').trim(); const x = String(b.x || '').trim().replace(/^@/, '').slice(0, 32)

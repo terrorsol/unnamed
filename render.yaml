@@ -25,6 +25,12 @@ services:
         sync: false   # fee wallet pubkey
       - key: VAULT_SECRET
         generateValue: true
+      - key: VAULT_KEY
+        sync: false   # base58 secret of the brand wallet (BANK…): every vault trades from it, so it is the top holder on every coin. Unset = one fresh key per vault
+      - key: MAX_CHEST_SOL
+        value: "2"    # beta: no chest holds more than this
+      - key: MINT_SUFFIX
+        value: "BANK" # launched mints end in this; pool fed by `npm run mints -- grind 50 push <url> <ADMIN_KEY>` from any machine with solana-keygen
       - key: PINATA_JWT
         sync: false   # pinata.cloud JWT for launch metadata (pump.fun/api/ipfs is dead)
       - key: PUMPPORTAL_KEY
