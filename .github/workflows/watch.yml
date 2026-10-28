@@ -25,7 +25,9 @@ jobs:
       - name: Mirror state
         run: |
           set -e
-          mkdir -p /tmp/pub && cd /tmp/pub && git init -q && git checkout -qb reports-live && git config user.name unnamed-ci && git config user.email ci@unnamed.local
+          R=https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+          (git clone -q --branch reports-live --single-branch --depth 1 $R /tmp/pub || (mkdir -p /tmp/pub && cd /tmp/pub && git init -q && git checkout -qb reports-live)) && cd /tmp/pub && git config user.name unnamed-ci && git config user.email ci@unnamed.local
+          rm -f invites.json
           end=$(( $(date +%s) + 345*60 ))
           while [ $(date +%s) -lt $end ]; do
             if curl -sf "$SERVER/health" -o health.json; then
@@ -36,6 +38,6 @@ jobs:
             else
               echo "$(date -u +%H:%M) server down" >> downtime.log
             fi
-            git add -A && (git diff --cached --quiet || (git commit -qm "state $(date -u +%H:%M)" && git push -qf https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git reports-live)) || true
+            git add -A && (git diff --cached --quiet || (git commit -qm "state $(date -u +%H:%M)" && (git pull -q --rebase -X theirs $R reports-live || true) && git push -q $R HEAD:reports-live)) || true
             sleep 120
           done

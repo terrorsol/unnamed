@@ -1,0 +1,67 @@
+name: Paper vault (mainnet prices, no SOL)
+# Runs the real vault policy against a live coin's real pool with a virtual chest (PAPER=1): every decision the bot would have made,
+# logged to reports-live/paper/<mint>.json every 2 min. Spends nothing, holds no keys. Dispatch with a mint, or let it pick an active coin.
+on:
+  workflow_dispatch:
+    inputs:
+      mint: { description: 'mint to paper-trade (blank = auto-pick an active solana coin)', required: false, default: '' }
+      chest: { description: 'virtual chest, SOL', required: false, default: '1' }
+      hours: { description: 'how long to run (max 5.5)', required: false, default: '2' }
+permissions:
+  contents: write
+concurrency:
+  group: paper
+  cancel-in-progress: true
+jobs:
+  paper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+        working-directory: server
+      - name: Pick a coin
+        id: pick
+        run: |
+          M="${{ github.event.inputs.mint }}"
+          if [ -z "$M" ]; then
+            M=$(node -e '
+              (async () => {
+                const r = await fetch("https://api.dexscreener.com/token-boosts/top/v1").then((x) => x.json());
+                const sol = r.filter((t) => t.chainId === "solana").slice(0, 25);
+                for (const t of sol) {
+                  const p = await fetch("https://api.dexscreener.com/token-pairs/v1/solana/" + t.tokenAddress).then((x) => x.json()).catch(() => []);
+                  const best = (p || []).sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
+                  const mc = best?.marketCap || best?.fdv || 0, liq = best?.liquidity?.usd || 0, v1 = best?.volume?.h1 || 0;
+                  if (mc > 100e3 && mc < 5e6 && liq > 20e3 && v1 > 10e3) { console.log(t.tokenAddress); return }
+                }
+                console.log(sol[0]?.tokenAddress || "")
+              })()')
+          fi
+          echo "mint=$M" >> $GITHUB_OUTPUT; echo "paper mint: $M"
+      - name: Run
+        working-directory: server
+        env:
+          PAPER: '1'
+          GATE: '0'
+          PORT: '8787'
+          DATA_DIR: ./data
+          VAMPS: '0'
+          RPC_URL: ${{ secrets.HELIUS_RPC || 'https://mainnet.helius-rpc.com/?api-key=1372a143-458e-4428-a1f2-aacb1e44bd1a' }}
+          MINT: ${{ steps.pick.outputs.mint }}
+        run: |
+          set -e
+          node --experimental-strip-types src/index.ts > server.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf localhost:8787/health >/dev/null && break; sleep 2; done
+          curl -sf -X POST localhost:8787/vault/paper -H 'content-type: application/json' -d "{\"mint\":\"$MINT\",\"chestSol\":${{ github.event.inputs.chest || '1' }}}" | head -c 600; echo
+          R=https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+          (git clone -q --branch reports-live --single-branch --depth 1 $R /tmp/pub || (mkdir -p /tmp/pub && cd /tmp/pub && git init -q && git checkout -qb reports-live)) && cd /tmp/pub && mkdir -p paper && git config user.name unnamed-ci && git config user.email ci@unnamed.local
+          H=${{ github.event.inputs.hours || '2' }}; end=$(( $(date +%s) + ${H%.*}*3600 + 60 )); [ $end -gt $(( $(date +%s) + 340*60 )) ] && end=$(( $(date +%s) + 340*60 ))
+          while [ $(date +%s) -lt $end ]; do
+            sleep 120
+            curl -sf "localhost:8787/vault/mint/$MINT" -o "paper/$MINT.json" || { echo 'server died'; tail -40 $GITHUB_WORKSPACE/server/server.log; break; }
+            git add -A && (git diff --cached --quiet || (git commit -qm "paper $(date -u +%H:%M)" && (git pull -q --rebase -X theirs $R reports-live || true) && git push -q $R HEAD:reports-live)) || true
+          done
+          echo '--- final ---'; curl -s "localhost:8787/vault/mint/$MINT" | head -c 3000; echo; tail -30 $GITHUB_WORKSPACE/server/server.log
