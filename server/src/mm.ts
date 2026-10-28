@@ -56,7 +56,7 @@ export function stopped(s: State, p: number, now: number, p_: Params = P): boole
 
 /** One price observation. Updates windows, EMAs, the day budget and the crash episode. Returns the drawdown the defense will use. */
 export function observe(s: State, p: number, now: number, p_: Params = P): { dd: number; high: number; episode: boolean } {
-  s.samples.push({ t: now, p, v: 1 }); s.samples = s.samples.filter((x) => now - x.t < 30 * 60_000)
+  (s.samples ||= []).push({ t: now, p, v: 1 }); s.samples = s.samples.filter((x) => now - x.t < 30 * 60_000); s.high15 ||= []; s.buyTimes ||= []; s.tranchesFired ||= []
   const sl = (s.samplesLong ||= []); if (!sl.length || now - sl[sl.length - 1].t >= 30_000) sl.push({ t: now, p, v: 1 }); s.samplesLong = sl.filter((x) => now - x.t < 2 * 3600_000)
   s.high15.push({ t: now, p }); s.high15 = s.high15.filter((x) => now - x.t < 15 * 60_000)
   s.ema5 = R.ema(s.ema5, p, 5); s.ema15 = R.ema(s.ema15, p, 15)
