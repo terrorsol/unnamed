@@ -1,4 +1,4 @@
-import { existsSync, createReadStream } from 'node:fs'
+import { existsSync, createReadStream, readFileSync, appendFileSync, mkdirSync } from 'node:fs'
 import { uploadMetadata } from './ipfs.ts'
 import * as VM from './vamp.ts'
 import * as KEEP from './keeper.ts'
@@ -24,6 +24,7 @@ function limited(ip: string, write: boolean) { const now = Date.now(); const k =
 setInterval(() => { const now = Date.now(); for (const [k, b] of buckets) if (now - b.t > 60_000) buckets.delete(k) }, 60_000)
 const isPk = (x: any) => typeof x === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(x)
 
+const wlSet = new Set<string>(); const wlIp = new Map<string, number[]>()
 const server = createServer(async (req, res) => {
   const u = new URL(req.url!, 'http://x'); const p = u.pathname
   if (req.method === 'OPTIONS') return json(res, 204, {})
@@ -56,6 +57,14 @@ const server = createServer(async (req, res) => {
     if (p === '/quote' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await D.quote(b.bidId, b.seller, b.sol ? +b.sol : undefined)) }
     if (p === '/fill' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await D.fill(b.bidId, b.seller, b.tx, b.sol ? +b.sol : undefined)) }
     if (p === '/vaults') return json(res, 200, V.list())
+    // waitlist (banker.cash landing): wallet + optional x handle → DATA_DIR/waitlist.jsonl. Open CORS, rate-limited per ip.
+    if (p === '/waitlist' && req.method === 'POST') { const b = await readBody(req); const wallet = String(b.wallet || '').trim(); const x = String(b.x || '').trim().replace(/^@/, '').slice(0, 32)
+      if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet)) return json(res, 400, { error: 'that is not a Solana address' })
+      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0]; const now = Date.now(); const h = wlIp.get(ip) || []; const recent = h.filter((t) => now - t < 3600_000); if (recent.length >= 20) return json(res, 429, { error: 'slow down' }); recent.push(now); wlIp.set(ip, recent)
+      const dir = process.env.DATA_DIR || './data'; const f = dir + '/waitlist.jsonl'; if (!wlSet.size && existsSync(f)) for (const l of readFileSync(f, 'utf8').split('\n')) { try { const e = JSON.parse(l); if (e.wallet) wlSet.add(e.wallet) } catch {} }
+      const fresh = !wlSet.has(wallet); if (fresh) { wlSet.add(wallet); try { mkdirSync(dir, { recursive: true }); appendFileSync(f, JSON.stringify({ t: now, wallet, x, ua: String(req.headers['user-agent'] || '').slice(0, 80) }) + '\n') } catch {} }
+      return json(res, 200, { ok: true, position: fresh ? wlSet.size : [...wlSet].indexOf(wallet) + 1, count: wlSet.size }) }
+    if (p === '/waitlist' && req.method === 'GET') { const dir = process.env.DATA_DIR || './data'; const f = dir + '/waitlist.jsonl'; if (!wlSet.size && existsSync(f)) for (const l of readFileSync(f, 'utf8').split('\n')) { try { const e = JSON.parse(l); if (e.wallet) wlSet.add(e.wallet) } catch {} } return json(res, 200, { count: wlSet.size }) }
     if (p.startsWith('/candles/')) { const mint = p.slice(9).replace(/[^1-9A-HJ-NP-Za-km-z]/g, ''); const tf = Math.max(5, Math.min(3600, +(u.searchParams.get('tf') || 60))); return json(res, 200, V.candles(mint, tf, Math.min(2000, +(u.searchParams.get('limit') || 300)))) }
     if (p.startsWith('/tape/')) { const f = (process.env.DATA_DIR || './data') + '/tape/' + p.slice(6).replace(/[^1-9A-HJ-NP-Za-km-z]/g, '') + '.jsonl'; if (!existsSync(f)) return json(res, 404, { error: 'no tape' }); res.writeHead(200, { 'content-type': 'application/x-ndjson', 'access-control-allow-origin': '*' }); return createReadStream(f).pipe(res) }
     if (p.startsWith('/vault/mint/')) return json(res, 200, V.byMint(p.slice(12)))

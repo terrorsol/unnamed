@@ -176,7 +176,7 @@ export function CoinVault({ mint, v, isDev, onRenounce, solPrice, onMode }: { mi
     <div className="card" style={{ padding: 14 }}>
       <div style={{ fontSize: 15, fontWeight: 600 }}>This coin has a vault</div>
       <div className="nm" style={{ marginTop: 4, fontSize: 12.5, lineHeight: 1.5 }}>SOL and {v.symbol} owned by the holders. Buys dips, takes sellers off-chart, never cashes out.</div>
-      <div className="tiles" style={{ marginTop: 10, gridTemplateColumns: 'repeat(3,1fr)' }}>
+      <div className="tiles" style={{ marginTop: 10, gridTemplateColumns: v.venue === 'launchlab' ? 'repeat(4,1fr)' : 'repeat(3,1fr)' }}>
         <div className="tile"><div className="l">Floor</div><div className="v num"><Live v={floorUsd}>{floorUsd ? '$' + floorUsd.toPrecision(2) : '—'}</Live></div><div className="s">what every {v.symbol} is backed by right now</div></div>
         <div className="tile"><div className="l">In the chest</div><div className="v num"><Live v={v.chest}>{S(v.chest, 1)} SOL</Live></div><div className="s">${S(v.chest * solPrice, 0)} · never withdrawn</div></div>
         {v.venue === 'launchlab' && <div className="tile"><div className="l">Tax collected</div><div className="v num"><Live v={v.taxClaimed || 0}>{S(v.taxClaimed || 0, 3)} SOL</Live></div><div className="s">every trade pays the chest</div></div>}
@@ -240,7 +240,7 @@ export function VaultExtras({ mint, v, holdingUi, decimals, connected, busy, onR
       <div className="nm">Burn tokens, take your share of the chest minus 7%. One tx.</div>
     </div>
     <div className="lbl" style={{ marginTop: 10 }}>Family {v.copyOf ? <span className="tag">COPY</span> : <span className="tag live">ORIGINAL</span>}</div>
-    {fam && fam.members.length > 1 ? <div className="card"><table><thead><tr><th>Coin</th><th className="r">MC</th><th className="r">Vol 1h</th><th className="r">Score</th><th className="r"></th></tr></thead><tbody>
+    {fam && Array.isArray(fam.members) && fam.members.length > 1 ? <div className="card"><table><thead><tr><th>Coin</th><th className="r">MC</th><th className="r">Vol 1h</th><th className="r">Score</th><th className="r"></th></tr></thead><tbody>
       {fam.members.map((m) => <tr key={m.mint} onClick={() => go('coin/' + m.mint)}><td className="tk">{m.symbol} {m.original && <span className="tag">ORIGINAL</span>} {m.leader && <span className="tag live">LEADER</span>}</td><td className="r num">{F(m.mcapUsd)}</td><td className="r num">{F(m.vol1h)}</td><td className="r num dim">{m.score ? m.score.toExponential(2) : '0'}</td><td className="r dim">{m.vault ? 'vault' : ''}</td></tr>)}
     </tbody></table></div> : <div className="nm">{v.copyOf ? `Copy of ${short(v.copyOf, 4)} — half of this vault's cut streams to the original's chest.` : 'No copies. Copies of this coin stream half their dev cut into this chest.'}</div>}
     {v.copyOf && <div className="kv" style={{ marginTop: 6 }}><span>Streamed to original</span><b className="num">{S(v.streamed || 0, 4)} SOL</b></div>}

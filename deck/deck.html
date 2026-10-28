@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>BANKER</title>
+<style>
+@page { size: 1920px 1080px; margin: 0 }
+* { box-sizing: border-box; margin: 0; padding: 0 }
+html, body { background: #000; color: #fff; font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased }
+.s { width: 1920px; height: 1080px; position: relative; overflow: hidden; page-break-after: always; padding: 96px 120px; background: #000 }
+.s:last-child { page-break-after: auto }
+h1, h2, h3 { font-family: 'Inter Display', 'Inter', system-ui, sans-serif; letter-spacing: -0.02em; line-height: 1.04 }
+h2 { font-size: 60px; font-weight: 700 }
+h3 { font-size: 30px; font-weight: 600 }
+p, li { font-size: 27px; line-height: 1.4; color: #cfcfcf }
+.kick { font-size: 19px; letter-spacing: .16em; text-transform: uppercase; color: #2bd46a; font-weight: 600; margin-bottom: 20px }
+.foot { position: absolute; left: 120px; right: 120px; bottom: 44px; display: flex; justify-content: space-between; font-size: 17px; color: #555; letter-spacing: .06em }
+.foot b { color: #fff; font-weight: 800; letter-spacing: .16em }
+.green { color: #2bd46a } .gold { color: #d4af37 } .red { color: #ff4d5e } .dim { color: #8a8a8a }
+.grid { display: grid; gap: 28px } .g3 { grid-template-columns: 1fr 1fr 1fr } .g4 { grid-template-columns: repeat(4, 1fr) }
+.card { background: #0d0d0d; border: 1px solid #262626; border-radius: 16px; padding: 36px }
+.card p { font-size: 23px }
+.stat { font-family: 'Inter Display', 'Inter', sans-serif; font-size: 120px; font-weight: 700; letter-spacing: -0.035em; line-height: 1; margin-bottom: 18px }
+.stat.small { font-size: 72px }
+.src { font-size: 16px; color: #555; margin-top: 12px }
+.shot { border: 1px solid #333; border-radius: 14px; overflow: hidden; background: #000; box-shadow: 0 30px 80px rgba(0,0,0,.6) }
+.shot img { display: block; width: 100% }
+.phone { border: 1px solid #333; border-radius: 34px; overflow: hidden; background: #000; box-shadow: 0 30px 80px rgba(0,0,0,.6) } .phone img { display: block; width: 100% }
+ul { list-style: none } li { padding-left: 32px; position: relative; margin-bottom: 18px } li::before { content: ''; position: absolute; left: 0; top: 15px; width: 11px; height: 11px; border-radius: 3px; background: #2bd46a }
+li b { color: #fff }
+table { border-collapse: collapse; width: 100% } th, td { text-align: left; padding: 20px 20px; border-bottom: 1px solid #262626; font-size: 25px } th { color: #777; font-weight: 600; font-size: 17px; letter-spacing: .12em; text-transform: uppercase } td.c, th.c { text-align: center } .yes { color: #2bd46a; font-weight: 700 } .no { color: #444 }
+.num { font-variant-numeric: tabular-nums }
+.flow { display: flex; align-items: center; gap: 22px } .flow .box { background: #0d0d0d; border: 1px solid #333; border-radius: 14px; padding: 28px 32px; font-size: 27px; font-weight: 600; text-align: center; min-width: 250px } .flow .box small { display: block; font-size: 19px; font-weight: 500; color: #8a8a8a; margin-top: 6px } .flow .arr { font-size: 44px; color: #2bd46a }
+.callout { position: absolute; background: #2bd46a; color: #000; font-weight: 700; font-size: 21px; padding: 11px 16px; border-radius: 9px; box-shadow: 0 10px 30px rgba(43,212,106,.35) }
+</style></head><body>
+
+<!-- 1 cover -->
+<section class="s" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:56px">
+  <img src="bank-mark.png" style="height:520px">
+  <div style="font-family:'Inter Display','Inter',sans-serif;font-size:96px;font-weight:800;letter-spacing:.22em">banker . cash</div>
+</section>
+
+<!-- solution -->
+<section class="s" style="display:flex;flex-direction:column;justify-content:center">
+  <div class="kick">banker.cash</div>
+  <h2 style="font-size:72px;max-width:1500px">A bank behind every coin.</h2>
+  <div class="grid g3" style="margin-top:72px">
+    <div class="card" style="padding:48px;min-height:380px"><div class="pill">01 · Vault</div><h3 style="margin-top:26px;font-size:36px">Market maker</h3><p style="margin-top:12px;font-size:25px">Holder-owned. Sells into pumps, buys dips, never withdraws.</p></div>
+    <div class="card" style="padding:48px;min-height:380px"><div class="pill">02 · Desk</div><h3 style="margin-top:26px;font-size:36px">OTC, off-chart</h3><p style="margin-top:12px;font-size:25px">Sell or buy a block in one on-chain transaction. No candle.</p></div>
+    <div class="card" style="padding:48px;min-height:380px"><div class="pill">03 · Vamp defense</div><h3 style="margin-top:26px;font-size:36px">Copies pay the original</h3><p style="margin-top:12px;font-size:25px">Clones are detected and their tax streams to the coin they copied.</p></div>
+  </div>
+  <p style="margin-top:56px;font-size:28px;color:#fff">Funded by 2% of every trade. Live from block zero. The dev pays 0.1 SOL.</p>
+  <div class="foot"><b>BANKER</b><span>2</span></div>
+</section>
+
+<!-- 4 product -->
+<section class="s" style="padding:72px 120px">
+  <div class="kick">banker.cash</div>
+  <div style="display:grid;grid-template-columns:1fr 400px;gap:56px;align-items:center;margin-top:8px">
+    <div class="shot" style="position:relative"><img src="c-home.png"></div>
+    <div class="phone"><img src="m-home.png"></div>
+  </div>
+  <div class="foot"><b>BANKER</b><span>3</span></div>
+</section>
+
+<!-- 5 vault -->
+<section class="s" style="padding:72px 120px">
+  <div style="display:grid;grid-template-columns:700px 1fr;gap:60px;align-items:center;height:100%">
+    <div>
+      <div class="kick">The Vault</div>
+      <h2 style="font-size:54px;margin-bottom:34px">A market maker the holders own.</h2>
+      <ul>
+        <li><b>Sells into pumps</b> when price stretches over VWAP.</li>
+        <li><b>Buys dips</b> in tranches, only under VWAP, from its own chest.</li>
+        <li><b>Stands on the desk</b> as buyer of last resort and no-fee seller at spot.</li>
+        <li><b>Never withdraws.</b> The dev is paid a cut of realized profit only.</li>
+        <li><b>Funded by the 2% tax</b>, not by the dev.</li>
+      </ul>
+    </div>
+    <div class="shot"><img src="c-vault.png"></div>
+  </div>
+  <div class="foot"><b>BANKER</b><span>4</span></div>
+</section>
+
+<!-- 6 why it holds -->
+<section class="s">
+  <div class="kick">Why it holds</div>
+  <h2 style="font-size:54px">Simulated against the people who will try to farm it.</h2>
+  <table style="margin-top:40px">
+    <tr><th>24h attack on a 30% vault with a 5 SOL chest</th><th class="c">Chest at its worst</th><th class="c">Attacker vs just holding</th></tr>
+    <tr><td>Pump 30 SOL every hour, dump to −50%</td><td class="c num"><span class="red">−89%</span> → <span class="green">−34%</span></td><td class="c num green">−12.2 SOL</td></tr>
+    <tr><td>Dump through every tranche, wait, buy back, repeat</td><td class="c num"><span class="red">−79%</span> → <span class="green">−46%</span></td><td class="c num green">−0.95 SOL</td></tr>
+    <tr><td>Sell a block to the vault, then dump the chart</td><td class="c num"><span class="red">−83%</span> → <span class="green">−23%</span></td><td class="c num green">−1.1 SOL</td></tr>
+    <tr><td>Wash-buy to trigger captures for an hour</td><td class="c num">0% → 0%</td><td class="c num green">vault +3 SOL chest</td></tr>
+  </table>
+  <p style="margin-top:36px;font-size:24px">Naive policy → shipped policy. Crash budgets anchor to the crash, not a rolling window. Dips above VWAP aren’t dips. One wallet behind the selling halves the budget. Toxic desk flow pulls the bid and bans the seller. Every signature passes a keeper with hard caps and no withdraw path.</p>
+  <div class="src">The simulator runs the same policy file the live bot runs.</div>
+  <div class="foot"><b>BANKER</b><span>5</span></div>
+</section>
+
+<!-- 7 desk -->
+<section class="s" style="padding:72px 120px">
+  <div style="display:grid;grid-template-columns:1fr 640px;gap:60px;align-items:center;height:100%">
+    <div class="shot"><img src="c-desk.png"></div>
+    <div>
+      <div class="kick">The OTC Desk</div>
+      <h2 style="font-size:54px;margin-bottom:34px">Sell a block. No candle.</h2>
+      <ul>
+        <li><b>One button.</b> Sell into the best bid, or buy the best offer.</li>
+        <li><b>Bids rest 1–15% under spot.</b> Offers either side. Block requests ping every holder.</li>
+        <li><b>Non-custodial.</b> One on-chain transaction, signed by both sides.</li>
+        <li><b>The vault is always quoting</b>, from block zero.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><b>BANKER</b><span>6</span></div>
+</section>
+
+<!-- 8 vamp -->
+<section class="s">
+  <div class="kick">Vamp defense</div>
+  <h2 style="font-size:54px">Copies feed the original.</h2>
+  <div class="flow" style="margin-top:90px">
+    <div class="box">Detector flags a copy<small>name · image · timing · creator · flow</small></div><div class="arr">→</div>
+    <div class="box" style="border-color:#ff4d5e;color:#ff4d5e">Copy’s tax<small>100% → the original’s chest</small></div><div class="arr">→</div>
+    <div class="box" style="border-color:#d4af37;color:#d4af37">Original’s floor rises<small>bigger bid, bigger chest</small></div><div class="arr">→</div>
+    <div class="box" style="border-color:#2bd46a;color:#2bd46a">Holders switch back at spot<small>off-chart, no fee</small></div>
+  </div>
+  <p style="margin-top:80px;font-size:28px;max-width:1500px">On every other platform the clone wins the attention and the original bleeds. Here the clone works for the original, and anyone who bought the clone has a way back that doesn’t touch the chart.</p>
+  <div class="foot"><b>BANKER</b><span>7</span></div>
+</section>
+
+<!-- 9 launch -->
+<section class="s" style="padding:72px 120px">
+  <div style="display:grid;grid-template-columns:1fr 600px;gap:60px;align-items:center;height:100%">
+    <div class="shot"><img src="c-coin.png"></div>
+    <div>
+      <div class="kick">Launching</div>
+      <h2 style="font-size:54px;margin-bottom:34px">Name, ticker, image.</h2>
+      <ul>
+        <li><b>Raydium LaunchLab</b> under the BANKER platform config. The 2% is enforced by Raydium’s program.</li>
+        <li><b>Price and chart from the pool</b>, from the first block. No indexer.</li>
+        <li><b>The vault is free.</b> Pick a supply target; the tax builds it. Or buy it in the launch block.</li>
+        <li><b>Every terminal already lists LaunchLab pools.</b> Launching here costs no eyes.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><b>BANKER</b><span>8</span></div>
+</section>
+
+<!-- why -->
+<section class="s">
+  <div class="kick">Why it is needed</div>
+  <h2>Memecoins die by design. The numbers:</h2>
+  <div class="grid g3" style="margin-top:56px">
+    <div class="card" style="padding:48px"><div class="stat red">98.6%</div><p>of pump.fun tokens show pump-and-dump or rug behaviour</p><div class="src">Solidus Labs · 7M tokens · 2025</div></div>
+    <div class="card" style="padding:48px"><div class="stat">&lt;1.4%</div><p>ever reach $1,000 of liquidity</p><div class="src">Solidus Labs · 2025</div></div>
+    <div class="card" style="padding:48px"><div class="stat green">$100M</div><p>of launchpad volume every day. Huge, and still broken.</p><div class="src">The Block · Oct 2025</div></div>
+  </div>
+  <div class="grid g3" style="margin-top:44px">
+    <h3>The dev gets paid by dumping on holders.</h3>
+    <h3>Every exit is a red candle on the chart.</h3>
+    <h3>Copycats drain the original within minutes.</h3>
+  </div>
+  <div class="foot"><b>BANKER</b><span>9</span></div>
+</section>
+
+<!-- more -->
+<section class="s">
+  <div class="kick">Also shipping</div>
+  <h2 style="font-size:54px">The same machinery, more ways in.</h2>
+  <div class="grid g3" style="margin-top:44px">
+    <div class="card"><h3>Import any coin</h3><p>A vault for a coin launched elsewhere: pay the fee, or let the community crowd-fund a takeover.</p></div>
+    <div class="card"><h3>Burn-to-redeem</h3><p>Any holder can burn tokens for their pro-rata share of the chest. The floor is real, not implied.</p></div>
+    <div class="card"><h3>Block requests</h3><p>Name a size and a max loss; resting bids sweep it and every holder gets pinged for two minutes.</p></div>
+    <div class="card"><h3>Vault deposits</h3><p>Holders add SOL or tokens to the chest. Bigger bid, bigger dip buys, same rules.</p></div>
+    <div class="card"><h3>Dev cut, renounceable</h3><p>The creator earns a % of realized vault profit and can renounce it on chain in one click.</p></div>
+    <div class="card"><h3>Terminal built in</h3><p>In-app wallet, quick buy, charts from the pool, runner signals, phone-first. Phantom and Solflare too.</p></div>
+  </div>
+  <div class="foot"><b>BANKER</b><span>10</span></div>
+</section>
+
+<!-- revenue -->
+<section class="s">
+  <div class="kick">Revenue · SOL at $180</div>
+  <h2 style="font-size:54px">Every stream, at three sizes.</h2>
+  <table style="margin-top:28px">
+    <tr><th>Per year</th><th>How</th><th class="c">Early<br><span style="font-weight:400;letter-spacing:0;text-transform:none">1,000 launches/yr · $1M vol/day</span></th><th class="c">Growth<br><span style="font-weight:400;letter-spacing:0;text-transform:none">10,000 launches/yr · $10M vol/day</span></th><th class="c">Scale<br><span style="font-weight:400;letter-spacing:0;text-transform:none">50,000 launches/yr · $50M vol/day</span></th></tr>
+    <tr><td>Tax share</td><td>10% of the 2% on every curve trade</td><td class="c num">$0.73M</td><td class="c num">$7.3M</td><td class="c num">$36.5M</td></tr>
+    <tr><td>Desk</td><td>0.5% of SOL crossed · 10% of volume goes off-chart</td><td class="c num">$0.18M</td><td class="c num">$1.8M</td><td class="c num">$9.1M</td></tr>
+    <tr><td>Graduation LP</td><td>0.25% pool fee on graduated volume, locked LP is ours · 30% of volume</td><td class="c num">$0.27M</td><td class="c num">$2.7M</td><td class="c num">$13.7M</td></tr>
+    <tr><td>Vault performance</td><td>10% of realized market-maker profit · avg 0.3 SOL/vault/day · 20% of launches stay active</td><td class="c num">$0.39M</td><td class="c num">$3.9M</td><td class="c num">$19.7M</td></tr>
+    <tr><td>Imports</td><td>2.5 SOL flat per imported coin · imports = 10% of launches</td><td class="c num">$0.05M</td><td class="c num">$0.45M</td><td class="c num">$2.3M</td></tr>
+    <tr style="background:#0d0d0d"><td><b style="color:#fff">Total</b></td><td></td><td class="c num green" style="font-weight:700;font-size:30px">$1.6M</td><td class="c num green" style="font-weight:700;font-size:30px">$16M</td><td class="c num green" style="font-weight:700;font-size:30px">$81M</td></tr>
+  </table>
+  <div class="src">Volume = trades on BANKER-launched coins. For scale: all Solana launchpads together clear ~$100M/day; pump.fun alone books ~$1M/day in fees (The Block, Oct 2025). Tax share, desk and import fees are live today; graduation LP and vault performance fee are switches in the config.</div>
+  <div class="foot"><b>BANKER</b><span>11</span></div>
+</section>
+
+<!-- 10 comparison -->
+<section class="s">
+  <div class="kick">Nobody ships this</div>
+  <h2 style="font-size:54px">What a coin gets, automatically.</h2>
+  <table style="margin-top:36px">
+    <tr><th></th><th class="c">BANKER</th><th class="c">pump.fun</th><th class="c">LaunchLab pads</th><th class="c">Meteora DBC pads</th></tr>
+    <tr><td>Holder-owned market maker with a chest</td><td class="c yes">●</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
+    <tr><td>Off-chart OTC desk, non-custodial</td><td class="c yes">●</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
+    <tr><td>Copycat detection that pays the original</td><td class="c yes">●</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
+    <tr><td>Trade fee into the coin’s own treasury</td><td class="c yes">● 2%</td><td class="c no">to creator</td><td class="c no">to platform / burn</td><td class="c no">to creator / platform</td></tr>
+    <tr><td>Dev paid from profit, not from selling supply</td><td class="c yes">●</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
+    <tr><td>Exact price &amp; chart from block zero</td><td class="c yes">●</td><td class="c yes">●</td><td class="c no">indexer</td><td class="c no">indexer</td></tr>
+    <tr><td>Bring an existing coin</td><td class="c yes">●</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
+  </table>
+  <div class="foot"><b>BANKER</b><span>12</span></div>
+</section>
+
+<!-- 12 close -->
+<section class="s" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:48px">
+  <img src="bank-mark.png" style="height:380px;opacity:.9">
+  <div style="font-family:'Inter Display','Inter',sans-serif;font-size:80px;font-weight:800;letter-spacing:.22em">banker . cash</div>
+  <div style="font-size:30px;color:#8a8a8a;letter-spacing:.08em">the bank that never closes · @bankerdotcash</div>
+</section>
+</body></html>
