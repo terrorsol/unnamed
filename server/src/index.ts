@@ -11,6 +11,7 @@ import { PublicKey } from '@solana/web3.js'
 import * as D from './desk.ts'
 import * as V from './vault.ts'
 import * as INV from './invite.ts'
+import * as EV from './events.ts'
 import { TREASURY, RPC } from './chain.ts'
 import * as R from './rules.ts'
 import * as C from './chain.ts'
@@ -62,8 +63,9 @@ const server = createServer(async (req, res) => {
     if (p === '/fill' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await D.fill(b.bidId, b.seller, b.tx, b.sol ? +b.sol : undefined)) }
     if (p === '/vaults') return json(res, 200, V.list())
     // waitlist (banker.cash landing): wallet + optional x handle → DATA_DIR/waitlist.jsonl. Open CORS, rate-limited per ip.
-    if (p === '/invite/redeem' && req.method === 'POST') { const b = await readBody(req); const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0]; return json(res, 200, INV.redeem(String(b.code || ''), String(b.wallet || ''), String(b.msg || ''), String(b.sig || ''), ip)) }
+    if (p === '/invite/redeem' && req.method === 'POST') { const b = await readBody(req); const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0]; const rr = INV.redeem(String(b.code || ''), String(b.wallet || ''), String(b.msg || ''), String(b.sig || ''), ip); EV.log('gate', 'key redeemed', { wallet: rr.wallet }); return json(res, 200, rr) }
     if (p === '/invite/session' && req.method === 'POST') { const b = await readBody(req); const w = INV.session(String(b.token || '')); return json(res, w ? 200 : 401, w ? { ok: true, wallet: w } : { ok: false, gate: INV.GATE }) }
+    if (p === '/admin/events' && req.method === 'GET') { if (!process.env.ADMIN_KEY || u.searchParams.get('key') !== process.env.ADMIN_KEY) return json(res, 403, { error: 'admin key' }); return json(res, 200, { stats: EV.stats(), events: EV.since(+(u.searchParams.get('since') || 0)).slice(-300) }) }
     if (p === '/invite/redeemed' && req.method === 'GET') { if (!process.env.ADMIN_KEY || u.searchParams.get('key') !== process.env.ADMIN_KEY) return json(res, 403, { error: 'admin key' }); return json(res, 200, INV.redeemed()) }
     if (p === '/waitlist' && req.method === 'POST') { const b = await readBody(req); const wallet = String(b.wallet || '').trim(); const x = String(b.x || '').trim().replace(/^@/, '').slice(0, 32)
       if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet)) return json(res, 400, { error: 'that is not a Solana address' })
@@ -99,7 +101,7 @@ const server = createServer(async (req, res) => {
     if (p === '/vault/mode' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, V.setMode(b.id, b.dev, b.mode, b.ceiling != null ? +b.ceiling : undefined)) }
     if (p === '/vault/renounce' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, V.renounce(b.id, b.dev)) }
     json(res, 404, { error: 'not found' })
-  } catch (e: any) { json(res, 400, { error: String(e.message || e) }) }
+  } catch (e: any) { if (req.method === 'POST') EV.log('error', `${p}: ${String(e.message || e)}`, { ip: String(req.headers['x-forwarded-for'] || '').split(',')[0] }); json(res, 400, { error: String(e.message || e) }) }
 })
 
 // Bidders hold a websocket: auth by signing a message, then place/cancel/refresh; fills are relayed here for co-signing.
@@ -128,7 +130,7 @@ wss.on('connection', (ws: WebSocket) => {
       if (m.type === 'rfq_respond') return send({ type: 'rfq_responded', rfq: await D.rfqRespond(ws, who, m.rfqId, +m.discBps, +m.sol) })
       if (m.type === 'filled') return D.settle(m.bidId, true, m.sig)
       if (m.type === 'reject') return D.settle(m.bidId, false, undefined, m.err)
-    } catch (e: any) { send({ type: 'error', error: String(e.message || e), re: m?.type }) }
+    } catch (e: any) { if (m?.type !== 'auth') EV.log('ws-error', `${m?.type}: ${String(e.message || e)}`, { who: who.slice(0, 8) }); send({ type: 'error', error: String(e.message || e), re: m?.type }) }
   })
   ws.on('close', () => D.dropSocket(ws))
 })

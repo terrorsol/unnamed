@@ -6,6 +6,7 @@ import { conn, confirm, tokenProgram } from './chain.ts'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import type { WebSocket } from 'ws'
 import * as R from './rules.ts'
+import * as EV from './events.ts'
 import { market } from './market.ts'
 import { balanceSol, decimals, TREASURY, tokenBalance } from './chain.ts'
 import { verifyFill } from './verify.ts'
@@ -27,7 +28,7 @@ const pubBid = (b: Bid, me?: string) => ({ id: b.id, mint: b.mint, symbol: b.sym
 const DIR = process.env.DATA_DIR || './data'; const HF = DIR + '/fills.json'
 export type Fill = { t: number; mint: string; symbol: string; seller: string; bidder: string; sol: number; discBps: number; tokens: number; sig: string; vault: boolean }
 let fills: Fill[] = []; try { if (existsSync(HF)) fills = JSON.parse(readFileSync(HF, 'utf8')) } catch {}
-function recordFill(f: Fill) { fills.unshift(f); fills = fills.slice(0, 2000); try { mkdirSync(DIR, { recursive: true }); writeFileSync(HF, JSON.stringify(fills)) } catch {} }
+function recordFill(f: Fill) { EV.log('fill', `${f.symbol} ${f.sol} SOL at −${(f.discBps / 100).toFixed(1)}%${f.vault ? ' (vault)' : ''}`, { mint: f.mint, sol: f.sol, sig: f.sig }); fills.unshift(f); fills = fills.slice(0, 2000); try { mkdirSync(DIR, { recursive: true }); writeFileSync(HF, JSON.stringify(fills)) } catch {} }
 export const history = (mint?: string) => (mint ? fills.filter((f) => f.mint === mint) : fills).slice(0, 100).map((f) => ({ ...f, seller: alias(f.seller), bidder: f.vault ? 'vault' : alias(f.bidder) }))
 export function leaderboard(me?: string) {
   const by: Record<string, { wallet: string; soldSol: number; boughtSol: number; fills: number; saved: number }> = {}

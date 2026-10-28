@@ -13,6 +13,7 @@ import { watchPool, streamStats } from './stream.ts'
 import * as KEEP from './keeper.ts'
 import * as VM from './vamp.ts'
 import * as MM from './mm.ts'
+import * as EV from './events.ts'
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
 
@@ -84,7 +85,7 @@ export async function arm(id: string, mint: string, symbol: string, name = '', a
   // after a block-zero bundle half the stake is already in tokens, so the SOL check is against the other half
   const bundled = v.activity.some((a) => (a.msg || '').startsWith('signed block-zero'))
   const buy = v.vaultBuySol ?? v.stakeSol * 0.5; const bal = await balanceSol(v.pub); if (bal < (bundled ? (v.stakeSol - buy) * 0.8 : v.stakeSol * 0.95)) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL`)
-  v.mint = mint; v.symbol = symbol; v.name = name; v.armed = true; v.chest = bal; VM.watch(mint); try { const sup = await conn.getTokenSupply(new PublicKey(mint)); v.supply = +(sup.value.uiAmount || 1e9) } catch {} v.activity.unshift({ t: Date.now(), kind: 'stake', sol: bal, msg: 'dev stake received' })
+  v.mint = mint; v.symbol = symbol; v.name = name; v.armed = true; v.chest = bal; VM.watch(mint); try { const sup = await conn.getTokenSupply(new PublicKey(mint)); v.supply = +(sup.value.uiAmount || 1e9) } catch {} v.activity.unshift({ t: Date.now(), kind: 'stake', sol: bal, msg: 'dev stake received' }); EV.log('vault', `${symbol} armed · chest ${bal.toFixed(3)} SOL`, { mint, id })
   // seed: the block-zero buy (skipped when the vault already bought in the bundle, or when the launch is tax-funded: no buy, the bot accumulates)
   const seed = +Math.min(buy, bal - 0.05).toFixed(4)
   if (seed < 0.05) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: `tax-funded: no block-zero buy, accumulating toward ${v.pct}% under VWAP` }); save(); return pub(v) }
@@ -245,7 +246,7 @@ export async function onBuy(v: Vault, solIn: number, m: any, p: number, now: num
     const sig = await trade(v, 'sell', `${Math.max(1, Math.round(sellFrac * 100))}%`, false, p)
     await sync(v); const got = v.chest - before
     v.score.captured += got; v.score.captures++
-    v.activity.unshift({ t: now, kind: 'capture', sol: got, tokens, price: p, sig, msg: `countered a ${solIn.toFixed(2)} SOL buy · ${Math.round(frac * 100)}% · stretch +${Math.round((p / R.vwap(v.samples) - 1) * 100)}%` })
+    v.activity.unshift({ t: now, kind: 'capture', sol: got, tokens, price: p, sig, msg: `countered a ${solIn.toFixed(2)} SOL buy · ${Math.round(frac * 100)}% · stretch +${Math.round((p / R.vwap(v.samples) - 1) * 100)}%` }); EV.log('vault', `${v.symbol} capture ${got.toFixed(3)} SOL`, { mint: v.mint, sig })
     const profit = got - v.avgCost * tokens; const cut = v.cut > 0 ? Math.max(0, profit) * (v.cut / 100) : 0
     await payCut(v, cut, now, 'capture profit')
   } catch (e: any) { v.activity.unshift({ t: now, kind: 'note', msg: 'capture failed: ' + String(e.message).slice(0, 80) }) }
@@ -320,7 +321,7 @@ async function tickOne(v: Vault) {
         const before = v.tokens; const sig = await trade(v, 'buy', spend, true, p)
         await sync(v); const got = v.tokens - before; MM.onDefended(v, spend, got, level, now)
         v.score.dipBought += spend; v.score.dips++; v.score.redeployed += spend
-        v.activity.unshift({ t: now, kind: 'buy', sol: spend, tokens: got, price: p, sig, msg: `tranche ${level + 1} · ${(dd * 100).toFixed(0)}% from high` })
+        v.activity.unshift({ t: now, kind: 'buy', sol: spend, tokens: got, price: p, sig, msg: `tranche ${level + 1} · ${(dd * 100).toFixed(0)}% from high` }); EV.log('vault', `${v.symbol} dip buy ${spend} SOL (tranche ${level + 1})`, { mint: v.mint, sig })
       }
       // tax-funded vault: under its supply target → small buys under VWAP from the chest (the 2% tax keeps refilling it)
       else if ((() => { const a = MM.accumulate(v, m, p, now); if (a) (v as any)._acc = a; return !!a })()) {
@@ -339,7 +340,7 @@ async function tickOne(v: Vault) {
         const profit = got - v.avgCost * (v.tokens * frac / (1 - frac)); const cut = v.cut > 0 ? Math.max(0, profit) * (v.cut / 100) : 0
         await payCut(v, cut, now, 'trim profit')
       }
-      } catch (e: any) { v.activity.unshift({ t: now, kind: 'note', msg: 'trade failed: ' + String(e.message || e).slice(0, 100) }) }
+      } catch (e: any) { v.activity.unshift({ t: now, kind: 'note', msg: 'trade failed: ' + String(e.message || e).slice(0, 100) }); EV.log('error', `${v.symbol} vault trade failed: ${String(e.message || e).slice(0, 120)}`, { mint: v.mint }) }
       // standing switch offer: a slice of the vault's tokens at spot, fee 0 — the off-chart way INTO this coin for anyone leaving a vamp. Only when the desk is open.
       try {
         if (v.mode === 'mm' && v.tokens > 0 && R.deskOpen(m) && !PAPER) { const mb = R.minBlockSol(m); const want = +Math.max(Math.min(v.tokens * 0.1 * p, v.chest * 2), mb).toFixed(3)
@@ -354,7 +355,7 @@ async function tickOne(v: Vault) {
       } catch {}
       v.ddPrev = ddNow
       if (v.activity.length > 200) v.activity.length = 200
-    } catch (e: any) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: String(e.message || e).slice(0, 120) }) }
+    } catch (e: any) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: String(e.message || e).slice(0, 120) }); EV.log('error', `${v.symbol || v.id} tick: ${String(e.message || e).slice(0, 120)}`, { mint: v.mint }) }
     finally { inflight.delete(v.id) }
   }
 }
