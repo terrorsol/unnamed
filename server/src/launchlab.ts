@@ -64,13 +64,16 @@ export async function platform(): Promise<{ id: string; exists: boolean; feeRate
 }
 let platformExists = false
 /** Self-setup: when the server key is the admin and the platform config is not on chain yet, create it as soon as the platform wallet can pay the rent (~0.006 SOL + fee). Returns the signature or null. */
+let platformRetryAt = 0
 export async function ensurePlatform(): Promise<string | null> {
-  if (platformExists || !SELF_ADMIN || !PLATFORM_ID) return null
+  if (platformExists || !SELF_ADMIN || !PLATFORM_ID || Date.now() < platformRetryAt) return null
   const p = await platform(); if (p?.exists) { platformExists = true; return null }
   const kp = platformKeypair(); const bal = (await conn.getBalance(kp.publicKey).catch(() => 0)) / 1e9; if (bal < 0.012) return null
-  const { tx } = await buildPlatformTx(kp.publicKey); const vt = VersionedTransaction.deserialize(Buffer.from(tx, 'base64')); vt.sign([kp])
-  const sig = await conn.sendRawTransaction(vt.serialize(), { skipPreflight: false, maxRetries: 3 }); await conn.confirmTransaction(sig, 'confirmed').catch(() => {})
-  platformExists = !!(await platform())?.exists; console.log(`launchlab platform ${platformExists ? 'created' : 'create sent'} ${PLATFORM_ID.toBase58()} · ${sig}`); return sig
+  try {
+    const { tx } = await buildPlatformTx(kp.publicKey); const vt = VersionedTransaction.deserialize(Buffer.from(tx, 'base64')); vt.sign([kp])
+    const sig = await conn.sendRawTransaction(vt.serialize(), { skipPreflight: false, maxRetries: 3 }); await conn.confirmTransaction(sig, 'confirmed').catch(() => {})
+    platformExists = !!(await platform())?.exists; console.log(`launchlab platform ${platformExists ? 'created' : 'create sent'} ${PLATFORM_ID.toBase58()} · ${sig}`); return sig
+  } catch (e) { platformRetryAt = Date.now() + 600_000; throw e }   // a failed attempt (RPC down, reference platform unreadable) waits 10 min, not 60 s
 }
 /** one-time: the admin's wallet signs this. Fee wallet / NFT wallet = our platform key. Fee rates in 1e-6 units (bps × 100). */
 export async function buildPlatformTx(admin: PublicKey): Promise<{ tx: string; platformId: string }> {

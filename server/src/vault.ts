@@ -310,6 +310,8 @@ async function tickOne(v: Vault) {
       // pump curve coins without the PumpPortal stream, and launchlab coins until the websocket attaches: the pool read every tick is the buy detector
       const curveNoStream = m.onCurve && (!process.env.PUMPPORTAL_KEY || ((m as any).venue === 'launchlab' && !llStreaming))
       if (m.liqSol && ((!m.onCurve && (!watched.has(v.id) || !streamStats().connected)) || curveNoStream)) { if (v.lastLiq && now - v.lastLiqT < 20000) { const inflow = m.liqSol - v.lastLiq; if (inflow >= R.MM_MIN_BUY_SOL) await onBuy(v, inflow, m, p, now) } v.lastLiq = m.liqSol; v.lastLiqT = now }
+      // a failed trade (rpc down, pumpportal unreachable) must not skip the quoting below: the action block has its own catch
+      try {
       // defense: tranches at −20 / −35 / −50 from the high the crash started at (mm.ts: episode anchor, day cap, pool-impact cap, seller-concentration check, cooldown)
       const dec = MM.defense(v, m, p, now, dd, MM.sellerShare(recent(v.mint), now))
       if (dec) {
@@ -337,6 +339,7 @@ async function tickOne(v: Vault) {
         const profit = got - v.avgCost * (v.tokens * frac / (1 - frac)); const cut = v.cut > 0 ? Math.max(0, profit) * (v.cut / 100) : 0
         await payCut(v, cut, now, 'trim profit')
       }
+      } catch (e: any) { v.activity.unshift({ t: now, kind: 'note', msg: 'trade failed: ' + String(e.message || e).slice(0, 100) }) }
       // standing switch offer: a slice of the vault's tokens at spot, fee 0 — the off-chart way INTO this coin for anyone leaving a vamp. Only when the desk is open.
       try {
         if (v.mode === 'mm' && v.tokens > 0 && R.deskOpen(m) && !PAPER) { const mb = R.minBlockSol(m); const want = +Math.max(Math.min(v.tokens * 0.1 * p, v.chest * 2), mb).toFixed(3)

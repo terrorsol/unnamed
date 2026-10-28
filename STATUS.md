@@ -23,7 +23,7 @@
 5. Desk e2e: two checks updated for the 25% vault bid — 20 min.
 6. Vesting-based free vault supply (LaunchLab `totalLockedAmount`, unlocks after graduation) — 1 day, needs the custom-curve params verified on mainnet. Nice-to-have; tax-funded already removes the friction.
 7. TP/SL orders, mobile polish on the Pro desk — 1 day.
-8. v2 own program (sell-only tax, non-custodial chests, lifts the 25 SOL cap) — 4–6 weeks + audit. Only after beta volume.
+8. v2: sell-only tax via a token-2022 **transfer hook** (rules live in the token, run on every dex: tax sells to the chest, refuse transfers to flagged vamps, launch caps) — ~300 lines, 1–2 weeks + a small audit. LaunchLab only allows the transfer-fee extension, so hooks mean launching on Meteora DBC (what hookedpad.com does) or our own curve. Non-custodial chests remain the bigger program, after beta volume.
 
 ## Cheapest way to be live for beta
 

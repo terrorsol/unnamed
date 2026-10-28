@@ -36,7 +36,7 @@ const mock = createServer(async (req, res) => {
 }).listen(4390)
 const srv = createServer((req, res) => { let p = join(DIST, req.url.split('?')[0]); if (!existsSync(p) || p.endsWith('/')) p = join(DIST, 'index.html'); res.setHeader('content-type', MIME[extname(p)] || 'application/octet-stream'); res.end(readFileSync(p)) }).listen(4191)
 // ---- real desk server ----
-const proc = spawn('node', ['--experimental-strip-types', 'src/index.ts'], { cwd: process.env.E2E_SERVER || __r(HERE, '../../server'), env: { ...process.env, DEV_AUTH: '0', PORT: '4192', RPC_URL: 'http://localhost:4390', DEX_URL: 'http://localhost:4390', TREASURY, DATA_DIR: SC + '/vdata2' }, stdio: ['ignore', 'pipe', 'pipe'] })
+const proc = spawn('node', ['--experimental-strip-types', 'src/index.ts'], { cwd: process.env.E2E_SERVER || __r(HERE, '../../server'), env: { ...process.env, DEV_AUTH: '0', PORT: '4192', RPC_URL: 'http://localhost:4390', DEX_URL: 'http://localhost:4390', TREASURY, DATA_DIR: SC + '/vdata2', PUMPPORTAL_URL: 'http://localhost:4390' }, stdio: ['ignore', 'pipe', 'pipe'] })
 proc.stdout.on('data', (d) => process.stdout.write('[srv] ' + d)); proc.stderr.on('data', (d) => process.stdout.write('[srv!] ' + d))
 await new Promise((r) => setTimeout(r, 2500))
 const errs = []; const chk = (n, ok) => { console.log((ok ? 'PASS ' : 'FAIL ') + n); if (!ok) errs.push(n) }
@@ -106,6 +106,7 @@ chk('vault armed with chest', armed.armed === true && armed.chest === 5)
 await new Promise((r) => setTimeout(r, 7000))
 const book = await (await fetch('http://localhost:4192/book/' + MINT)).json()
 const vb = book.bids.find((b) => b.vault)
+{ const vp = await (await fetch('http://localhost:4192/vault/mint/' + MINT)).json(); console.log('VAULT', JSON.stringify({ chest: vp.chest, tokens: vp.tokens, pct: vp.pct, deskBid: vp.deskBid, acts: vp.activity.slice(0, 8).map((a) => a.kind + ':' + (a.msg || '').slice(0, 90)) })) }
 chk('vault bid resting on desk ≈ −4% (±0.5) ≈ 25% chest (±10%)', !!vb && vb.discBps >= 350 && vb.discBps <= 450 && vb.sol >= 1.1 && vb.sol <= 1.4)
 // redeem quote: 500000 tokens of 1e9 supply × 5 SOL × 0.93
 const rq = await (await fetch('http://localhost:4192/redeem/quote', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mint: MINT, tokens: 500000 }) })).json()

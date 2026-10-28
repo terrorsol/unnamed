@@ -23,7 +23,8 @@ export const P = {
   defendBelowVwap: 1.02,
   accumulateFrac: 0.10,                        // tax-funded vault: when under its supply target, spend ≤10% of the chest per buy, under VWAP, every ≥2 min
   accumulateEveryMs: 120_000,
-  accumulateMinChest: 0.3,                       // a dip is only bought under the 30-min and 2-hour VWAP (a −20% dip from a +300% pump is not a dip)                         // false = legacy behaviour (rolling 15-min high only), kept for the simulator's before/after
+  accumulateMinChest: 0.3,
+  accumulateDayFrac: 0.25,                     // accumulation has its own day budget so it never starves the desk bid or the crash defense                       // a dip is only bought under the 30-min and 2-hour VWAP (a −20% dip from a +300% pump is not a dip)                         // false = legacy behaviour (rolling 15-min high only), kept for the simulator's before/after
 }
 export type Params = typeof P
 
@@ -33,7 +34,7 @@ export type State = {
   samples: { t: number; p: number; v: number }[]; samplesLong?: { t: number; p: number; v: number }[]; high15: { t: number; p: number }[]; ema5: number | null; ema15: number | null
   spentEpisode: number; tranchesFired: number[]; levelJit?: number; ddPrev?: number; lastBuy: number
   epHigh?: number; epStart?: number; cooldownUntil?: number
-  dayKey?: number; dayDefense?: number; dayChest0?: number; trimmedToday: number; trimDay: number
+  dayKey?: number; dayDefense?: number; dayAccum?: number; dayChest0?: number; trimmedToday: number; trimDay: number
   buyTimes: number[]; nextCaptureAt?: number; lastCapture: number
   deskPauseUntil?: number; lastDeskFill?: { t: number; p: number; seller?: string } | null; toxicEvents?: number[]; denied?: Record<string, number>
 }
@@ -47,7 +48,7 @@ export function observe(s: State, p: number, now: number, p_: Params = P): { dd:
   const sl = (s.samplesLong ||= []); if (!sl.length || now - sl[sl.length - 1].t >= 30_000) sl.push({ t: now, p, v: 1 }); s.samplesLong = sl.filter((x) => now - x.t < 2 * 3600_000)
   s.high15.push({ t: now, p }); s.high15 = s.high15.filter((x) => now - x.t < 15 * 60_000)
   s.ema5 = R.ema(s.ema5, p, 5); s.ema15 = R.ema(s.ema15, p, 15)
-  const day = Math.floor(now / 86400000); if (day !== s.dayKey) { s.dayKey = day; s.dayDefense = 0; s.dayChest0 = s.chest }
+  const day = Math.floor(now / 86400000); if (day !== s.dayKey) { s.dayKey = day; s.dayDefense = 0; s.dayAccum = 0; s.dayChest0 = s.chest }
   if (day !== s.trimDay) { s.trimDay = day; s.trimmedToday = 0 }
   // desk toxicity: a block bought off-chart, then the chart drops → the seller was dumping into us. Pull the bid for a while.
   // Each event doubles the pause (15 → 30 → 60 min …) and the seller is refused the vault's bids for 24h.
@@ -102,12 +103,12 @@ export function accumulate(s: State, m: Market, p: number, now: number, p_: Para
   if (s.chest < p_.accumulateMinChest || now - s.lastBuy < p_.accumulateEveryMs || now < (s.cooldownUntil || 0)) return null
   const target = s.pct || 0; if (target <= 0 || vaultedPct(s) >= target * 0.98) return null
   const ref = Math.min(R.vwap(s.samples), R.vwap(s.samplesLong || s.samples)); if (!ref || p > ref * p_.defendBelowVwap) return null
-  const dayRoom = Math.max(0, Math.max(s.dayChest0 ?? 0, s.chest) * p_.defenseDayFrac - (s.dayDefense || 0))
+  const dayRoom = Math.max(0, Math.max(s.dayChest0 ?? 0, s.chest) * p_.accumulateDayFrac - (s.dayAccum || 0))
   const impactRoom = m.liqSol > 0 ? m.liqSol * p_.poolImpactMax : Infinity
   const spend = +Math.min(s.chest * p_.accumulateFrac * (0.8 + rnd * 0.4), s.chest - 0.02, dayRoom, impactRoom).toFixed(4)
   return spend >= p_.minBuySol ? spend : null
 }
-export function onAccumulated(s: State, spend: number, got: number, now: number) { s.avgCost = (s.avgCost * (s.tokens - got) + spend) / Math.max(s.tokens, 1e-9); s.dayDefense = (s.dayDefense || 0) + spend; s.lastBuy = now }
+export function onAccumulated(s: State, spend: number, got: number, now: number) { s.avgCost = (s.avgCost * (s.tokens - got) + spend) / Math.max(s.tokens, 1e-9); s.dayAccum = (s.dayAccum || 0) + spend; s.lastBuy = now }
 /** Book a defense buy that landed. */
 export function onDefended(s: State, spend: number, got: number, level: number, now: number, p_: Params = P) {
   if (!s.epHigh && p_.episodeAnchor) { s.epHigh = Math.max(...s.high15.map((x) => x.p)); s.epStart = now }
