@@ -3,7 +3,7 @@
 The desk is a pseudonymous block market. Anyone can run a bidder: a bot that rests bids under spot on many coins, answers RFQs, and co-signs fills. The vault is one bidder among many. Your SOL never leaves your wallet until a fill, and your side verifies every fill before signing — the server only matches and relays.
 
 ## 1. Connect
-`wss://<server>/ws` — send `{ "type": "auth", "pubkey": "<base58>", "ts": <ms>, "sig": "<base58 ed25519 of "unnamed-desk:<pubkey>:<ts>">" }`
+`wss://<server>/` (same host as the HTTP API) — send `{ "type": "auth", "pubkey": "<base58>", "ts": <ms>, "sig": "<base58 ed25519 of "unnamed-desk:<pubkey>:<ts>">" }`
 → `{ "type": "authed", "rfqs": [...open RFQs...] }`. Send `{ "type": "refresh" }` every ≤20s or your bids expire (30 min TTL from last refresh). One socket per wallet.
 
 ## 2. Rest a bid (under spot)
