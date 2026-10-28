@@ -5,7 +5,7 @@ import nacl from 'tweetnacl'
 import bs58 from 'bs58'
 import { confirmByPolling } from './rpc'
 
-export const SERVER = (import.meta as any).env?.VITE_SERVER_URL || localStorage.getItem('unnamed_server') || 'https://unnamed-server.up.railway.app'
+export const SERVER = (import.meta as any).env?.VITE_SERVER_URL || localStorage.getItem('unnamed_server') || 'https://unnamed-server.onrender.com'
 const WS = SERVER.replace(/^http/, 'ws')
 export type BookBid = { id: string; mint: string; symbol: string; sol: number; discBps: number; placedAt: number; restable: boolean; status: string; bidder: string; mine: boolean }
 export type Book = { open: boolean; minBlock: number | null; market: any; bids: BookBid[]; rules: { discMin: number; discMax: number; restMs: number; feeBps: number; gateUsd: number } }
