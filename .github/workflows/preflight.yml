@@ -17,6 +17,6 @@ jobs:
       - name: Preflight every live integration against mainnet (simulate only)
         working-directory: server
         env:
-          RPC_URL: ${{ secrets.HELIUS_RPC }}
+          RPC_URL: ${{ secrets.HELIUS_RPC || 'https://mainnet.helius-rpc.com/?api-key=1372a143-458e-4428-a1f2-aacb1e44bd1a' }}
           JUP_KEY: ${{ secrets.JUP_KEY }}
         run: node --experimental-strip-types scripts/preflight.ts
