@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "node --experimental-strip-types src/index.ts",
-    "test": "node --experimental-strip-types --test test/*.test.mjs"
+    "test": "node --experimental-strip-types --test test/*.test.mjs",
+    "smoke": "node --experimental-strip-types scripts/smoke.ts"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.8",
@@ -14,5 +15,7 @@
     "tweetnacl": "^1.0.3",
     "ws": "^8.18.0"
   },
-  "engines": { "node": ">=22.6" }
+  "engines": {
+    "node": ">=22.6"
+  }
 }

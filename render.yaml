@@ -1,0 +1,29 @@
+# One-click deploy: https://render.com/deploy?repo=https://github.com/terrorsol/unnamed
+# Starter instance (always-on; the MM bot must not sleep) + 1GB disk at /data for vault keys, fills, tapes.
+services:
+  - type: web
+    name: unnamed-server
+    runtime: docker
+    rootDir: server
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    region: ohio
+    healthCheckPath: /health
+    autoDeploy: true
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DATA_DIR
+        value: /data
+      - key: PORT
+        value: "10000"
+      - key: RPC_URL
+        sync: false   # Helius mainnet URL (paste at deploy)
+      - key: TREASURY
+        sync: false   # fee wallet pubkey
+      - key: VAULT_SECRET
+        generateValue: true
+      - key: JITO
+        value: "0"    # 1 = vault trades as Jito bundles via PumpPortal bundle mode (default: Helius Sender)
