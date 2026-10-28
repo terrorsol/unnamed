@@ -10,7 +10,8 @@
     "test": "node --experimental-strip-types --test test/*.test.mjs",
     "postinstall": "node -e \"const fs=require('fs');for(const d of ['@solana/wallet-adapter-react','@solana-mobile/mobile-wallet-adapter-protocol-web3js','@solana-mobile/wallet-standard-mobile']){try{fs.rmSync('node_modules/'+d+'/node_modules/@types',{recursive:true,force:true})}catch{}}\"",
     "backtest": "node --experimental-strip-types scripts/backtest.mjs",
-    "replay": "node --experimental-strip-types scripts/replay.mjs"
+    "replay": "node --experimental-strip-types scripts/replay.mjs",
+    "scrape": "node --experimental-strip-types scripts/scrape.mjs"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.8",
