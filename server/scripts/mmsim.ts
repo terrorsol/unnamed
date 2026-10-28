@@ -42,7 +42,7 @@ function vaultTick(w: World, t: number) {
 function vaultOnBuy(w: World, sol: number, t: number) {
   const m = w.pool.market(t); const px = m.priceSol; w.s.chest = w.chest.v
   const tok = MM.capture(w.s, m, px, sol, t, w.p); if (tok <= 0) return
-  const got = w.pool.sell(tok, 'VAULT', t, w.chest); w.s.tokens -= tok; w.chest.v += got; MM.onCaptured(w.s, tok, t); w.stats.captures++
+  const got = w.pool.sell(tok, 'VAULT', t, w.chest); w.s.tokens -= tok; w.chest.v += got; MM.onCaptured(w.s, tok, t, got); w.stats.captures++
 }
 /** someone sells a block into the vault's desk bid at −4% */
 function deskSell(w: World, tokens: number, t: number, who = 'ATK'): number {
@@ -101,6 +101,12 @@ const deskDumper = (bagPct: number) => { const A = { sol: 0, tok: 0, spent: 0, t
   else if (A.tok < (bagPct / 200) * 1e9 && A.sol > 1 && t - last > 120000) { const sol = Math.min(A.sol * 0.5, 3); A.tok += w.pool.buy(sol, 'ATK', t, w.chest); A.sol -= sol; vaultOnBuy(w, sol, t) }
 } ; return { agent, pnl: (w: World) => A.sol + A.tok * w.pool.price * 0.9775 - (A.tok0 * w.pool.price * 0.9775 - A.spent), A } }
 
+/** bleeder: buys a bag at launch and sells it evenly over N hours, never buys back — the coin goes to ~zero and stays there */
+const bleeder = (bagPct: number, hours: number) => { const A = { tok: 0, sol: 0, tok0: 0 }; let bought = false; const agent: Agent = (t, w) => {
+  if (!bought) { const want = (bagPct / 100) * 1e9; let sol = 0, lo = 0, hi = 100; for (let i = 0; i < 30; i++) { sol = (lo + hi) / 2; const net = sol * 0.9775; const out = w.pool.vA - (w.pool.vA * w.pool.vB) / (w.pool.vB + net); if (out > want) hi = sol; else lo = sol } A.tok += w.pool.buy(sol, 'BLEED', t, w.chest); A.tok0 = A.tok; A.sol -= sol; vaultOnBuy(w, sol, t); bought = true; return }
+  const per = A.tok0 / (hours * 3600_000 / TICK); if (A.tok > 0 && t % (TICK * 6) === 0) { const step = Math.min(A.tok, per * 6); A.tok -= step; A.sol += w.pool.sell(step, 'BLEED', t, w.chest) }
+}; return { agent, pnl: (w: World) => A.sol + A.tok * w.pool.price * 0.9775, A } }
+
 function run(name: string, p: MM.Params, agents: Agent[], pnl?: (w: World) => number) {
   rng = mulberry(SEED); Math.random = () => rng()
   const pool = new Pool(); const chest = { v: 0 }
@@ -120,6 +126,7 @@ function run(name: string, p: MM.Params, agents: Agent[], pnl?: (w: World) => nu
 
 const NEW = MM.P
 const NONE: MM.Params = { ...MM.P, captureOn: false, defenseEpisodeFrac: 0, deskBidFrac: 0 }
+const NOSTOP: MM.Params = { ...MM.P, maxDrawdown: 0 }
 const OLD: MM.Params = { ...MM.P, defendBelowVwap: 100, episodeAnchor: false, defenseDayFrac: 100, episodeCooldownMs: 0, poolImpactMax: 100, toxicSellerShare: 2, deskBidFrac: 0.6, deskToxicDrop: 2 }
 const scenarios: [string, () => { agents: Agent[]; pnl?: (w: World) => number }][] = [
   ['calm organic', () => ({ agents: [organic(0)] })],
@@ -130,9 +137,11 @@ const scenarios: [string, () => { agents: Agent[]; pnl?: (w: World) => number }]
   ['capture farmer 1h wash', () => { const a = captureFarmer(1); return { agents: [organic(0), a.agent], pnl: a.pnl } }],
   ['pump cycler 30 SOL hourly', () => { const a = pumpCycler(30); return { agents: [organic(0), a.agent], pnl: a.pnl } }],
   ['desk dumper 10% bag', () => { const a = deskDumper(10); return { agents: [organic(0), a.agent], pnl: a.pnl } }],
+  ['death spiral: 30% bag sold over 6h, volume fades', () => { const a = bleeder(30, 6); return { agents: [organic(-0.3, 0.1, 60), a.agent], pnl: a.pnl } }],
+  ['slow bleed: 30% bag sold over 48h', () => { const a = bleeder(30, 48); return { agents: [organic(-0.3, 0.06), a.agent], pnl: a.pnl } }],
 ]
 const rows: any[] = []
-for (const [name, mk] of scenarios) for (const [pn, p] of [['no vault', NONE], ['old', OLD], ['new', NEW]] as const) { const sc = mk(); rows.push({ policy: pn, ...run(name, p, sc.agents, sc.pnl) }) }
+for (const [name, mk] of scenarios) for (const [pn, p] of [['no vault', NONE], ['old', OLD], ['new·nostop', NOSTOP], ['new', NEW]] as const) { const sc = mk(); rows.push({ policy: pn, ...run(name, p, sc.agents, sc.pnl) }) }
 const f = (x: number, d = 1) => (Number.isFinite(x) ? x.toFixed(d) : '—')
 console.log(`# mm sim · ${HOURS}h · vault ${PCT}% supply (${f(rows[0].vsol, 1)} SOL) + ${CHEST} SOL chest · seed ${SEED}`)
 console.log('| scenario | policy | chest | tax in | mm own P&L | worst chest | worst NAV | tokens | price | NAV | defenses | accum | captures | desk fills | attacker edge vs hold |')

@@ -229,7 +229,9 @@ export default function App() {
       if (vault) {
         // fund the vault first so it can buy in block zero (skipped when retrying with an already-funded vault)
         if (!pend || pend.v.id !== vault.id) { setBusy('Funding vault…'); const t = new Transaction().add(SystemProgram.transfer({ fromPubkey: x.owner, toPubkey: new PublicKey(vault.pub), lamports: Math.floor(stake * 1e9) })); t.feePayer = x.owner; t.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
-        const st = await signLegacy(t); const s2 = await connection.sendRawTransaction(st.serialize()); await confirmByPolling(connection, s2); pendingVault.current = { v: vault, dev: ws.owner, stake, venue } }
+        const st = await signLegacy(t); const s2 = await connection.sendRawTransaction(st.serialize()); await confirmByPolling(connection, s2); pendingVault.current = { v: vault, dev: ws.owner, stake, venue }
+          // the server books the stake from the tx itself (one brand wallet holds every chest, so it can't read a deposit off the balance); retried until the tx is indexed
+          for (let i = 0; i < 8; i++) { try { await K.vaultFund(vault.id, s2); break } catch (e: any) { if (i === 7) throw new Error('stake sent but not booked: ' + String(e?.message || e).slice(0, 80)); await new Promise((r) => setTimeout(r, 1500)) } } }
         const r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, vault, buy, { sendBundle: K.sendBundle, signMsg, permTax }) : await T.launchBlockZero(x, meta, dev, vault, buy, { bundleSign: K.bundleSign, sendBundle: K.sendBundle, signMsg }); sig = r.sig; mint = r.mint; bundled = r.bundled
       } else { const r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, null, 0, { sendBundle: K.sendBundle, permTax }) : await T.launch(x, meta, dev); sig = r.sig; mint = r.mint }
       pendingVault.current = null; recordCreate(ws.owner, mint, meta.symbol, dev, sig); setLedgerV((v) => v + 1); setLaunch(false)

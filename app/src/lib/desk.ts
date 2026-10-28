@@ -193,6 +193,7 @@ export async function devAuth(signMsg: (m: Uint8Array) => Promise<Uint8Array>, a
   const msg = `unnamed:${action}:${vaultId}:${mint}:${Math.floor(Date.now() / 60000)}`
   return { msg, sig: bs58.encode(await signMsg(new TextEncoder().encode(msg))) }
 }
+export const vaultFund = (id: string, sig: string): Promise<VaultPub> => j('/vault/fund', { id, sig })
 export const vaultArm = (id: string, mint: string, symbol: string, name = '', auth?: DevAuth): Promise<VaultPub> => j('/vault/arm', { id, mint, symbol, name, auth })
 export const vaultRenounce = (id: string, dev: string): Promise<VaultPub> => j('/vault/renounce', { id, dev })
 export const vaultByMint = (mint: string): Promise<VaultPub | null> => j('/vault/mint/' + mint)

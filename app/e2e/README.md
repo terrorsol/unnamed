@@ -9,5 +9,3 @@ Real app build + real server, with RPC / DexScreener / PumpPortal mocked on :439
     node e2e/importtest.mjs   # 16: import a live coin, community takeover, treasury
 
 `VAMPS=0` disables the vamp scanner (it needs the network). Each run wipes `app/.e2e-tmp`.
-
-- `gatetest.mjs` — private beta gate against the real server with GATE=1: 401 without a session, key redeemed in the UI with the in-app wallet, same key refused for a second wallet, reload keeps the session (15 checks).

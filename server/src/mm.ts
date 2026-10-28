@@ -24,7 +24,8 @@ export const P = {
   accumulateFrac: 0.10,                        // tax-funded vault: when under its supply target, spend ≤10% of the chest per buy, under VWAP, every ≥2 min
   accumulateEveryMs: 120_000,
   accumulateMinChest: 0.3,
-  accumulateDayFrac: 0.25,                     // accumulation has its own day budget so it never starves the desk bid or the crash defense                       // a dip is only bought under the 30-min and 2-hour VWAP (a −20% dip from a +300% pump is not a dip)                         // false = legacy behaviour (rolling 15-min high only), kept for the simulator's before/after
+  accumulateDayFrac: 0.25,                     // accumulation has its own day budget so it never starves the desk bid or the crash defense
+  maxDrawdown: 0.35,                           // drawdown stop: the mm leg (dip buys, desk fills, accumulation − captures) down ≥35% on what it deployed → no new buys, desk bid halved and deep, until it is back at break-even. 0 = off                       // a dip is only bought under the 30-min and 2-hour VWAP (a −20% dip from a +300% pump is not a dip)                         // false = legacy behaviour (rolling 15-min high only), kept for the simulator's before/after
 }
 export type Params = typeof P
 
@@ -37,10 +38,21 @@ export type State = {
   dayKey?: number; dayDefense?: number; dayAccum?: number; dayChest0?: number; trimmedToday: number; trimDay: number
   buyTimes: number[]; nextCaptureAt?: number; lastCapture: number
   deskPauseUntil?: number; lastDeskFill?: { t: number; p: number; seller?: string } | null; toxicEvents?: number[]; denied?: Record<string, number>
+  mmSpent?: number; mmGot?: number; mmTok?: number; stoppedAt?: number
 }
 export type Market = { priceSol: number; mcapUsd: number; liqSol: number; vol1h?: number }
 
 export const vaultedPct = (s: State) => (s.supply ? (s.tokens / s.supply) * 100 : 0)
+/** P&L of the mm leg only (SOL spent on dip buys / desk fills / accumulation vs SOL got back from captures, plus the tokens it still holds at p). The block-zero seed is not part of it. */
+export const mmPnl = (s: State, p: number) => (s.mmGot || 0) - (s.mmSpent || 0) + Math.max(0, s.mmTok || 0) * p
+/** drawdown stop: true while the mm leg is down ≥ maxDrawdown of what it deployed; clears at break-even. Guards defense, accumulation and (half) the desk bid. */
+export function stopped(s: State, p: number, now: number, p_: Params = P): boolean {
+  if (!(p_.maxDrawdown > 0) || !(s.mmSpent! > 0)) return false
+  const pnl = mmPnl(s, p)
+  if (s.stoppedAt) { if (pnl >= 0) { s.stoppedAt = undefined; return false } return true }
+  if (pnl <= -s.mmSpent! * p_.maxDrawdown) { s.stoppedAt = now; return true }
+  return false
+}
 
 /** One price observation. Updates windows, EMAs, the day budget and the crash episode. Returns the drawdown the defense will use. */
 export function observe(s: State, p: number, now: number, p_: Params = P): { dd: number; high: number; episode: boolean } {
@@ -82,7 +94,7 @@ export function sellerShare(tape: Swap[], now: number, p_: Params = P): number {
 
 /** Defense decision for this tick: how much SOL to spend buying the dip, and which tranche. null = nothing. */
 export function defense(s: State, m: Market, p: number, now: number, dd: number, sellerConc = 0, p_: Params = P, rnd = Math.random()): { spend: number; level: number } | null {
-  if (now < (s.cooldownUntil || 0) || now - s.lastBuy <= 15000) return null
+  if (now < (s.cooldownUntil || 0) || now - s.lastBuy <= 15000 || stopped(s, p, now, p_)) return null
   const toxic = sellerConc >= p_.toxicSellerShare
   if (s.levelJit == null) s.levelJit = 0
   const levels = toxic ? R.DEFENSE_TRANCHES.slice(0, 2) : R.DEFENSE_TRANCHES
@@ -100,7 +112,7 @@ export function defense(s: State, m: Market, p: number, now: number, dd: number,
 }
 /** Accumulation for a vault that started with less supply than its target (tax-funded launch): buy under VWAP, small, slow. null = nothing. */
 export function accumulate(s: State, m: Market, p: number, now: number, p_: Params = P, rnd = Math.random()): number | null {
-  if (s.chest < p_.accumulateMinChest || now - s.lastBuy < p_.accumulateEveryMs || now < (s.cooldownUntil || 0)) return null
+  if (s.chest < p_.accumulateMinChest || now - s.lastBuy < p_.accumulateEveryMs || now < (s.cooldownUntil || 0) || stopped(s, p, now, p_)) return null
   const target = s.pct || 0; if (target <= 0 || vaultedPct(s) >= target * 0.98) return null
   const ref = Math.min(R.vwap(s.samples), R.vwap(s.samplesLong || s.samples)); if (!ref || p > ref * p_.defendBelowVwap) return null
   const dayRoom = Math.max(0, Math.max(s.dayChest0 ?? 0, s.chest) * p_.accumulateDayFrac - (s.dayAccum || 0))
@@ -108,12 +120,12 @@ export function accumulate(s: State, m: Market, p: number, now: number, p_: Para
   const spend = +Math.min(s.chest * p_.accumulateFrac * (0.8 + rnd * 0.4), s.chest - 0.02, dayRoom, impactRoom).toFixed(4)
   return spend >= p_.minBuySol ? spend : null
 }
-export function onAccumulated(s: State, spend: number, got: number, now: number) { s.avgCost = (s.avgCost * (s.tokens - got) + spend) / Math.max(s.tokens, 1e-9); s.dayAccum = (s.dayAccum || 0) + spend; s.lastBuy = now }
+export function onAccumulated(s: State, spend: number, got: number, now: number) { s.avgCost = (s.avgCost * (s.tokens - got) + spend) / Math.max(s.tokens, 1e-9); s.dayAccum = (s.dayAccum || 0) + spend; s.lastBuy = now; s.mmSpent = (s.mmSpent || 0) + spend; s.mmTok = (s.mmTok || 0) + got }
 /** Book a defense buy that landed. */
 export function onDefended(s: State, spend: number, got: number, level: number, now: number, p_: Params = P) {
   if (!s.epHigh && p_.episodeAnchor) { s.epHigh = Math.max(...s.high15.map((x) => x.p)); s.epStart = now }
   s.avgCost = (s.avgCost * (s.tokens - got) + spend) / Math.max(s.tokens, 1e-9)
-  s.spentEpisode += spend; s.dayDefense = (s.dayDefense || 0) + spend; s.lastBuy = now; (s.tranchesFired ||= []).push(level)
+  s.spentEpisode += spend; s.dayDefense = (s.dayDefense || 0) + spend; s.lastBuy = now; (s.tranchesFired ||= []).push(level); s.mmSpent = (s.mmSpent || 0) + spend; s.mmTok = (s.mmTok || 0) + got
 }
 
 /** Capture decision when a buy of `solIn` lands: tokens to sell into it. 0 = let it run. */
@@ -129,17 +141,18 @@ export function capture(s: State, m: Market, p: number, solIn: number, now: numb
   if (tokens * p < 0.05) return 0
   return tokens
 }
-export function onCaptured(s: State, tokens: number, now: number) { s.trimmedToday += tokens; s.lastCapture = now; s.nextCaptureAt = now + 3000 + Math.random() * 6000 }
+export function onCaptured(s: State, tokens: number, now: number, solGot = 0) { s.trimmedToday += tokens; s.lastCapture = now; s.nextCaptureAt = now + 3000 + Math.random() * 6000; if (solGot > 0) { s.mmGot = (s.mmGot || 0) + solGot; s.mmTok = (s.mmTok || 0) - tokens } }
 
 /** Standing desk bid size (SOL) for this tick; 0 = no bid (paused after toxic flow, or too small). */
-export function deskBid(s: State, minBlock: number, now: number, p_: Params = P, rnd = Math.random()): number {
+export function deskBid(s: State, minBlock: number, now: number, p_: Params = P, rnd = Math.random(), p = s.samples.at(-1)?.p || 0): number {
   if (now < (s.deskPauseUntil || 0) || p_.deskBidFrac <= 0) return 0
+  const halve = stopped(s, p, now, p_) ? 0.5 : 1
   // desk fills count against the same day budget as dip buys: together ≤50% of the chest the day started with
   const dayRoom = Math.max(0, Math.max(s.dayChest0 ?? 0, s.chest) * p_.defenseDayFrac - (s.dayDefense || 0))
-  const want = +Math.min(Math.max(s.chest * p_.deskBidFrac * (0.9 + rnd * 0.2), minBlock), dayRoom).toFixed(3)
+  const want = +Math.min(Math.max(s.chest * p_.deskBidFrac * halve * (0.9 + rnd * 0.2), minBlock), dayRoom).toFixed(3)
   if (want < 0.2 || s.chest * 0.7 < want) return 0
   return want
 }
-export function onDeskFill(s: State, sol: number, tokens: number, p: number, now: number, seller?: string) { s.dayDefense = (s.dayDefense || 0) + sol; const before = s.tokens; s.avgCost = (s.avgCost * before + sol) / Math.max(before + tokens, 1e-9); s.lastDeskFill = { t: now, p, seller } }
+export function onDeskFill(s: State, sol: number, tokens: number, p: number, now: number, seller?: string) { s.dayDefense = (s.dayDefense || 0) + sol; const before = s.tokens; s.avgCost = (s.avgCost * before + sol) / Math.max(before + tokens, 1e-9); s.lastDeskFill = { t: now, p, seller }; s.mmSpent = (s.mmSpent || 0) + sol; s.mmTok = (s.mmTok || 0) + tokens }
 /** a wallet that dumped the chart right after selling the vault a block is refused the vault's bids for a day */
 export function deskDenied(s: State, wallet: string, now: number) { return (s.denied?.[wallet] || 0) > now }
