@@ -42,8 +42,9 @@ export default function CoinPage(p: Props) {
     try {
       if (!cc.onCurve && p.desk.deskUp && sizeSol > 0.2) {
         const book = await K.getBook(cc.mint, p.desk.owner)
-        const best = book.bids.filter((b) => !b.mine && b.restable && b.discBps < impact && b.sol <= sizeSol * 1.02).sort((a, b) => a.discBps - b.discBps)[0]
-        if (best) { setRoute(`Routing ${S(best.sol, 2)} SOL via desk at −${(best.discBps / 100).toFixed(1)}% (chart would cost −${(impact / 100).toFixed(1)}%)`); await p.desk.takeBid(best.id); const rest = sizeSol - best.sol; if (rest > 0.05) { setRoute(`Desk filled · ${S(rest, 2)} SOL left → pool`); await p.onSell(cc, Math.min(1, rest / Math.max(1e-9, pxSol * held0))) } else setRoute('Filled entirely on the desk · zero chart impact'); return }
+        const minB = book.minBlock || 0
+        const best = book.bids.filter((b) => !b.mine && b.restable && !b.away && b.discBps < impact && Math.min(b.sol, sizeSol) >= Math.min(b.sol, minB)).sort((a, b) => a.discBps - b.discBps)[0]
+        if (best) { const take = Math.min(best.sol, sizeSol); setRoute(`Routing ${S(take, 2)} SOL via desk at −${(best.discBps / 100).toFixed(1)}% (chart would cost −${(impact / 100).toFixed(1)}%)`); await p.desk.takeBid(best.id, take < best.sol - 1e-9 ? +take.toFixed(4) : undefined); const rest = sizeSol - take; if (rest > 0.05) { setRoute(`Desk filled · ${S(rest, 2)} SOL left → pool`); await p.onSell(cc, Math.min(1, rest / Math.max(1e-9, pxSol * held0))) } else setRoute('Filled entirely on the desk · zero chart impact'); return }
         if (impact > 300) setRoute(`No desk bid beats −${(impact / 100).toFixed(1)}% chart impact — use "Sell a block" to shop one`)
       }
     } catch {}

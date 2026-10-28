@@ -1,17 +1,18 @@
 // Desk client. Bidder: holds a websocket, co-signs relayed fills after verifying them locally. Seller: builds + signs the fill tx.
-import { Connection, Keypair, PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
+import { Connection, Keypair, PublicKey, SystemProgram, Transaction, ComputeBudgetProgram } from '@solana/web3.js'
 import { createAssociatedTokenAccountIdempotentInstruction, createTransferCheckedInstruction, getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 /** Owner program of a mint (SPL Token or Token-2022). Cached per session. */
 const progCache = new Map<string, PublicKey>()
 export async function tokenProgram(conn: Connection, mint: string): Promise<PublicKey> { const c = progCache.get(mint); if (c) return c; const i = await conn.getAccountInfo(new PublicKey(mint)); if (!i) throw new Error('mint not found'); progCache.set(mint, i.owner); return i.owner }
 import nacl from 'tweetnacl'
 import bs58 from 'bs58'
+import { S } from './fmt'
 import { confirmByPolling } from './rpc'
 
 export const SERVER = (import.meta as any).env?.VITE_SERVER_URL || localStorage.getItem('unnamed_server') || 'https://unnamed-server.onrender.com'
 const WS = SERVER.replace(/^http/, 'ws')
-export type BookBid = { id: string; mint: string; symbol: string; sol: number; discBps: number; placedAt: number; restable: boolean; status: string; bidder: string; mine: boolean; vault?: boolean; block?: boolean; expiresAt?: number }
-export type Book = { open: boolean; minBlock: number | null; market: any; bids: BookBid[]; rules: { discMin: number; discMax: number; restMs: number; feeBps: number; gateUsd: number } }
+export type BookBid = { id: string; mint: string; symbol: string; sol: number; discBps: number; placedAt: number; restable: boolean; away?: boolean; status: string; bidder: string; mine: boolean; vault?: boolean; block?: boolean; expiresAt?: number }
+export type Book = { open: boolean; why?: string | null; minBlock: number | null; market: any; bids: BookBid[]; rules: { discMin: number; discMax: number; restMs: number; feeBps: number; gateUsd: number } }
 export type Expect = { mint: string; seller: string; bidder: string; treasury: string; base: string; sellerLamports: string; fee: string; priceSol: number; discBps: number; decimals: number; tokenProgram: string }
 
 async function j(path: string, body?: any) {
@@ -24,7 +25,7 @@ export const health = () => j('/health')
 
 /** Structural check of a fill tx — same rules as the server's verify.ts, run independently by the bidder */
 export function verifyFill(tx: Transaction, e: Expect): string | null {
-  const ix = tx.instructions; if (ix.length !== 4) return 'wrong instruction count'
+  const CB = 'ComputeBudget111111111111111111111111111111'; const ix = tx.instructions.filter((i, n) => !(n < 2 && i.programId.toBase58() === CB)); if (ix.length !== 4) return 'wrong instruction count'
   if (!tx.feePayer || tx.feePayer.toBase58() !== e.seller) return 'fee payer must be seller'
   const bidder = new PublicKey(e.bidder), seller = new PublicKey(e.seller), mint = new PublicKey(e.mint)
   const prog = new PublicKey(e.tokenProgram); if (!prog.equals(TOKEN_PROGRAM_ID) && !prog.equals(TOKEN_2022_PROGRAM_ID)) return 'unknown token program'
@@ -46,6 +47,7 @@ export type BidderSession = { close: () => void; place: (mint: string, sol: numb
 /** Open a bidder session. `sign` co-signs fills (in-app wallet: silent; extension: prompts). `spot` returns current SOL price of a mint for the economic check. */
 export function openBidder(conn: Connection, pubkey: string, signMsg: (m: Uint8Array) => Promise<Uint8Array>, signTx: (t: Transaction) => Promise<Transaction>, spot: (mint: string) => Promise<number>, onEvent: (e: any) => void): BidderSession {
   let ws: WebSocket | null = null, closed = false, authed = false, timer: any, hb: any
+  const mine = new Map<string, { mint: string; sol: number; discBps: number }>()
   const waiters = new Map<string, { ok: (v: any) => void; no: (e: any) => void }>()
   const send = (o: any) => ws?.readyState === 1 && ws.send(JSON.stringify(o))
   const connect = () => {
@@ -53,11 +55,14 @@ export function openBidder(conn: Connection, pubkey: string, signMsg: (m: Uint8A
     ws.onopen = async () => { const ts = Date.now(); const sig = await signMsg(new TextEncoder().encode(`unnamed-desk:${pubkey}:${ts}`)); send({ type: 'auth', pubkey, ts, sig: bs58.encode(sig) }) }
     ws.onmessage = async (m) => {
       const d = JSON.parse(m.data)
-      if (d.type === 'authed') { authed = true; onEvent(d); hb = setInterval(() => send({ type: 'refresh' }), 20000); return }
+      if (d.type === 'authed') { authed = true; onEvent(d); hb = setInterval(() => send({ type: 'refresh' }), 20000)
+        // server kept nothing (grace window passed) → re-place the bids this session owns
+        if (!d.reattached && mine.size) { const again = [...mine.values()]; mine.clear(); for (const b of again) send({ type: 'place', mint: b.mint, sol: b.sol, discBps: b.discBps }) }
+        return }
       if (d.type === 'rfq' || d.type === 'swap' || d.type === 'buy_rfq') { onEvent(d); return }
       if (d.type === 'rfq_responded') { waiters.get('rfq')?.ok(d.rfq); waiters.delete('rfq'); onEvent(d); return }
-      if (d.type === 'placed') { waiters.get('place')?.ok(d.bid); waiters.delete('place'); onEvent(d); return }
-      if (d.type === 'cancelled') { waiters.get('cancel:' + d.id)?.ok(d.ok); waiters.delete('cancel:' + d.id); onEvent(d); return }
+      if (d.type === 'placed') { if (d.bid && !d.bid.block) mine.set(d.bid.id, { mint: d.bid.mint, sol: d.bid.sol, discBps: d.bid.discBps }); waiters.get('place')?.ok(d.bid); waiters.delete('place'); onEvent(d); return }
+      if (d.type === 'cancelled') { mine.delete(d.id); waiters.get('cancel:' + d.id)?.ok(d.ok); waiters.delete('cancel:' + d.id); onEvent(d); return }
       if (d.type === 'error') { const w = d.re === 'place' ? waiters.get('place') : d.re === 'rfq_respond' ? waiters.get('rfq') : null; if (w) { w.no(new Error(d.error)); waiters.delete(d.re === 'place' ? 'place' : 'rfq') } onEvent(d); return }
       if (d.type === 'fill') {
         try {
@@ -65,12 +70,15 @@ export function openBidder(conn: Connection, pubkey: string, signMsg: (m: Uint8A
           const e: Expect = d.expect; const why = verifyFill(tx, { ...e, priceSol: await spot(e.mint).catch(() => e.priceSol) })
           if (why) throw new Error(why)
           const signed = await signTx(tx)
-          const sig = await conn.sendRawTransaction(signed.serialize(), { maxRetries: 3 }); await confirmByPolling(conn, sig)
+          const raw = signed.serialize(); const sig = await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }); const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 2000); try { await confirmByPolling(conn, sig) } finally { clearInterval(rb) }
           send({ type: 'filled', bidId: d.bidId, sig }); onEvent({ type: 'filled', bidId: d.bidId, sig, expect: e })
         } catch (err: any) { send({ type: 'reject', bidId: d.bidId, err: String(err.message || err) }); onEvent({ type: 'fillfail', error: String(err.message || err) }) }
       }
     }
     ws.onclose = () => { clearInterval(hb); authed = false; onEvent({ type: 'disconnected' }); if (!closed) timer = setTimeout(connect, 3000) }
+    // phone came back from the background / network returned → reconnect now instead of waiting for the backoff
+    const wake = () => { if (!closed && (!ws || ws.readyState > 1) && document.visibilityState === 'visible') { clearTimeout(timer); connect() } }
+    document.addEventListener('visibilitychange', wake, { once: true }); addEventListener('online', wake, { once: true })
     ws.onerror = () => ws?.close()
   }
   connect()
@@ -85,21 +93,23 @@ export function openBidder(conn: Connection, pubkey: string, signMsg: (m: Uint8A
 }
 
 /** Seller side: take a bid in full. Builds the 4-instruction fill, signs, hands to the server which relays to the bidder. */
-export async function takeBid(conn: Connection, seller: string, bidId: string, signTx: (t: Transaction) => Promise<Transaction>, onStatus?: (s: string) => void, gate?: (q: any) => Promise<boolean>): Promise<{ sig: string; quote: any }> {
+export async function takeBid(conn: Connection, seller: string, bidId: string, signTx: (t: Transaction) => Promise<Transaction>, onStatus?: (s: string) => void, gate?: (q: any) => Promise<boolean>, opts?: { sol?: number; cuPriceMicro?: number }): Promise<{ sig: string; quote: any }> {
   onStatus?.('Quoting…')
-  const q = await j('/quote', { bidId, seller })
+  const q = await j('/quote', { bidId, seller, sol: opts?.sol })
   if (q.refAgeMs > 3000) throw new Error('reference price is stale — try again')
   if (gate && !(await gate(q))) throw new Error('cancelled')
   const sellerPk = new PublicKey(seller), bidderPk = new PublicKey(q.bidder), mint = new PublicKey(q.mint)
   const prog = new PublicKey(q.tokenProgram)
   const bAta = getAssociatedTokenAddressSync(mint, bidderPk, true, prog), sAta = getAssociatedTokenAddressSync(mint, sellerPk, true, prog)
   const tx = new Transaction(); tx.feePayer = sellerPk; tx.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash
+  // priority fee so the fill lands under load (seller pays; a token transfer is ~60K CU)
+  tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 80_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: Math.max(1000, Math.floor(opts?.cuPriceMicro || 50_000)) }))
   tx.add(createAssociatedTokenAccountIdempotentInstruction(sellerPk, bAta, bidderPk, mint, prog), createTransferCheckedInstruction(sAta, mint, bAta, sellerPk, BigInt(q.base), q.decimals, [], prog),
     SystemProgram.transfer({ fromPubkey: bidderPk, toPubkey: sellerPk, lamports: BigInt(q.sellerLamports) }), SystemProgram.transfer({ fromPubkey: bidderPk, toPubkey: new PublicKey(q.treasury), lamports: BigInt(q.fee) }))
-  onStatus?.('Sign to deliver tokens…')
+  onStatus?.(q.partial ? `Sign to deliver ${S(q.takeSol, 2)} SOL of the block…` : 'Sign to deliver tokens…')
   const signed = await signTx(tx)
   onStatus?.('Waiting for bidder to co-sign…')
-  const r = await j('/fill', { bidId, seller, tx: btoa(String.fromCharCode(...signed.serialize({ requireAllSignatures: false }))) })
+  const r = await j('/fill', { bidId, seller, sol: opts?.sol, tx: btoa(String.fromCharCode(...signed.serialize({ requireAllSignatures: false }))) })
   return { sig: r.sig, quote: q }
 }
 export const signMsgWith = (kp: Keypair) => async (m: Uint8Array) => nacl.sign.detached(m, kp.secretKey)

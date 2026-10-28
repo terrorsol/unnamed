@@ -4,7 +4,9 @@ import { Transaction, SystemProgram, PublicKey, SystemInstruction } from '@solan
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from '@solana/spl-token'
 export type Expect = { mint: string; seller: string; bidder: string; treasury: string; base: bigint; sellerLamports: bigint; fee: bigint; tokenProgram: string; decimals: number }
 export function verifyFill(tx: Transaction, e: Expect): string | null {
-  const ix = tx.instructions
+  // optional leading ComputeBudget instructions (CU price / limit) — they move no funds
+  const CB = 'ComputeBudget111111111111111111111111111111'
+  const ix = tx.instructions.filter((i, n) => !(n < 2 && i.programId.toBase58() === CB))
   if (ix.length !== 4) return 'wrong instruction count'
   if (!tx.feePayer || tx.feePayer.toBase58() !== e.seller) return 'fee payer must be seller'
   const bidder = new PublicKey(e.bidder), seller = new PublicKey(e.seller), mint = new PublicKey(e.mint)

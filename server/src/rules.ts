@@ -1,7 +1,11 @@
 // Desk + vault rules. Pure functions, unit-tested. Mirrors app/src/lib/protocol.ts.
 export const DISC_MIN_BPS = 300, DISC_MAX_BPS = 500          // bids sit 3–5% under spot
 export const BUY_RFQ_MAX_PREMIUM_BPS = 500                    // block buys may pay up to +5% over spot
-export const GATE_MCAP_USD = 100_000                            // desk opens: graduated + $100K mc
+export const GATE_MCAP_USD = 100_000                            // desk opens: graduated + $100K mc …
+export const GATE_CURVE_MCAP_USD = 50_000                        // … or still on the curve at $50K mc with real volume (a fill is a token-for-SOL transfer; it only needs a price)
+export const GATE_MIN_VOL1H_USD = 5_000                          // and the coin must actually be trading
+export const GATE_MIN_LIQ_SOL = 10                               // and have depth for the reference price to mean something
+export const BIDDER_GRACE_MS = 90_000                            // a bidder whose socket drops keeps bids (marked away, unfillable) this long
 export const MIN_BLOCK_OF_RESERVE = 0.02                        // min block = 2% of pool SOL reserve
 export const MIN_BLOCK_FLOOR_SOL = 0.2
 export const REST_MS = 60_000                                   // a bid rests 60s before it can be filled
@@ -12,11 +16,20 @@ export const COUNTER_MAX_BPS = 800                              // a counter can
 export const SELLER_DRIFT = 0.05                                // RFQ auto-fills pause if spot fell >5% since the seller posted
 export const QUOTE_MAX_AGE_MS = 1500                            // fills price off a reference no older than this
 
-export type Market = { mcapUsd: number; liqSol: number; onCurve: boolean; priceSol: number }
-export function deskOpen(m: Market) { return !m.onCurve && m.mcapUsd >= GATE_MCAP_USD }
+export type Market = { mcapUsd: number; liqSol: number; onCurve: boolean; priceSol: number; vol1h?: number }
+export function deskOpen(m: Market) { return deskWhy(m) === null }
+/** null when the desk is open for this market, otherwise the reason it isn't */
+export function deskWhy(m: Market): string | null {
+  if (!m.priceSol) return 'no price'
+  if (m.onCurve && m.mcapUsd < GATE_CURVE_MCAP_USD) return `curve coins open at $${GATE_CURVE_MCAP_USD / 1000}K mc`
+  if (!m.onCurve && m.mcapUsd < GATE_MCAP_USD) return `opens at $${GATE_MCAP_USD / 1000}K mc`
+  if ((m.vol1h ?? GATE_MIN_VOL1H_USD) < GATE_MIN_VOL1H_USD) return 'not enough volume in the last hour'
+  if (m.liqSol < GATE_MIN_LIQ_SOL) return 'pool too thin for a fair reference price'
+  return null
+}
 export function minBlockSol(m: Market) { return Math.max(MIN_BLOCK_FLOOR_SOL, m.liqSol * MIN_BLOCK_OF_RESERVE) }
 export function validBid(sol: number, discBps: number, m: Market): string | null {
-  if (!deskOpen(m)) return 'desk closed for this coin (needs graduated + $100K mc)'
+  const w = deskWhy(m); if (w) return 'desk closed: ' + w
   if (!(discBps >= DISC_MIN_BPS && discBps <= DISC_MAX_BPS)) return `discount must be ${DISC_MIN_BPS / 100}–${DISC_MAX_BPS / 100}%`
   const mb = minBlockSol(m); if (sol < mb) return `min block is ${mb.toFixed(2)} SOL`
   return null

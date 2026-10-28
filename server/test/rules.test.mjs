@@ -7,7 +7,10 @@ import {createAssociatedTokenAccountIdempotentInstruction, createTransferInstruc
 
 const M = { mcapUsd: 250_000, liqSol: 100, onCurve: false, priceSol: 0.00001 }
 test('gate + min block + discount band', () => {
-  assert.equal(R.deskOpen(M), true); assert.equal(R.deskOpen({ ...M, onCurve: true }), false); assert.equal(R.deskOpen({ ...M, mcapUsd: 50_000 }), false)
+  assert.equal(R.deskOpen(M), true); assert.equal(R.deskOpen({ ...M, mcapUsd: 50_000 }), false)
+  // curve coins open at $50K with volume; thin or dead coins stay closed with a reason
+  assert.equal(R.deskOpen({ ...M, onCurve: true, mcapUsd: 60_000 }), true); assert.equal(R.deskOpen({ ...M, onCurve: true, mcapUsd: 40_000 }), false)
+  assert.match(R.deskWhy({ ...M, vol1h: 100 }), /volume/); assert.match(R.deskWhy({ ...M, liqSol: 2 }), /thin/); assert.equal(R.deskWhy(M), null)
   assert.equal(R.minBlockSol(M), 2); assert.equal(R.minBlockSol({ ...M, liqSol: 1 }), 0.2)
   assert.equal(R.validBid(2, 400, M), null)
   assert.match(R.validBid(1, 400, M), /min block/); assert.match(R.validBid(2, 200, M), /discount/); assert.match(R.validBid(2, 600, M), /discount/)

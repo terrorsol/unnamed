@@ -98,9 +98,9 @@ export default function App() {
   }
   const [gateQ, setGateQ] = useState<{ q: any; ok: (v: boolean) => void } | null>(null)
   const gate = (q: any) => new Promise<boolean>((ok) => { if (!q.needsConfirm) return ok(true); setGateQ({ q, ok: (v) => { setGateQ(null); ok(v) } }) })
-  const takeBid = async (id: string) => {
+  const takeBid = async (id: string, sol?: number) => {
     if (!activeB58) return needWallet()
-    try { const { sig, quote } = await K.takeBid(connection, activeB58, id, signLegacy, setBusy, gate); const got = Number(BigInt(quote.sellerLamports)) / 1e9; recordSell(ws.owner, quote.mint, quote.bid.symbol, 0, got, sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Block sold on the desk`, rows: [['Received', S(got) + ' SOL'], ['Discount', '−' + (quote.bid.discBps / 100).toFixed(1) + '%'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
+    try { const { sig, quote } = await K.takeBid(connection, activeB58, id, signLegacy, setBusy, gate, { sol, cuPriceMicro: Math.floor(Math.min(settings.priorityFeeSol, 0.0002) * 1e9 * 1e6 / 80_000) }); const got = Number(BigInt(quote.sellerLamports)) / 1e9; recordSell(ws.owner, quote.mint, quote.bid.symbol, 0, got, sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Block sold on the desk`, rows: [['Received', S(got) + ' SOL'], ['Discount', '−' + (quote.bid.discBps / 100).toFixed(1) + '%'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
     catch (e: any) { toast({ kind: 'err', title: 'Desk fill failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
   }
   const onRedeem = async (c: Coin, tokens: number, decimals: number) => {
@@ -163,8 +163,9 @@ export default function App() {
           const px = from.raw?.priceNative ? +from.raw.priceNative : 0, liqSol = from.depthSol || 0, sizeSol = h.amount * px
           if (sizeSol > 0.2 && liqSol > 0) {
             const impact = K.poolImpactBps(sizeSol, liqSol); const book = await K.getBook(from.mint, activeB58!)
-            const best = book.bids.filter((b: any) => !b.mine && b.restable && b.discBps < impact && b.sol <= sizeSol * 1.02).sort((a: any, b: any) => a.discBps - b.discBps)[0]
-            if (best) { setBusy(`Desk takes ${S(best.sol, 2)} SOL of ${from.symbol} at −${(best.discBps / 100).toFixed(1)}%…`); const { quote } = await K.takeBid(connection, activeB58!, best.id, signLegacy, setBusy, gate); recordSell(ws.owner, from.mint, from.symbol, best.sol / sizeSol, Number(BigInt(quote.sellerLamports)) / 1e9, ''); fracLeft = Math.max(0, 1 - best.sol / sizeSol) }
+            const minB = book.minBlock || 0
+            const best = book.bids.filter((b: any) => !b.mine && b.restable && !b.away && b.discBps < impact && Math.min(b.sol, sizeSol) >= Math.min(b.sol, minB)).sort((a: any, b: any) => a.discBps - b.discBps)[0]
+            if (best) { const take = Math.min(best.sol, sizeSol); setBusy(`Desk takes ${S(take, 2)} SOL of ${from.symbol} at −${(best.discBps / 100).toFixed(1)}%…`); const { quote } = await K.takeBid(connection, activeB58!, best.id, signLegacy, setBusy, gate, { sol: take < best.sol - 1e-9 ? +take.toFixed(4) : undefined }); recordSell(ws.owner, from.mint, from.symbol, take / sizeSol, Number(BigInt(quote.sellerLamports)) / 1e9, ''); fracLeft = Math.max(0, 1 - take / sizeSol) }
           }
         } catch {}
       }
@@ -223,7 +224,7 @@ export default function App() {
     if (page === 'about') return <About />
     if (page === 'simulate') return <Simulate />
     if (page === 'vault') return <Tabs tabs={[['Vaults', <VaultPage go={go} solPrice={solPrice} />], ['Import', <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={arg2 || ''} needWallet={needWallet} sol={ws.sol} />], ['Simulate', <Simulate />]]} sel={arg} go={(t) => go('vault/' + t)} />
-    if (page === 'desk') return <Tabs tabs={[['Books', <DeskPage go={go} />], ['Leaderboard', <LeaderboardPage owner={ws.owner} />]]} sel={arg} go={(t) => go('desk/' + t)} />
+    if (page === 'desk') return <Tabs tabs={[['Books', <DeskPage go={go} coins={coins} />], ['Leaderboard', <LeaderboardPage owner={ws.owner} />]]} sel={arg} go={(t) => go('desk/' + t)} />
     if (page === 'import') return <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={arg || ''} needWallet={needWallet} sol={ws.sol} />
     if (page === 'dev' || page === 'mine') return <Tabs tabs={[['My launches', <MinePage owner={ws.owner} go={go} solPrice={solPrice} onRenounce={renounce} onClaim={onClaim} busy={busy} />], ['How it works', <About />]]} sel={arg} go={(t) => go('dev/' + t)} />
     if (page === 'leaderboard') return <LeaderboardPage owner={ws.owner} />

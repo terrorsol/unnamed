@@ -10,7 +10,7 @@ import { market } from './market.ts'
 import { balanceSol, decimals, TREASURY } from './chain.ts'
 import { verifyFill } from './verify.ts'
 
-export type Bid = { id: string; mint: string; symbol: string; bidder: string; sol: number; discBps: number; placedAt: number; refreshedAt: number; status: 'open' | 'filling' | 'filled' | 'cancelled'; ws: WebSocket | null; fills: number; rfq?: string; expiresAt?: number; internal?: { kp: Keypair; label: string; maxSol: () => number } }
+export type Bid = { id: string; mint: string; symbol: string; bidder: string; sol: number; discBps: number; placedAt: number; refreshedAt: number; status: 'open' | 'filling' | 'filled' | 'cancelled'; ws: WebSocket | null; fills: number; rfq?: string; expiresAt?: number; awaySince?: number; internal?: { kp: Keypair; label: string; maxSol: () => number } }
 const bids = new Map<string, Bid>()
 const pending = new Map<string, { resolve: (v: any) => void; reject: (e: any) => void; timer: any }>()
 const decCache = new Map<string, number>()
@@ -18,7 +18,7 @@ async function dec(mint: string) { if (!decCache.has(mint)) decCache.set(mint, a
 /** Pseudonymous desk: wallets never appear in the book, pings or fill tape — only a per-wallet alias (salted hash, stable for the server's lifetime). Settlement is still one on-chain tx with both wallets; we hide nothing on-chain. */
 const SALT = randomBytes(8).toString('hex')
 export const alias = (pk: string) => 'desk-' + createHash('sha256').update(SALT + pk).digest('hex').slice(0, 5)
-const pubBid = (b: Bid, me?: string) => ({ id: b.id, mint: b.mint, symbol: b.symbol, sol: b.sol, discBps: b.discBps, placedAt: b.placedAt, restable: !!b.rfq || R.restable(b.placedAt), rfq: b.rfq, status: b.status, bidder: b.internal ? b.internal.label : alias(b.bidder), mine: me === b.bidder, vault: !!b.internal, block: b.rfq === 'buy', expiresAt: b.expiresAt })
+const pubBid = (b: Bid, me?: string) => ({ id: b.id, mint: b.mint, symbol: b.symbol, sol: b.sol, discBps: b.discBps, placedAt: b.placedAt, restable: (!!b.rfq || R.restable(b.placedAt)) && !b.awaySince, away: !!b.awaySince, rfq: b.rfq, status: b.status, bidder: b.internal ? b.internal.label : alias(b.bidder), mine: me === b.bidder, vault: !!b.internal, block: b.rfq === 'buy', expiresAt: b.expiresAt })
 // ---- fill history (persisted) ----
 const DIR = process.env.DATA_DIR || './data'; const HF = DIR + '/fills.json'
 export type Fill = { t: number; mint: string; symbol: string; seller: string; bidder: string; sol: number; discBps: number; tokens: number; sig: string; vault: boolean }
@@ -74,13 +74,15 @@ export async function rfqBuy(ws: WebSocket, buyer: string, mint: string, sol: nu
 }
 export function cancel(bidder: string, id: string) { const b = bids.get(id); if (b && b.bidder === bidder && b.status === 'open') { b.status = 'cancelled'; bids.delete(id); return true } return false }
 export function refresh(bidder: string) { for (const b of bids.values()) if (b.bidder === bidder) b.refreshedAt = Date.now() }
-export function dropSocket(ws: WebSocket) { for (const [id, b] of bids) if (b.ws === ws && b.status === 'open') bids.delete(id) }
-export function sweep() { const now = Date.now(); for (const [id, b] of bids) if (b.status === 'open' && !b.internal && (R.expired(b.refreshedAt, now) || (b.expiresAt && now > b.expiresAt))) bids.delete(id) }
+/** Socket dropped (phone switched apps, flaky network): bids go 'away' — kept, unfillable — and come back when the same wallet re-auths within the grace window. */
+export function dropSocket(ws: WebSocket) { const now = Date.now(); for (const b of bids.values()) if (b.ws === ws && b.status === 'open') { b.ws = null; b.awaySince = now } }
+export function reattach(ws: WebSocket, bidder: string) { let n = 0; for (const b of bids.values()) if (b.bidder === bidder && b.status === 'open' && !b.internal && !b.ws) { b.ws = ws; b.awaySince = undefined; b.refreshedAt = Date.now(); n++ } return n }
+export function sweep() { const now = Date.now(); for (const [id, b] of bids) if (b.status === 'open' && !b.internal && (R.expired(b.refreshedAt, now) || (b.expiresAt && now > b.expiresAt) || (b.awaySince && now - b.awaySince > R.BIDDER_GRACE_MS))) bids.delete(id) }
 
 export async function book(mint: string, me?: string) {
   const m = await market(mint)
   const list = [...bids.values()].filter((b) => b.mint === mint && b.status === 'open').sort((a, b) => a.discBps - b.discBps || b.sol - a.sol)
-  return { open: m ? R.deskOpen(m) : false, minBlock: m ? R.minBlockSol(m) : null, market: m, bids: list.map((b) => pubBid(b, me)), rules: { discMin: R.DISC_MIN_BPS, discMax: R.DISC_MAX_BPS, restMs: R.REST_MS, feeBps: R.CROSS_FEE_BPS, gateUsd: R.GATE_MCAP_USD } }
+  return { open: m ? R.deskOpen(m) : false, why: m ? R.deskWhy(m) : 'no market', minBlock: m ? R.minBlockSol(m) : null, market: m, bids: list.map((b) => pubBid(b, me)), rules: { discMin: R.DISC_MIN_BPS, discMax: R.DISC_MAX_BPS, restMs: R.REST_MS, feeBps: R.CROSS_FEE_BPS, gateUsd: R.GATE_MCAP_USD } }
 }
 export function books() {
   const by: Record<string, { mint: string; symbol: string; bids: number; sol: number; bestDisc: number }> = {}
@@ -88,44 +90,51 @@ export function books() {
   return Object.values(by).sort((a, b) => b.sol - a.sol)
 }
 /** What a seller must deliver to take a bid in full, priced off spot right now */
-export async function quote(id: string, seller: string) {
+export async function quote(id: string, seller: string, sol?: number) {
   const b = bids.get(id); if (!b || b.status !== 'open') throw new Error('bid not open')
   if (!b.rfq && !R.restable(b.placedAt)) throw new Error(`bid resting — fillable in ${Math.ceil((R.REST_MS - (Date.now() - b.placedAt)) / 1000)}s`)
   if (b.bidder === seller) throw new Error('cannot fill your own bid')
   const m = await market(b.mint, R.QUOTE_MAX_AGE_MS); if (!m) throw new Error('no market')
-  const d = await dec(b.mint); const tp = await tokenProgram(b.mint); const q = R.fillQuote(b.sol, b.discBps, m.priceSol, d)
+  if (b.awaySince) throw new Error('bidder is away — try again in a moment')
+  // partial fill: seller may take part of the block (≥ min block, or the whole thing); the remainder keeps resting
+  const take = sol && sol < b.sol ? sol : b.sol
+  if (take < b.sol && take < R.minBlockSol(m) - 1e-9) throw new Error(`partial fill must be ≥ min block ${R.minBlockSol(m).toFixed(2)} SOL`)
+  if (take <= 0) throw new Error('bad size')
+  const d = await dec(b.mint); const tp = await tokenProgram(b.mint); const q = R.fillQuote(take, b.discBps, m.priceSol, d)
   const rf = b.rfq && b.rfq !== 'buy' ? rfqs.get(b.rfq) : null; const drift = rf ? m.priceSol / rf.priceSol - 1 : 0
-  return { bid: pubBid(b), mint: b.mint, bidder: b.bidder, seller, treasury: TREASURY, decimals: d, tokenProgram: tp, priceSol: m.priceSol, refAgeMs: Date.now() - ((m as any).t || Date.now()), drift, needsConfirm: !!rf && drift < -R.SELLER_DRIFT, anchorPrice: rf?.priceSol || null, px: q.px, tokens: q.tokens, base: q.base.toString(), lamports: q.lamports.toString(), sellerLamports: q.sellerLamports.toString(), fee: q.fee.toString() }
+  return { bid: pubBid(b), takeSol: take, partial: take < b.sol, mint: b.mint, bidder: b.bidder, seller, treasury: TREASURY, decimals: d, tokenProgram: tp, priceSol: m.priceSol, refAgeMs: Date.now() - ((m as any).t || Date.now()), drift, needsConfirm: !!rf && drift < -R.SELLER_DRIFT, anchorPrice: rf?.priceSol || null, px: q.px, tokens: q.tokens, base: q.base.toString(), lamports: q.lamports.toString(), sellerLamports: q.sellerLamports.toString(), fee: q.fee.toString() }
 }
 /** Seller submits a seller-signed tx; server verifies structure vs a fresh quote, relays to bidder to co-sign + send */
-export async function fill(id: string, seller: string, txB64: string): Promise<{ sig: string }> {
+export async function fill(id: string, seller: string, txB64: string, sol?: number): Promise<{ sig: string }> {
   const b = bids.get(id); if (!b || b.status !== 'open') throw new Error('bid not open')
-  if (!b.internal && (!b.ws || b.ws.readyState !== 1)) { bids.delete(id); throw new Error('bidder offline — bid removed') }
-  const q = await quote(id, seller)
+  if (!b.internal && (!b.ws || b.ws.readyState !== 1)) throw new Error('bidder is away — try again in a moment')
+  const q = await quote(id, seller, sol)
   const tx = Transaction.from(Buffer.from(txB64, 'base64'))
   const sellerSig = tx.signatures.find((s) => s.publicKey.toBase58() === seller); if (!sellerSig?.signature) throw new Error('tx not signed by seller')
   const why = verifyFill(tx, { mint: b.mint, seller, bidder: b.bidder, treasury: TREASURY, base: BigInt(q.base), sellerLamports: BigInt(q.sellerLamports), fee: BigInt(q.fee), tokenProgram: q.tokenProgram, decimals: q.decimals })
   if (why) throw new Error('fill rejected: ' + why)
-  if ((await balanceSol(b.bidder)) < b.sol + 0.005) { bids.delete(id); throw new Error('bidder balance dropped — bid removed') }
+  if ((await balanceSol(b.bidder)) < q.takeSol + 0.005) { bids.delete(id); throw new Error('bidder balance dropped — bid removed') }
   b.status = 'filling'
   if (b.internal) {
     try {
       if (b.sol > b.internal.maxSol()) throw new Error('vault bid no longer affordable')
-      tx.partialSign(b.internal.kp); const sig = await conn.sendRawTransaction(tx.serialize(), { maxRetries: 3 }); await confirm(sig)
-      b.status = 'filled'; bids.delete(id); recordFill({ t: Date.now(), mint: b.mint, symbol: b.symbol, seller, bidder: b.bidder, sol: b.sol, discBps: b.discBps, tokens: q.tokens, sig, vault: true }); rfqNoteFill(id, b.sol); onVaultFill?.(b.bidder, b.sol, q.tokens); return { sig }
+      tx.partialSign(b.internal.kp); const raw = tx.serialize(); const sig = await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }); const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 2000); try { await confirm(sig) } finally { clearInterval(rb) }
+      settleAmount(b, q.takeSol); recordFill({ t: Date.now(), mint: b.mint, symbol: b.symbol, seller, bidder: b.bidder, sol: q.takeSol, discBps: b.discBps, tokens: q.tokens, sig, vault: true }); rfqNoteFill(id, q.takeSol); onVaultFill?.(b.bidder, b.sol, q.tokens); return { sig }
     } catch (e) { b.status = 'open'; throw e }
   }
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => { pending.delete(id); if (b.status === 'filling') b.status = 'open'; reject(new Error('bidder did not respond in time')) }, 25000)
-    pending.set(id, { resolve, reject, timer, seller, tokens: q.tokens } as any)
-    b.ws!.send(JSON.stringify({ type: 'fill', bidId: id, tx: txB64, expect: { mint: b.mint, seller, bidder: b.bidder, treasury: TREASURY, base: q.base, sellerLamports: q.sellerLamports, fee: q.fee, priceSol: q.priceSol, discBps: b.discBps, tokenProgram: q.tokenProgram, decimals: q.decimals } }))
+    pending.set(id, { resolve, reject, timer, seller, tokens: q.tokens, takeSol: q.takeSol } as any)
+    b.ws!.send(JSON.stringify({ type: 'fill', bidId: id, tx: txB64, expect: { mint: b.mint, seller, bidder: b.bidder, treasury: TREASURY, takeSol: q.takeSol, base: q.base, sellerLamports: q.sellerLamports, fee: q.fee, priceSol: q.priceSol, discBps: b.discBps, tokenProgram: q.tokenProgram, decimals: q.decimals } }))
   })
 }
+/** After a fill: shrink the bid by what was taken; close it when nothing fillable is left. */
+function settleAmount(b: Bid, took: number) { const left = b.sol - took; if (left > 0.05 && !b.rfq) { b.sol = left; b.status = 'open'; b.refreshedAt = Date.now() } else { b.status = 'filled'; bids.delete(b.id) } }
 /** Bidder's answer to a relayed fill */
 export function settle(id: string, ok: boolean, sig?: string, err?: string) {
   const p = pending.get(id); const b = bids.get(id); if (!p) return
   clearTimeout(p.timer); pending.delete(id)
-  if (ok && sig) { if (b) { b.status = 'filled'; b.fills++; bids.delete(id); recordFill({ t: Date.now(), mint: b.mint, symbol: b.symbol, seller: (p as any).seller || '', bidder: b.bidder, sol: b.sol, discBps: b.discBps, tokens: (p as any).tokens || 0, sig, vault: false }); rfqNoteFill(id, b.sol) } p.resolve({ sig }) }
+  if (ok && sig) { if (b) { const took = (p as any).takeSol || b.sol; b.fills++; settleAmount(b, took); recordFill({ t: Date.now(), mint: b.mint, symbol: b.symbol, seller: (p as any).seller || '', bidder: b.bidder, sol: took, discBps: b.discBps, tokens: (p as any).tokens || 0, sig, vault: false }); rfqNoteFill(id, took) } p.resolve({ sig }) }
   else { if (b) b.status = 'open'; p.reject(new Error(err || 'bidder rejected')) }
 }
 export const stats = () => ({ openBids: [...bids.values()].filter((b) => b.status === 'open').length, markets: books().length })

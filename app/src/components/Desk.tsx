@@ -3,7 +3,7 @@ import * as K from '../lib/desk'
 import { F, S, ago, short } from '../lib/fmt'
 import { solscan } from '../lib/rpc'
 
-export type DeskCtx = { owner: string; connected: boolean; bidder: K.BidderSession | null; deskUp: boolean; busy: string; takeBid: (id: string) => Promise<void>; holdingUi: number; solPrice: number }
+export type DeskCtx = { owner: string; connected: boolean; bidder: K.BidderSession | null; deskUp: boolean; busy: string; takeBid: (id: string, sol?: number) => Promise<void>; holdingUi: number; solPrice: number }
 
 /** Order book + bid/take controls for one coin */
 export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d: DeskCtx }) {
@@ -18,7 +18,7 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
   return <div className="panel" style={{ gap: 12 }}>
     <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
       <span className={'tag ' + (book.open ? 'live' : '')}>{book.open ? 'DESK OPEN' : 'DESK CLOSED'}</span>
-      <span className="dim" style={{ fontSize: 11 }}>{book.open ? `min block ${S(book.minBlock || 0, 2)} SOL · bids ${book.rules.discMin / 100}–${book.rules.discMax / 100}% under spot · all-or-none · ${book.rules.feeBps / 100}% cross fee` : `opens when graduated and ≥ ${F(book.rules.gateUsd)} mc`}</span>
+      <span className="dim" style={{ fontSize: 11 }}>{book.open ? `min block ${S(book.minBlock || 0, 2)} SOL · bids ${book.rules.discMin / 100}–${book.rules.discMax / 100}% under spot · partial fills ≥ min block · ${book.rules.feeBps / 100}% cross fee` : `closed: ${book.why || `opens at ${F(book.rules.gateUsd)} mc`}`}</span>
       <span className="sp" /><span className="status"><i className={d.deskUp && (d.bidder?.connected() ?? false) ? '' : 'off'} />{d.bidder?.connected() ? 'bidder link live' : d.connected ? 'bidder link off' : 'no wallet'}</span>
     </div>
     <div className="lay" style={{ gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -26,9 +26,11 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
         <div className="lbl">Block bids resting</div>
         <div className="card"><table><thead><tr><th className="r">Bid</th><th className="r">Disc</th><th className="r">Takes ≈</th><th className="r">Age</th><th className="r"></th></tr></thead><tbody>
           {book.bids.length === 0 && <tr><td colSpan={5} className="empty" style={{ padding: 18 }}>No bids resting</td></tr>}
-          {book.bids.map((b) => { const px = book.market?.priceSol * (1 - b.discBps / 10000); const tokens = px ? b.sol / px : 0; const canTake = book.open && d.connected && !b.mine && b.restable && d.holdingUi >= tokens
-            return <tr key={b.id}><td className="r num">{S(b.sol, 2)} SOL</td><td className="r num">{b.block && <span className="tag live" style={{ marginRight: 4 }}>BLOCK BUY</span>}<span className={b.discBps < 0 ? 'up' : 'dn'}>{b.discBps < 0 ? '+' : '−'}{(Math.abs(b.discBps) / 100).toFixed(1)}%</span></td><td className="r num dim">{tokens ? tokens.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' ' + symbol : '—'}</td><td className="r num dim">{b.block && b.expiresAt ? `${Math.max(0, Math.round((b.expiresAt - Date.now()) / 1000))}s left` : ago(b.placedAt)}{!b.restable && <span className="gold"> · resting</span>}</td>
-              <td className="r">{b.mine ? <button className="btn sm" onClick={() => cancel(b.id)}>Cancel</button> : <button className="btn sm pri" disabled={!canTake || !!d.busy} title={!b.restable ? 'resting' : d.holdingUi < tokens ? 'you hold less than this block' : `fills at ${px ? px.toPrecision(3) : '?'} SOL/token, spot at signing`} onClick={() => d.takeBid(b.id)}>Sell → {S(b.sol * (1 - book.rules.feeBps / 10000), 2)} SOL</button>}</td></tr> })}
+          {book.bids.map((b) => { const px = book.market?.priceSol * (1 - b.discBps / 10000); const tokens = px ? b.sol / px : 0
+            // partial fill: take what you hold if it is at least the min block
+            const myValSol = d.holdingUi * (px || 0); const take = Math.min(b.sol, myValSol); const partial = take < b.sol - 1e-9; const canTake = book.open && d.connected && !b.mine && b.restable && !b.away && take >= Math.min(b.sol, book.minBlock || 0) - 1e-9 && take > 0
+            return <tr key={b.id}><td className="r num">{S(b.sol, 2)} SOL</td><td className="r num">{b.block && <span className="tag live" style={{ marginRight: 4 }}>BLOCK BUY</span>}<span className={b.discBps < 0 ? 'up' : 'dn'}>{b.discBps < 0 ? '+' : '−'}{(Math.abs(b.discBps) / 100).toFixed(1)}%</span></td><td className="r num dim">{tokens ? tokens.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' ' + symbol : '—'}</td><td className="r num dim">{b.away ? <span className="gold">away</span> : b.block && b.expiresAt ? `${Math.max(0, Math.round((b.expiresAt - Date.now()) / 1000))}s left` : ago(b.placedAt)}{!b.restable && !b.away && <span className="gold"> · resting</span>}</td>
+              <td className="r">{b.mine ? <button className="btn sm" onClick={() => cancel(b.id)}>Cancel</button> : <button className="btn sm pri" disabled={!canTake || !!d.busy} title={b.away ? 'bidder reconnecting' : !b.restable ? 'resting' : !canTake ? `you hold less than the min block (${S(book.minBlock || 0, 2)} SOL)` : `fills at ${px ? px.toPrecision(3) : '?'} SOL/token, spot at signing`} onClick={() => d.takeBid(b.id, partial ? +take.toFixed(4) : undefined)}>Sell {partial ? S(take, 2) + ' of ' : ''}→ {S((partial ? take : b.sol) * (1 - book.rules.feeBps / 10000), 2)} SOL</button>}</td></tr> })}
         </tbody></table></div>
         <div className="nm" style={{ marginTop: 6 }}>Price = spot at the moment you sign (reference ≤1.5s old) minus the bid's discount. Both browsers verify it independently; if either disagrees by &gt;1.5% nothing is sent. If spot fell &gt;5% since you posted a request, we ask before filling.</div>
       </div>
@@ -50,7 +52,7 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
 }
 
 /** Standalone Desk page: every book with resting bids */
-export function DeskPage({ go }: { go: (p: string) => void }) {
+export function DeskPage({ go, coins = [] }: { go: (p: string) => void; coins?: import('../lib/dex').Coin[] }) {
   const [list, setList] = useState<Awaited<ReturnType<typeof K.getBooks>> | null>(null); const [err, setErr] = useState('')
   useEffect(() => { const f = () => K.getBooks().then((l) => { setList(l); setErr('') }).catch((e) => setErr(String(e.message || e))); f(); const i = setInterval(f, 8000); return () => clearInterval(i) }, [])
   const [open, setOpen] = useState(''); const [fl, setFl] = useState<K.FillRec[]>([])
@@ -62,6 +64,10 @@ export function DeskPage({ go }: { go: (p: string) => void }) {
       <div className="row" style={{ gap: 6 }}><input value={open} onChange={(e) => setOpen(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && openMint()} placeholder="paste any mint — graduated, ≥ $100K" style={{ flex: 1 }} /><button className="btn pri" onClick={openMint} disabled={open.trim().length < 32}>Open desk</button></div>
       <div className="nm">Sell a block to resting bids or shop it with a max loss · buy a block at a premium with zero chart impact · pseudonymous book, one on-chain tx per fill.</div>
     </div></div>
+    {(() => { const bidsBy = Object.fromEntries((list || []).map((b) => [b.mint, b])); const elig = coins.filter((c) => c.priceUsd > 0 && (c.onCurve ? c.mcap >= 50_000 : c.mcap >= 100_000) && c.vol1h >= 5_000 && c.depthSol >= 10).sort((a, b) => (bidsBy[b.mint]?.sol || 0) - (bidsBy[a.mint]?.sol || 0) || b.vol1h - a.vol1h).slice(0, 25)
+      return elig.length > 0 && <div className="card" style={{ marginBottom: 14 }}><h3>Desks open now <span className="nm">live coins that meet the rules · tap to trade a block</span></h3><table><thead><tr><th>Coin</th><th className="r">Mcap</th><th className="r">Vol 1h</th><th className="r">Bids</th></tr></thead><tbody>
+        {elig.map((c) => <tr key={c.mint} onClick={() => go('coin/' + c.mint + '/desk')}><td className="tk">{c.symbol} {c.onCurve && <span className="tag" style={{ marginLeft: 4 }}>CURVE</span>}</td><td className="r num">{F(c.mcap)}</td><td className="r num">{F(c.vol1h)}</td><td className="r num">{bidsBy[c.mint] ? `${bidsBy[c.mint].bids} · ${S(bidsBy[c.mint].sol, 1)} SOL` : <span className="dim">—</span>}</td></tr>)}
+      </tbody></table></div> })()}
     <div className="tiles" style={{ marginBottom: 14, gridTemplateColumns: 'repeat(3,1fr)' }}>
       <div className="tile"><div className="l">Books with bids</div><div className="v num">{list ? list.length : '—'}</div></div>
       <div className="tile"><div className="l">SOL bid</div><div className="v num">{list ? S(list.reduce((a, b) => a + b.sol, 0), 2) : '—'}</div></div>
