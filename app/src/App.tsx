@@ -266,7 +266,7 @@ export default function App() {
         <div className="foot">Desk + vault: <span className={deskUp ? 'up' : 'dn'}>{deskUp ? 'online' : 'offline'}</span> · beta</div></nav>
       <main className="main">{content()}</main>
     </div>
-    <nav className="mnav">{([['home', 'Home', '◼'], ['desk', 'Desk', '⇄'], ['vault', 'Vault', '◆'], ['portfolio', 'Bag', '◎']] as [string, string, string][]).map(([k, l, i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={page === k ? 'on' : ''}><b>{i}</b>{l}</a>)}<a href="#" onClick={(e) => { e.preventDefault(); setMore(true) }} className={more ? 'on' : ''}><b>≡</b>More</a></nav>
+    <nav className="mnav">{NAV.map(([k, l, , i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={page === k ? 'on' : ''}><b>{i}</b>{l}</a>)}<a href="#" onClick={(e) => { e.preventDefault(); setMore(true) }} className={more ? 'on' : ''}><b>≡</b>More</a></nav>
     {more && <div className="modal" onClick={() => setMore(false)}><div className="box" onClick={(e) => e.stopPropagation()} style={{ width: 360 }}><h2>More</h2><div className="panel" style={{ gap: 4 }}>
       <button className="btn pri big" onClick={() => { setMore(false); setLaunch(true) }}>Launch a coin</button>
       {MORE.map(([k, l]) => <a key={k} href={'#/' + k} className="btn" onClick={() => setMore(false)}>{l}</a>)}</div></div></div>}

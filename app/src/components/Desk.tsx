@@ -158,7 +158,7 @@ export function DeskPage({ go, coins = [], owner = '', bidder = null }: { go: (p
   return <>
     <div className="card" style={{ marginBottom: 14 }}><div className="panel" style={{ gap: 6 }}>
       <div className="lbl" style={{ margin: 0 }}>Trade a block off-chart on any coin</div>
-      <div className="row" style={{ gap: 6 }}><input value={open} onChange={(e) => setOpen(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && openMint()} placeholder="paste any mint — graduated, ≥ $100K" style={{ flex: 1 }} /><button className="btn pri" onClick={openMint} disabled={open.trim().length < 32}>Open desk</button></div>
+      <div className="row" style={{ gap: 6 }}><input value={open} onChange={(e) => setOpen(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && openMint()} placeholder="paste a mint — any coin with a price, ≥ $100K" style={{ flex: 1 }} /><button className="btn pri" onClick={openMint} disabled={open.trim().length < 32}>Open desk</button></div>
       <div className="nm">Blocks off-chart. Bids under spot, sell offers either side, one tx per fill, no names.</div>
     </div></div>
     {(() => { const bidsBy = Object.fromEntries((list || []).map((b) => [b.mint, b])); const elig = coins.filter((c) => c.priceUsd > 0 && (c.onCurve ? c.mcap >= 50_000 : c.mcap >= 100_000) && c.vol1h >= 5_000 && c.depthSol >= 10).sort((a, b) => (bidsBy[b.mint]?.sol || 0) - (bidsBy[a.mint]?.sol || 0) || b.vol1h - a.vol1h).slice(0, 25)
