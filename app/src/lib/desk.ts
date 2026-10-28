@@ -49,7 +49,7 @@ export function openBidder(conn: Connection, pubkey: string, signMsg: (m: Uint8A
     ws.onmessage = async (m) => {
       const d = JSON.parse(m.data)
       if (d.type === 'authed') { authed = true; onEvent(d); hb = setInterval(() => send({ type: 'refresh' }), 20000); return }
-      if (d.type === 'rfq') { onEvent(d); return }
+      if (d.type === 'rfq' || d.type === 'swap') { onEvent(d); return }
       if (d.type === 'rfq_responded') { waiters.get('rfq')?.ok(d.rfq); waiters.delete('rfq'); onEvent(d); return }
       if (d.type === 'placed') { waiters.get('place')?.ok(d.bid); waiters.delete('place'); onEvent(d); return }
       if (d.type === 'cancelled') { waiters.get('cancel:' + d.id)?.ok(d.ok); waiters.delete('cancel:' + d.id); onEvent(d); return }
@@ -79,9 +79,11 @@ export function openBidder(conn: Connection, pubkey: string, signMsg: (m: Uint8A
 }
 
 /** Seller side: take a bid in full. Builds the 4-instruction fill, signs, hands to the server which relays to the bidder. */
-export async function takeBid(conn: Connection, seller: string, bidId: string, signTx: (t: Transaction) => Promise<Transaction>, onStatus?: (s: string) => void): Promise<{ sig: string; quote: any }> {
+export async function takeBid(conn: Connection, seller: string, bidId: string, signTx: (t: Transaction) => Promise<Transaction>, onStatus?: (s: string) => void, gate?: (q: any) => Promise<boolean>): Promise<{ sig: string; quote: any }> {
   onStatus?.('Quoting…')
   const q = await j('/quote', { bidId, seller })
+  if (q.refAgeMs > 3000) throw new Error('reference price is stale — try again')
+  if (gate && !(await gate(q))) throw new Error('cancelled')
   const sellerPk = new PublicKey(seller), bidderPk = new PublicKey(q.bidder), mint = new PublicKey(q.mint)
   const bAta = getAssociatedTokenAddressSync(mint, bidderPk, true), sAta = getAssociatedTokenAddressSync(mint, sellerPk, true)
   const tx = new Transaction(); tx.feePayer = sellerPk; tx.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash
@@ -109,6 +111,7 @@ export const vaults = (): Promise<VaultPub[]> => j('/vaults')
 export type FillRec = { t: number; mint: string; symbol: string; seller: string; bidder: string; sol: number; discBps: number; tokens: number; sig: string; vault: boolean }
 export const fills = (mint?: string): Promise<FillRec[]> => j('/fills' + (mint ? '?mint=' + mint : ''))
 export const leaderboard = (): Promise<{ wallet: string; soldSol: number; boughtSol: number; fills: number; saved: number }[]> => j('/leaderboard')
+export type SwapEvt = { type: 'swap'; mint: string; symbol: string; pool: string; sig: string; slot: number; side: 'buy' | 'sell'; sol: number; trader: string; t: number }
 export type Family = { root: string; members: { mint: string; symbol: string; mcapUsd: number; vol1h: number; score: number; original: boolean; vault: boolean; leader?: boolean }[] }
 export const family = (mint: string): Promise<Family> => j('/family/' + mint)
 export const devVaults = (dev: string): Promise<VaultPub[]> => j('/dev/' + dev)
@@ -157,3 +160,10 @@ export const rfqCancel = (id: string, seller: string) => j('/rfq/cancel', { id, 
 export const poolImpactBps = (sol: number, liqSol: number) => liqSol > 0 ? Math.round((1 - 1 / (1 + sol / liqSol) ** 2) * 10000) : 10000
 export const bundleSign = (id: string, mint: string, tx: string, maxSol: number): Promise<{ tx: string; spend: number }> => j('/vault/bundle-sign', { id, mint, tx, maxSol })
 export const sendBundle = (txs: string[]): Promise<{ bundleId: string }> => j('/bundle', { txs })
+
+/** Read-only firehose of vault-pool swaps (no auth). */
+export function openSwapFeed(onSwap: (s: SwapEvt) => void) {
+  let ws: WebSocket | null = null, closed = false, timer: any
+  const connect = () => { ws = new WebSocket(WS); ws.onmessage = (m) => { try { const d = JSON.parse(m.data); if (d.type === 'swap') onSwap(d) } catch {} }; ws.onclose = () => { if (!closed) timer = setTimeout(connect, 3000) }; ws.onerror = () => ws?.close() }
+  connect(); return () => { closed = true; clearTimeout(timer); ws?.close() }
+}

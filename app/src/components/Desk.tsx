@@ -27,9 +27,9 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
           {book.bids.length === 0 && <tr><td colSpan={5} className="empty" style={{ padding: 18 }}>No bids resting</td></tr>}
           {book.bids.map((b) => { const px = book.market?.priceSol * (1 - b.discBps / 10000); const tokens = px ? b.sol / px : 0; const canTake = book.open && d.connected && !b.mine && b.restable && d.holdingUi >= tokens
             return <tr key={b.id}><td className="r num">{S(b.sol, 2)} SOL</td><td className="r num dn">−{(b.discBps / 100).toFixed(1)}%</td><td className="r num dim">{tokens ? tokens.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' ' + symbol : '—'}</td><td className="r num dim">{ago(b.placedAt)}{!b.restable && <span className="gold"> · resting</span>}</td>
-              <td className="r">{b.mine ? <button className="btn sm" onClick={() => cancel(b.id)}>Cancel</button> : <button className="btn sm pri" disabled={!canTake || !!d.busy} title={!b.restable ? 'resting' : d.holdingUi < tokens ? 'you hold less than this block' : ''} onClick={() => d.takeBid(b.id)}>Sell block</button>}</td></tr> })}
+              <td className="r">{b.mine ? <button className="btn sm" onClick={() => cancel(b.id)}>Cancel</button> : <button className="btn sm pri" disabled={!canTake || !!d.busy} title={!b.restable ? 'resting' : d.holdingUi < tokens ? 'you hold less than this block' : `fills at ${px ? px.toPrecision(3) : '?'} SOL/token, spot at signing`} onClick={() => d.takeBid(b.id)}>Sell → {S(b.sol * (1 - book.rules.feeBps / 10000), 2)} SOL</button>}</td></tr> })}
         </tbody></table></div>
-        <div className="nm" style={{ marginTop: 6 }}>Fills off-pool at the bid's discount. One signature; the bidder co-signs or nothing happens.</div>
+        <div className="nm" style={{ marginTop: 6 }}>Price = spot at the moment you sign (reference ≤1.5s old) minus the bid's discount. Both browsers verify it independently; if either disagrees by &gt;1.5% nothing is sent. If spot fell &gt;5% since you posted a request, we ask before filling.</div>
       </div>
       <div>
         <div className="lbl">Place a block bid</div>
@@ -230,6 +230,7 @@ export function SellBlock({ mint, symbol, holdingUi, priceSol, liqSol, owner, co
       <div className="kv"><span>Block</span><b className="num">{(holdingUi * frac).toLocaleString(undefined, { maximumFractionDigits: 0 })} {symbol} ≈ {S(sizeSol, 2)} SOL</b></div>
       <div className="kv"><span>Dumping this into the pool would cost</span><b className="num dn">−{(impact / 100).toFixed(1)}%</b></div>
       <div className="row"><span className="dim" style={{ fontSize: 12 }}>Max loss</span><input type="range" className="slider" min={50} max={1000} step={25} value={maxBps} onChange={(e) => setMaxBps(+e.target.value)} /><b className="num dn">−{(maxBps / 100).toFixed(2)}%</b></div>
+      {maxBps > 600 && <div className="nm" style={{ color: 'var(--gold)' }}>Above −6% you're paying more than most blocks cost on the chart ({(impact / 100).toFixed(1)}% here). Lower it unless you need out now.</div>}
       <div className="row"><span className="dim" style={{ fontSize: 12 }}>Shop for</span><div className="seg">{[30, 60, 120].map((t) => <button key={t} className={ttl === t ? 'on' : ''} onClick={() => setTtl(t)}>{t}s</button>)}</div><span className="sp" /><span className="dim" style={{ fontSize: 11 }}>then → pool if impact ≤ max, else cancel</span></div>
       {err && <div className="note" style={{ color: 'var(--dn)' }}>{err}</div>}
       <div className="row"><button className="btn" onClick={onClose}>Cancel</button><span className="sp" /><button className="btn pri" disabled={!!busy || (connected && !(sizeSol > 0))} onClick={() => (connected ? post() : needWallet())}>{!connected ? 'Connect wallet' : `Shop block at ≤ −${(maxBps / 100).toFixed(1)}%`}</button></div>
@@ -258,7 +259,7 @@ export function RfqPing({ r, bidder, onRespond, onDismiss, busy }: { r: K.Rfq; b
     <div className="kv"><span>Seller takes up to</span><b className="num dn">−{(r.maxBps / 100).toFixed(2)}%</b></div>
     <div className="row" style={{ marginTop: 8, gap: 6 }}>
       <button className="btn sm pri" disabled={!!busy || !bidder?.connected()} onClick={() => onRespond(r.id, r.maxBps, r.remainingSol)}>Fill at −{(r.maxBps / 100).toFixed(1)}%</button>
-      <input className="num" style={{ width: 64, background: 'var(--s3)', border: '1px solid var(--line)', borderRadius: 6, padding: '4px 6px', color: 'var(--fg)' }} value={(disc / 100).toFixed(2)} onChange={(e) => setDisc(Math.round(+e.target.value * 100) || 300)} />
+      <input className="num" style={{ width: 64, background: 'var(--s3)', border: '1px solid var(--line)', borderRadius: 6, padding: '4px 6px', color: 'var(--fg)' }} value={(disc / 100).toFixed(2)} onChange={(e) => setDisc(Math.min(800, Math.max(50, Math.round(+e.target.value * 100) || 300)))} />
       <button className="btn sm" disabled={!!busy || !bidder?.connected()} onClick={() => onRespond(r.id, disc, r.remainingSol)}>Counter</button>
       <span className="sp" /><button className="btn sm ghost" onClick={onDismiss}>✕</button>
     </div>

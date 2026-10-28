@@ -42,3 +42,21 @@ Plus the parts every terminal needs: 1-click wallet, fast board, signals, TP/SL,
 
 ## Backtest log
 - 2026-10-27 · 100 SOL pool · 6h · 24 seeds · 30% chest: v1 vs +skew vs +zstretch vs +volDisc. skew/zstretch within noise (±0.1 SOL P&L); volDisc −7 SOL P&L at calm flow, off-chart fills 8.1 → 0.4 SOL. Kept skew + zstretch, dropped volDisc.
+
+## Status after this pass (v1 scope)
+| Area | State |
+|---|---|
+| Wallet (in-app 1-click + extensions) | live |
+| Board / Home (ours first, runners, vault tape; market + stream tabs) | live |
+| Buy / sell (curve via PumpPortal, graduated via Jupiter; auto fee, Jito tip, rebroadcast) | live |
+| Smart sell → desk when it beats the chart | live |
+| Desk: resting bids, RFQ (max loss + clock, pings, counters), vault bid, leaderboard, fills | live (server) |
+| Vault: MM mode (capture, tranches, redeploy), floor mode, redeem, deposits, import, copies | live (server, custodial) |
+| Block-zero launch: create + dev buy + vault buy in one Jito bundle | built, needs mainnet try |
+| Graduated-coin buys: pool websocket, per-swap, same slot | built, needs Helius WS try |
+| Signals (runner/rug/bundle/crash/dead with reasons) | live, tested on synthetic shapes |
+| Own chart with vault/desk/your markers + floor | live |
+| TP/SL | browser-side only (no key server-side by design) |
+| Backtest (`npm run backtest`) | live |
+| On-chain program (flip fee, trustless vault, treasury switch) | v2 |
+| Platform fee, referrals, ToS | deferred by decision / v1.1 |

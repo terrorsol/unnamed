@@ -67,8 +67,8 @@ export function About() {
   return <div className="prose">
     <h2>What's live right now</h2>
     <p>Every button on the board, coin page, launch modal and portfolio is a real Solana transaction signed by your wallet. Buys and sells on bonding-curve coins route through pump.fun via PumpPortal; graduated coins route through Jupiter. Launches create real pump.fun coins. Balances and holdings are read from the chain. Prices, charts and the board come from DexScreener; new launches and curve trades stream from pump.fun in real time.</p>
-    <h2>Desk and vault — live, bot-run</h2>
-    <p><b>Desk:</b> resting block bids 3–5% under spot on any graduated coin over $100K. A fill is one transaction signed by both seller and bidder; our server only matches and relays, it never holds funds. <b>Vault:</b> coins launched here with a stake get a vault wallet our bot runs under fixed rules — buys crashes, trims only above holder cost and 30-min VWAP, never withdraws, pays the dev cut. The vault is custodial in this beta (our bot holds the vault key); v1 moves it into an on-chain program.</p>
+    <h2>Desk, vault, market maker — live, bot-run</h2>
+    <p><b>Desk:</b> resting block bids 3–5% under spot on any graduated coin over $100K. A fill is one transaction signed by both seller and bidder; our server only matches and relays, it never holds funds. <b>Vault:</b> coins launched here (or imported) get a vault our bot runs under fixed rules. In market-maker mode it counters a slice of stretched buys and puts every SOL back under the price — 60% as a desk bid, 40% as dip tranches — never withdraws, pays the dev cut only from profit. Launches put the vault in block zero via a Jito bundle. Custodial in this beta; the on-chain program comes next.</p>
     <h2>Still a preview</h2>
     <p>The early-flip fee, burn-to-redeem and copies need the on-chain programs. They're computed and shown with a <span className="tag pre">PREVIEW</span> tag, not enforced. Your cost basis and hold clock are kept in this browser.</p>
     <h2>Fees</h2>

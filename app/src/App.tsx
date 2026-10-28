@@ -72,7 +72,9 @@ export default function App() {
   const signLegacy = useCallback(async (t: Transaction) => { if (mode === 'burner') { if (!burner) throw new Error('wallet locked'); t.partialSign(burner); return t } if (!wallet.signTransaction) throw new Error('wallet cannot sign'); return wallet.signTransaction(t) }, [mode, burner, wallet.signTransaction])
   const signMsg = useCallback(async (m: Uint8Array) => { if (mode === 'burner') { if (!burner) throw new Error('wallet locked'); return K.signMsgWith(burner)(m) } if (!wallet.signMessage) throw new Error('wallet cannot sign messages'); return wallet.signMessage(m) }, [mode, burner, wallet.signMessage])
   const [bidder, setBidder] = useState<K.BidderSession | null>(null); const [deskTick, setDeskTick] = useState(0)
-  const [pings, setPings] = useState<K.Rfq[]>([])
+  const [pings, setPings] = useState<K.Rfq[]>([]); const [swaps, setSwaps] = useState<any[]>([])
+  const allTrades = useMemo(() => [...swaps, ...fresh.trades].sort((a, b) => b.ts - a.ts).slice(0, 200), [swaps, fresh.trades])
+  useEffect(() => { if (!deskUp) return; return K.openSwapFeed((sw) => setSwaps((l) => [{ mint: sw.mint, txType: sw.side, sol: sw.sol, tokens: 0, trader: sw.trader, mcapSol: 0, ts: sw.t, sig: sw.sig }, ...l].slice(0, 200))) }, [deskUp])
   useEffect(() => { K.health().then(() => setDeskUp(true)).catch(() => setDeskUp(false)); const i = setInterval(() => K.health().then(() => setDeskUp(true)).catch(() => setDeskUp(false)), 30000); return () => clearInterval(i) }, [])
   useEffect(() => {
     if (!activeB58 || !deskUp) { setBidder(null); return }
@@ -91,9 +93,11 @@ export default function App() {
     try { await bidder.respond(rfqId, discBps, sol); setPings((l) => l.filter((x) => x.id !== rfqId)); toast({ kind: 'ok', title: discBps <= (pings.find((p) => p.id === rfqId)?.maxBps ?? discBps) ? 'Filling the block — seller is signing' : 'Counter sent to seller', rows: [['Your price', '−' + (discBps / 100).toFixed(2) + '%'], ['Size', S(sol, 2) + ' SOL']] }) }
     catch (e: any) { toast({ kind: 'err', title: 'Could not respond', rows: [['Reason', String(e?.message || e)]] }) }
   }
+  const [gateQ, setGateQ] = useState<{ q: any; ok: (v: boolean) => void } | null>(null)
+  const gate = (q: any) => new Promise<boolean>((ok) => { if (!q.needsConfirm) return ok(true); setGateQ({ q, ok: (v) => { setGateQ(null); ok(v) } }) })
   const takeBid = async (id: string) => {
     if (!activeB58) return needWallet()
-    try { const { sig, quote } = await K.takeBid(connection, activeB58, id, signLegacy, setBusy); const got = Number(BigInt(quote.sellerLamports)) / 1e9; recordSell(ws.owner, quote.mint, quote.bid.symbol, 0, got, sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Block sold on the desk`, rows: [['Received', S(got) + ' SOL'], ['Discount', '−' + (quote.bid.discBps / 100).toFixed(1) + '%'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
+    try { const { sig, quote } = await K.takeBid(connection, activeB58, id, signLegacy, setBusy, gate); const got = Number(BigInt(quote.sellerLamports)) / 1e9; recordSell(ws.owner, quote.mint, quote.bid.symbol, 0, got, sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Block sold on the desk`, rows: [['Received', S(got) + ' SOL'], ['Discount', '−' + (quote.bid.discBps / 100).toFixed(1) + '%'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
     catch (e: any) { toast({ kind: 'err', title: 'Desk fill failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
   }
   const onRedeem = async (c: Coin, tokens: number, decimals: number) => {
@@ -188,7 +192,7 @@ export default function App() {
   const toggleWatch = (m: string) => setSettings({ watch: settings.watch.includes(m) ? settings.watch.filter((x) => x !== m) : [...settings.watch, m] })
 
   const content = () => {
-    if (page === 'coin' && arg) { const h = ws.tokens.find((t) => t.mint === arg); return <CoinPage mint={arg} coin={byMint[arg]} solPrice={solPrice} holding={h} lot={ledger.lots[arg]} sol={ws.sol} connected={connected} busy={busy} onBuy={onBuy} onSell={onSell} needWallet={needWallet} quickSol={settings.quickBuy} watch={settings.watch} toggleWatch={toggleWatch} trades={fresh.trades} subscribe={fresh.subscribe} desk={{ owner: ws.owner, connected, bidder, deskUp, busy, takeBid, holdingUi: h?.amount || 0, solPrice }} deskTick={deskTick} vaultV={vaultV} onRenounce={renounce} onRedeem={onRedeem} onDeposit={onDeposit} onMode={onMode} onSwitch={onSwitch} go={go} ordersV={ordersV} bumpOrders={() => setOrdersV((v) => v + 1)} fills={ledger.fills} /> }
+    if (page === 'coin' && arg) { const h = ws.tokens.find((t) => t.mint === arg); return <CoinPage mint={arg} coin={byMint[arg]} solPrice={solPrice} holding={h} lot={ledger.lots[arg]} sol={ws.sol} connected={connected} busy={busy} onBuy={onBuy} onSell={onSell} needWallet={needWallet} quickSol={settings.quickBuy} watch={settings.watch} toggleWatch={toggleWatch} trades={allTrades} subscribe={fresh.subscribe} desk={{ owner: ws.owner, connected, bidder, deskUp, busy, takeBid, holdingUi: h?.amount || 0, solPrice }} deskTick={deskTick} vaultV={vaultV} onRenounce={renounce} onRedeem={onRedeem} onDeposit={onDeposit} onMode={onMode} onSwitch={onSwitch} go={go} ordersV={ordersV} bumpOrders={() => setOrdersV((v) => v + 1)} fills={ledger.fills} /> }
     if (page === 'portfolio') return <Portfolio sol={ws.sol} tokens={ws.tokens} coins={byMint} lots={ledger.lots} fills={ledger.fills} solPrice={solPrice} go={go} owner={ws.owner} />
     if (page === 'settings') return <SettingsPage s={settings} set={setSettings} />
     if (page === 'about') return <About />
@@ -215,6 +219,13 @@ export default function App() {
       <main className="main">{content()}</main>
     </div>
     <nav className="mnav">{([['home', 'Home', '◼'], ['desk', 'Desk', '⇄'], ['vault', 'Vault', '◆'], ['portfolio', 'Bag', '◎'], ['dev', 'Dev', '✦']] as [string, string, string][]).map(([k, l, i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={page === k ? 'on' : ''}><b>{i}</b>{l}</a>)}</nav>
+    {gateQ && <div className="modal" onClick={() => gateQ.ok(false)}><div className="box" onClick={(e) => e.stopPropagation()} style={{ width: 420 }}>
+      <h2>Price moved since you posted</h2>
+      <div className="kv"><span>You posted at</span><b className="num">{Number(gateQ.q.anchorPrice).toPrecision(4)} SOL</b></div>
+      <div className="kv"><span>Spot now</span><b className="num dn">{Number(gateQ.q.priceSol).toPrecision(4)} SOL ({(gateQ.q.drift * 100).toFixed(1)}%)</b></div>
+      <div className="kv"><span>This fill</span><b className="num">{Number(gateQ.q.px).toPrecision(4)} SOL · −{(gateQ.q.bid.discBps / 100).toFixed(1)}% vs now · you get {(Number(gateQ.q.sellerLamports) / 1e9).toFixed(3)} SOL</b></div>
+      <div className="row" style={{ marginTop: 6 }}><button className="btn" onClick={() => gateQ.ok(false)}>Hold</button><span className="sp" /><button className="btn pri" onClick={() => gateQ.ok(true)}>Fill at new price</button></div>
+    </div></div>}
     {wp && <WalletPanel onClose={() => setWp(false)} burner={burner} setBurner={setBurner} mode={mode} setMode={setMode} sol={ws.sol} onWithdraw={onWithdraw} />}
     {launch && <Launch onClose={() => setLaunch(false)} onLaunch={onLaunch} busy={busy} connected={connected} sol={ws.sol} needWallet={needWallet} />}
     <div className="toasts" style={{ bottom: 'auto', top: 64 }}>{pings.map((r) => <RfqPing key={r.id} r={r} bidder={bidder} onRespond={onRespond} onDismiss={() => setPings((l) => l.filter((x) => x.id !== r.id))} busy={busy} />)}</div>

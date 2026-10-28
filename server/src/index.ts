@@ -9,12 +9,21 @@ import { streamStats } from './stream.ts'
 
 const PORT = +(process.env.PORT || 8787)
 const json = (res: any, code: number, body: any) => { res.writeHead(code, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'GET,POST,OPTIONS' }); res.end(JSON.stringify(body)) }
-const readBody = (req: any) => new Promise<any>((ok) => { let s = ''; req.on('data', (c: any) => (s += c)); req.on('end', () => { try { ok(JSON.parse(s || '{}')) } catch { ok({}) } }) })
+const readBody = (req: any) => new Promise<any>((ok, no) => { let s = ''; req.on('data', (c: any) => { s += c; if (s.length > 200_000) { no(new Error('body too large')); req.destroy() } }); req.on('end', () => { try { ok(JSON.parse(s || '{}')) } catch { ok({}) } }) })
+// per-IP token bucket: 60 req / 10s for reads, 20 / 10s for writes
+const buckets = new Map<string, { t: number; n: number }>()
+function limited(ip: string, write: boolean) { const now = Date.now(); const k = ip + (write ? 'w' : 'r'); const b = buckets.get(k) || { t: now, n: 0 }; if (now - b.t > 10_000) { b.t = now; b.n = 0 } b.n++; buckets.set(k, b); return b.n > (write ? 20 : 60) }
+setInterval(() => { const now = Date.now(); for (const [k, b] of buckets) if (now - b.t > 60_000) buckets.delete(k) }, 60_000)
+const isPk = (x: any) => typeof x === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(x)
 
 const server = createServer(async (req, res) => {
   const u = new URL(req.url!, 'http://x'); const p = u.pathname
   if (req.method === 'OPTIONS') return json(res, 204, {})
+  const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim()
+  if (limited(ip, req.method === 'POST')) return json(res, 429, { error: 'slow down' })
   try {
+    // pubkey-shaped path params only
+    for (const seg of [p.startsWith('/book/') && p.slice(6), p.startsWith('/vault/mint/') && p.slice(12), p.startsWith('/family/') && p.slice(8), p.startsWith('/dev/') && p.slice(5), p.startsWith('/import/quote/') && p.slice(14)]) if (seg && !isPk(seg)) throw new Error('bad address')
     if (p === '/health') return json(res, 200, { ok: true, rpc: RPC.replace(/api-key=.*/, 'api-key=…'), treasury: TREASURY, desk: D.stats(), vaults: V.list().length, stream: streamStats() })
     if (p === '/books') return json(res, 200, D.books())
     if (p === '/fills') return json(res, 200, D.history(u.searchParams.get('mint') || undefined))
@@ -50,7 +59,7 @@ const server = createServer(async (req, res) => {
 // Bidders hold a websocket: auth by signing a message, then place/cancel/refresh; fills are relayed here for co-signing.
 const wss = new WebSocketServer({ server })
 wss.on('connection', (ws: WebSocket) => {
-  let who = ''
+  let who = ''; D.registerBidderSocket(ws) // every socket gets public broadcasts (swaps, rfq pings); bids need auth
   const send = (o: any) => ws.readyState === 1 && ws.send(JSON.stringify(o))
   ws.on('message', async (raw) => {
     let m: any; try { m = JSON.parse(String(raw)) } catch { return }
@@ -58,7 +67,7 @@ wss.on('connection', (ws: WebSocket) => {
       if (m.type === 'auth') {
         const msg = `unnamed-desk:${m.pubkey}:${m.ts}`; if (Math.abs(Date.now() - m.ts) > 120000) throw new Error('stale auth')
         if (!nacl.sign.detached.verify(new TextEncoder().encode(msg), bs58.decode(m.sig), bs58.decode(m.pubkey))) throw new Error('bad signature')
-        who = m.pubkey; D.registerBidderSocket(ws); return send({ type: 'authed', pubkey: who, rfqs: D.rfqOpenFor() })
+        who = m.pubkey; return send({ type: 'authed', pubkey: who, rfqs: D.rfqOpenFor() })
       }
       if (!who) throw new Error('auth first')
       if (m.type === 'place') return send({ type: 'placed', bid: await D.place(ws, who, m.mint, +m.sol, +m.discBps) })

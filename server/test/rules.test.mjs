@@ -67,3 +67,4 @@ test('mm v2: inventory skew, vol-aware desk discount, z-stretch', () => {
   const long = R.captureFracV2(1.2, 1, 0.5, 5e5, 0.1, 25, 10, 0.3, 0.5), short = R.captureFracV2(1.2, 1, 0.5, 5e5, 0.1, 4, 10, 0.3, 0.5); assert.ok(long > short)
   const t = Date.now(); const samples = Array.from({ length: 31 }, (_, i) => ({ t: t + i * 60000, p: 1 + 0.05 * Math.sin(i) })); assert.ok(R.sigma(samples) > 0.05 && R.sigma(samples) < 0.5)
 })
+test('otc fairness constants', () => { assert.ok(R.COUNTER_MAX_BPS <= 1000); assert.ok(R.SELLER_DRIFT >= 0.03 && R.SELLER_DRIFT <= 0.1); assert.ok(R.QUOTE_MAX_AGE_MS <= 2000); assert.equal(R.minBlockSol({ mcapUsd: 1e6, liqSol: 100, onCurve: false, priceSol: 1e-5 }), 2) })

@@ -11,7 +11,7 @@ type Props = { coins: Coin[]; byMint: Record<string, Coin>; vaults: K.VaultPub[]
 /** Home = our coins. Vaulted launches ranked by runner score, the vault tape, and the market behind a tab. */
 export default function Home(p: Props) {
   const [tab, setTab] = useState<'ours' | 'market' | 'stream'>('ours')
-  const ours = useMemo(() => p.vaults.filter((v) => v.mint).map((v) => { const c = p.byMint[v.mint!]; const sg = c ? classify(featsFromCoin(c, null, true)) : null; return { v, c, sg } }).sort((a, b) => (b.sg?.score || 0) - (a.sg?.score || 0)), [p.vaults, p.byMint])
+  const ours = useMemo(() => p.vaults.filter((v) => v.mint).map((v) => { const c = p.byMint[v.mint!]; const sg = c ? classify(featsFromCoin(c, (v as any).holders || null, true)) : null; return { v, c, sg } }).sort((a, b) => (b.sg?.score || 0) - (a.sg?.score || 0)), [p.vaults, p.byMint])
   const runners = useMemo(() => p.coins.map((c) => ({ c, s: classify(featsFromCoin(c, null, p.vaults.some((v) => v.mint === c.mint))) })).filter((x) => x.s.label === 'RUNNER').sort((a, b) => b.s.score - a.s.score).slice(0, 6), [p.coins, p.vaults])
   const tape = useMemo(() => p.vaults.flatMap((v) => v.activity.filter((a) => ['capture', 'buy', 'redeem', 'bid', 'stream'].includes(a.kind)).map((a) => ({ ...a, symbol: v.symbol, mint: v.mint }))).sort((a, b) => b.t - a.t).slice(0, 30), [p.vaults])
   const chest = p.vaults.reduce((a, v) => a + v.chest, 0), captured = p.vaults.reduce((a, v) => a + (v.score?.captured || 0), 0), offChart = p.vaults.reduce((a, v) => a + (v.score?.deskBought || 0), 0)

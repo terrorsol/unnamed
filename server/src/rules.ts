@@ -7,6 +7,9 @@ export const REST_MS = 60_000                                   // a bid rests 6
 export const BID_TTL_MS = 30 * 60_000                           // and dies after 30 min unless refreshed
 export const CROSS_FEE_BPS = 50                                 // 0.5% of SOL crossed, paid by bidder → treasury
 export const PRICE_TOL = 0.015                                  // bidder accepts a fill within 1.5% of their discount
+export const COUNTER_MAX_BPS = 800                              // a counter can't lowball past −8%
+export const SELLER_DRIFT = 0.05                                // RFQ auto-fills pause if spot fell >5% since the seller posted
+export const QUOTE_MAX_AGE_MS = 1500                            // fills price off a reference no older than this
 
 export type Market = { mcapUsd: number; liqSol: number; onCurve: boolean; priceSol: number }
 export function deskOpen(m: Market) { return !m.onCurve && m.mcapUsd >= GATE_MCAP_USD }

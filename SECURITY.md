@@ -14,7 +14,7 @@
 - Server verifies the holder-signed tx shape (ATA create, exact token amount, exact lamports from quote) before co-signing. Max 25% of chest per redeem, 7% haircut.
 
 **Known gaps (fine for a closed beta, not for public)**
-- No rate limiting / DoS protection on the server.
+- Server: per-IP token bucket (60 reads / 20 writes per 10s), 200KB body cap, pubkey-shaped path params only. No auth on read endpoints (public by design).
 - Helius key is in the frontend bundle — lock it to the domain in the Helius dashboard.
 - Vault trades go through PumpPortal (0.5%) and the public pump route; no MEV protection yet.
 - Family/leader scoring trusts DexScreener data.

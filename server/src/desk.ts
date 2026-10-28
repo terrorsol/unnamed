@@ -41,6 +41,7 @@ export async function placeInternalRaw(kp: Keypair, label: string, mint: string,
 export function cancelInternal(bidderPk: string, mint: string) { for (const [id, b] of bids) if (b.bidder === bidderPk && b.mint === mint && b.status === 'open') bids.delete(id) }
 
 export async function place(ws: WebSocket, bidder: string, mint: string, sol: number, discBps: number) {
+  if (!Number.isFinite(sol) || !Number.isFinite(discBps) || sol <= 0 || sol > 10_000) throw new Error('bad bid')
   const m = await market(mint); if (!m) throw new Error('unknown market')
   const why = R.validBid(sol, discBps, m); if (why) throw new Error(why)
   const open = [...bids.values()].filter((b) => b.bidder === bidder && b.status === 'open')
@@ -71,9 +72,10 @@ export async function quote(id: string, seller: string) {
   const b = bids.get(id); if (!b || b.status !== 'open') throw new Error('bid not open')
   if (!b.rfq && !R.restable(b.placedAt)) throw new Error(`bid resting — fillable in ${Math.ceil((R.REST_MS - (Date.now() - b.placedAt)) / 1000)}s`)
   if (b.bidder === seller) throw new Error('cannot fill your own bid')
-  const m = await market(b.mint); if (!m) throw new Error('no market')
+  const m = await market(b.mint, R.QUOTE_MAX_AGE_MS); if (!m) throw new Error('no market')
   const d = await dec(b.mint); const q = R.fillQuote(b.sol, b.discBps, m.priceSol, d)
-  return { bid: pubBid(b), mint: b.mint, bidder: b.bidder, seller, treasury: TREASURY, decimals: d, priceSol: m.priceSol, px: q.px, tokens: q.tokens, base: q.base.toString(), lamports: q.lamports.toString(), sellerLamports: q.sellerLamports.toString(), fee: q.fee.toString() }
+  const rf = b.rfq ? rfqs.get(b.rfq) : null; const drift = rf ? m.priceSol / rf.priceSol - 1 : 0
+  return { bid: pubBid(b), mint: b.mint, bidder: b.bidder, seller, treasury: TREASURY, decimals: d, priceSol: m.priceSol, refAgeMs: Date.now() - ((m as any).t || Date.now()), drift, needsConfirm: !!rf && drift < -R.SELLER_DRIFT, anchorPrice: rf?.priceSol || null, px: q.px, tokens: q.tokens, base: q.base.toString(), lamports: q.lamports.toString(), sellerLamports: q.sellerLamports.toString(), fee: q.fee.toString() }
 }
 /** Seller submits a seller-signed tx; server verifies structure vs a fresh quote, relays to bidder to co-sign + send */
 export async function fill(id: string, seller: string, txB64: string): Promise<{ sig: string }> {
@@ -120,6 +122,7 @@ let vaultResponder: ((mint: string, sizeSol: number, maxBps: number, rfqId: stri
 export function setVaultResponder(f: typeof vaultResponder) { vaultResponder = f }
 const pubRfq = (r: Rfq) => ({ ...r, remainingSol: Math.max(0, r.sizeSol - r.filledSol - r.matches.reduce((a, id) => a + (bids.get(id)?.status === 'open' || bids.get(id)?.status === 'filling' ? bids.get(id)!.sol : 0), 0)), secondsLeft: Math.max(0, Math.ceil((r.expiresAt - Date.now()) / 1000)) })
 export async function rfqCreate(mint: string, seller: string, sizeSol: number, maxBps: number, ttlMs: number) {
+  if (!Number.isFinite(sizeSol) || sizeSol <= 0 || sizeSol > 10_000) throw new Error('bad size')
   const m = await market(mint); if (!m) throw new Error('unknown market'); if (!R.deskOpen(m)) throw new Error('desk closed for this coin')
   if (sizeSol < R.minBlockSol(m)) throw new Error(`min block is ${R.minBlockSol(m).toFixed(2)} SOL`); if (maxBps < 50 || maxBps > 1500) throw new Error('max loss must be 0.5–15%')
   const id = 'r' + Math.random().toString(36).slice(2, 9); const ttl = Math.min(180000, Math.max(15000, ttlMs || 60000))
@@ -127,7 +130,7 @@ export async function rfqCreate(mint: string, seller: string, sizeSol: number, m
   rfqs.set(id, r)
   // instant sweep: resting bids at or inside the seller's max loss, best first, until size is covered
   let left = sizeSol
-  for (const b of [...bids.values()].filter((b) => b.mint === mint && b.status === 'open' && b.bidder !== seller && b.discBps <= maxBps).sort((a, b) => a.discBps - b.discBps)) { if (left <= 0) break; if (b.sol <= left + 0.01) { r.matches.push(b.id); left -= b.sol } }
+  for (const b of [...bids.values()].filter((b) => b.mint === mint && b.status === 'open' && b.bidder !== seller && b.discBps <= maxBps).sort((a, b) => a.discBps - b.discBps)) { if (left <= 0) break; if (b.sol <= left + 0.01) { if (!b.internal) { const bal = await balanceSol(b.bidder).catch(() => 0); if (bal < b.sol + 0.005) { bids.delete(b.id); continue } } r.matches.push(b.id); left -= b.sol } }
   // ping every connected bidder + the vault
   broadcast({ type: 'rfq', rfq: pubRfq(r) })
   if (left > 0.01 && vaultResponder) { try { const vb = await vaultResponder(mint, left, maxBps, id); if (vb) { vb.rfq = id; if (vb.discBps <= maxBps) { r.matches.push(vb.id); left -= vb.sol } else r.counters.push({ bidId: vb.id, bidder: 'VAULT', discBps: vb.discBps, sol: vb.sol, vault: true }) } } catch {} }
@@ -138,7 +141,8 @@ export const rfqOpenFor = (mint?: string) => [...rfqs.values()].filter((r) => r.
 /** A bidder answers a ping: at the seller's max loss (or better) it's a match; worse is a counter the seller can accept */
 export async function rfqRespond(ws: WebSocket, bidder: string, rfqId: string, discBps: number, sol: number) {
   const r = rfqs.get(rfqId); if (!r || r.status !== 'open' || Date.now() > r.expiresAt) throw new Error('rfq closed'); if (bidder === r.seller) throw new Error('that is your own request')
-  const m = await market(r.mint); if (!m) throw new Error('no market'); const why = R.validBid(sol, Math.max(R.DISC_MIN_BPS, Math.min(R.DISC_MAX_BPS, discBps)), m)
+  if (!Number.isFinite(discBps) || discBps < 50 || discBps > R.COUNTER_MAX_BPS) throw new Error(`counter must be between −0.5% and −${R.COUNTER_MAX_BPS / 100}%`)
+  const m = await market(r.mint); if (!m) throw new Error('no market'); const why = R.validBid(sol, Math.max(R.DISC_MIN_BPS, Math.min(R.DISC_MAX_BPS, discBps)), m); if (why && !/discount/.test(why)) throw new Error(why)
   if (sol > pubRfq(r).remainingSol + 0.01) sol = +pubRfq(r).remainingSol.toFixed(3); if (sol < R.minBlockSol(m)) throw new Error('block already covered')
   const bal = await balanceSol(bidder); if (bal < sol * 1.006 + 0.01) throw new Error('insufficient balance')
   const id = Math.random().toString(36).slice(2, 10)

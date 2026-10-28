@@ -15,7 +15,7 @@ export default function Launch(p: Props) {
   const ok = name.trim().length > 1 && symbol.trim().length > 0 && symbol.length <= 10 && !!file
   const total = dev + stake + 0.02
   return <div className="modal" onClick={p.onClose}><div className="box" onClick={(e) => e.stopPropagation()}>
-    <div className="row"><h2>Launch a coin</h2><span className="sp" /><span className="tag live">LIVE · pump.fun</span></div>
+    <div className="row"><h2>Launch a coin</h2><span className="sp" /><span className="tag live">pump.fun · vault in block zero</span></div>
     <div className="two">
       <div className="fld"><div className="lbl">Name</div><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Glass Frog" maxLength={32} /></div>
       <div className="fld"><div className="lbl">Ticker</div><input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} placeholder="GLASS" maxLength={10} /></div>
@@ -35,7 +35,7 @@ export default function Launch(p: Props) {
     </div>
     <div className="fld"><div className="lbl">Dev buy (block zero) — <b className="num">{S(dev, 2)} SOL</b></div><input type="range" className="slider" min={0} max={5} step={0.05} value={dev} onChange={(e) => setDev(+e.target.value)} /></div>
     </>}
-    <div className="note"><div className="row"><b>Vault stake</b><span className="tag live">LIVE · bot</span><span className="sp" /><b className="num">{S(stake, 2)} SOL → {S(vaultPct(stake), 1)}% supply</b></div>
+    <div className="note"><div className="row"><b>Vault stake</b><span className="sp" /><b className="num">{S(stake, 2)} SOL → {S(vaultPct(stake), 1)}% supply</b></div>
       <input type="range" className="slider" min={0} max={5} step={0.05} value={stake} onChange={(e) => setStake(+e.target.value)} style={{ marginTop: 6 }} />
       <div className="nm" style={{ marginTop: 4 }}>Half buys block-zero supply, half is the chest. Cut = vaulted %, renounceable. 0 = plain pump launch.</div>
       {stake > 0 && adv && <div style={{ marginTop: 8 }}><ModePicker mode={mode} ceiling={ceiling} onChange={(m, c) => { setMode(m); setCeiling(c) }} compact /></div>}{stake > 0 && !adv && <div className="nm">Market maker · capture ceiling {Math.round(ceiling * 100)}%</div>}</div>
