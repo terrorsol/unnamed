@@ -20,7 +20,7 @@ import * as C from './chain.ts'
 import { streamStats } from './stream.ts'
 
 const PORT = +(process.env.PORT || 8787)
-const json = (res: any, code: number, body: any) => { res.writeHead(code, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'GET,POST,OPTIONS' }); res.end(JSON.stringify(body)) }
+const json = (res: any, code: number, body: any) => { res.writeHead(code, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type, x-banker-session', 'access-control-allow-methods': 'GET,POST,OPTIONS' }); res.end(JSON.stringify(body)) }
 const readBody = (req: any) => new Promise<any>((ok, no) => { let s = ''; req.on('data', (c: any) => { s += c; if (s.length > 2_500_000) { no(new Error('body too large')); req.destroy() } }); req.on('end', () => { try { ok(JSON.parse(s || '{}')) } catch { ok({}) } }) })
 // per-IP token bucket: 300 reads / 60 writes per 10s — a phone polls ~1 req/s, carrier NAT shares one IP across many phones
 const buckets = new Map<string, { t: number; n: number }>()
