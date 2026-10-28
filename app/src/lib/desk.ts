@@ -201,9 +201,11 @@ export const poolImpactBps = (sol: number, liqSol: number) => liqSol > 0 ? Math.
 export const bundleSign = (id: string, mint: string, tx: string, maxSol: number): Promise<{ tx: string; spend: number }> => j('/vault/bundle-sign', { id, mint, tx, maxSol })
 export const sendBundle = (txs: string[]): Promise<{ bundleId: string }> => j('/bundle', { txs })
 
-/** Read-only firehose of vault-pool swaps (no auth). */
+/** In-page bus: 'book' events (detail = mint) whenever the server says a book changed. */
+export const bookBus = new EventTarget()
+/** Read-only firehose of vault-pool swaps + book-change notes (no auth). */
 export function openSwapFeed(onSwap: (s: SwapEvt) => void) {
   let ws: WebSocket | null = null, closed = false, timer: any
-  const connect = async () => { await ready; if (closed) return; ws = new WebSocket(WS()); ws.onmessage = (m) => { try { const d = JSON.parse(m.data); if (d.type === 'swap') onSwap(d) } catch {} }; ws.onclose = () => { if (!closed) timer = setTimeout(connect, 3000) }; ws.onerror = () => ws?.close() }
+  const connect = async () => { await ready; if (closed) return; ws = new WebSocket(WS()); ws.onmessage = (m) => { try { const d = JSON.parse(m.data); if (d.type === 'swap') onSwap(d); else if (d.type === 'book') bookBus.dispatchEvent(new CustomEvent('book', { detail: d.mint })) } catch {} }; ws.onclose = () => { if (!closed) timer = setTimeout(connect, 3000) }; ws.onerror = () => ws?.close() }
   connect(); return () => { closed = true; clearTimeout(timer); ws?.close() }
 }

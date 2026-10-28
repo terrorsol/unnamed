@@ -10,7 +10,7 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
   const [book, setBook] = useState<K.Book | null>(null); const [err, setErr] = useState(''); const [sol, setSol] = useState('1'); const [disc, setDisc] = useState(400); const [msg, setMsg] = useState('')
   const [mode, setMode] = useState<'rest' | 'block'>('rest'); const [prem, setPrem] = useState(200); const [ttl, setTtl] = useState(120)
   const load = () => K.getBook(mint, d.owner || undefined).then((b) => { setBook(b); setErr('') }).catch((e) => setErr(String(e.message || e)))
-  useEffect(() => { load(); const i = setInterval(load, 5000); return () => clearInterval(i) }, [mint, d.owner])
+  useEffect(() => { load(); const i = setInterval(load, 5000); const onBook = (e: Event) => { if ((e as CustomEvent).detail === mint) load() }; K.bookBus.addEventListener('book', onBook); return () => { clearInterval(i); K.bookBus.removeEventListener('book', onBook) } }, [mint, d.owner])
   if (err) return <div className="panel"><div className="note">Desk server unreachable — <span className="dim">{err}</span>. Bids and fills resume automatically when it's back.</div></div>
   if (!book) return <div className="empty">Loading book…</div>
   const place = async () => { setMsg(''); try { if (mode === 'block') { await d.bidder!.buyBlock(mint, +sol, prem, ttl); setMsg(`Block buy live for ${ttl}s · holders are being pinged`) } else { await d.bidder!.place(mint, +sol, disc); setMsg('Bid placed · rests 60s, then fillable') } load() } catch (e: any) { setMsg(e.message) } }
@@ -54,9 +54,9 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
 /** Standalone Desk page: every book with resting bids */
 export function DeskPage({ go, coins = [], owner = '', bidder = null }: { go: (p: string) => void; coins?: import('../lib/dex').Coin[]; owner?: string; bidder?: K.BidderSession | null }) {
   const [mine, setMine] = useState<K.BookBid[]>([])
-  useEffect(() => { if (!owner) { setMine([]); return } const f = () => K.myBids(owner).then(setMine).catch(() => {}); f(); const i = setInterval(f, 6000); return () => clearInterval(i) }, [owner])
+  useEffect(() => { if (!owner) { setMine([]); return } const f = () => K.myBids(owner).then(setMine).catch(() => {}); f(); const i = setInterval(f, 6000); K.bookBus.addEventListener('book', f); return () => { clearInterval(i); K.bookBus.removeEventListener('book', f) } }, [owner])
   const [list, setList] = useState<Awaited<ReturnType<typeof K.getBooks>> | null>(null); const [err, setErr] = useState('')
-  useEffect(() => { const f = () => K.getBooks().then((l) => { setList(l); setErr('') }).catch((e) => setErr(String(e.message || e))); f(); const i = setInterval(f, 8000); return () => clearInterval(i) }, [])
+  useEffect(() => { const f = () => K.getBooks().then((l) => { setList(l); setErr('') }).catch((e) => setErr(String(e.message || e))); f(); const i = setInterval(f, 8000); K.bookBus.addEventListener('book', f); return () => { clearInterval(i); K.bookBus.removeEventListener('book', f) } }, [])
   const [open, setOpen] = useState(''); const [fl, setFl] = useState<K.FillRec[]>([])
   useEffect(() => { const f = () => K.fills().then(setFl).catch(() => {}); f(); const i = setInterval(f, 10000); return () => clearInterval(i) }, [])
   const openMint = () => { const m = open.trim(); if (m.length >= 32) go('coin/' + m + '/desk') }

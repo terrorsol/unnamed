@@ -59,7 +59,7 @@ export default function CoinPage(p: Props) {
   useEffect(() => {
     let on = true; p.subscribe([p.mint])
     const f = () => D.tokenPairs(p.mint).then((c) => on && c && setCoin(c)).catch(() => {})
-    f(); const i = setInterval(f, 8000); return () => { on = false; clearInterval(i) }
+    f(); const i = setInterval(f, 4000); return () => { on = false; clearInterval(i) }
   }, [p.mint])
   const c = coin
   if (!c) return <div className="empty">Loading {p.mint.slice(0, 8)}… <div className="nm" style={{ marginTop: 8 }}>Brand-new launches can take ~1 min to be indexed. You can still trade below once the pair appears.</div></div>

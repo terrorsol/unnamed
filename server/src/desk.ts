@@ -40,7 +40,7 @@ export async function placeInternalRaw(kp: Keypair, label: string, mint: string,
   const m = await market(mint); if (!m) throw new Error('unknown market'); const why = R.validBid(sol, discBps, m); if (why) throw new Error(why)
   const id = 'v' + Math.random().toString(36).slice(2, 9)
   const b: Bid = { id, mint, symbol: m.symbol, bidder, sol, discBps, placedAt: Date.now(), refreshedAt: Date.now(), status: 'open', ws: null, fills: 0, internal: { kp, label, maxSol } }
-  bids.set(id, b); return b
+  bids.set(id, b); bookChanged(mint); return b
 }
 export function cancelInternal(bidderPk: string, mint: string) { for (const [id, b] of bids) if (b.bidder === bidderPk && b.mint === mint && b.status === 'open') bids.delete(id) }
 
@@ -54,7 +54,7 @@ export async function place(ws: WebSocket, bidder: string, mint: string, sol: nu
   const bal = await balanceSol(bidder); if (bal < committed + sol * (1 + R.CROSS_FEE_BPS / 10000) + 0.01) throw new Error(`insufficient balance for ${sol} SOL bid (have ${bal.toFixed(3)}, ${committed.toFixed(2)} already committed)`)
   const id = Math.random().toString(36).slice(2, 10)
   const b: Bid = { id, mint, symbol: m.symbol, bidder, sol, discBps, placedAt: Date.now(), refreshedAt: Date.now(), status: 'open', ws, fills: 0 }
-  bids.set(id, b); return pubBid(b, bidder)
+  bids.set(id, b); bookChanged(mint); setTimeout(() => { if (bids.get(id)?.status === 'open') bookChanged(mint) }, R.REST_MS + 50); return pubBid(b, bidder)
 }
 /** Buy a block: buyer posts "I'll take up to `sol` SOL of this coin at up to +premiumBps over spot for ttl seconds". Any holder fills it
  *  with the normal fill tx (seller signs, buyer's browser co-signs). Zero chart impact on entry; holders get an exit above spot. */
@@ -68,16 +68,16 @@ export async function rfqBuy(ws: WebSocket, buyer: string, mint: string, sol: nu
   const bal = await balanceSol(buyer); if (bal < committed + sol * (1 + R.CROSS_FEE_BPS / 10000) + 0.01) throw new Error(`insufficient balance (have ${bal.toFixed(3)} SOL)`)
   const id = 'b' + Math.random().toString(36).slice(2, 10)
   const b: Bid = { id, mint, symbol: m.symbol, bidder: buyer, sol, discBps: -premiumBps, placedAt: Date.now(), refreshedAt: Date.now(), status: 'open', ws, fills: 0, rfq: 'buy', expiresAt: Date.now() + ttlSec * 1000 }
-  bids.set(id, b)
+  bids.set(id, b); bookChanged(mint)
   broadcast({ type: 'buy_rfq', mint, symbol: m.symbol, sol, premiumBps, secondsLeft: ttlSec, bidId: id }, ws)
   return pubBid(b, buyer)
 }
-export function cancel(bidder: string, id: string) { const b = bids.get(id); if (b && b.bidder === bidder && b.status === 'open') { b.status = 'cancelled'; bids.delete(id); return true } return false }
+export function cancel(bidder: string, id: string) { const b = bids.get(id); if (b && b.bidder === bidder && b.status === 'open') { b.status = 'cancelled'; bids.delete(id); bookChanged(b.mint); return true } return false }
 export function refresh(bidder: string) { for (const b of bids.values()) if (b.bidder === bidder) b.refreshedAt = Date.now() }
 /** Socket dropped (phone switched apps, flaky network): bids go 'away' — kept, unfillable — and come back when the same wallet re-auths within the grace window. */
-export function dropSocket(ws: WebSocket) { const now = Date.now(); for (const b of bids.values()) if (b.ws === ws && b.status === 'open') { b.ws = null; b.awaySince = now } }
-export function reattach(ws: WebSocket, bidder: string) { let n = 0; for (const b of bids.values()) if (b.bidder === bidder && b.status === 'open' && !b.internal && !b.ws) { b.ws = ws; b.awaySince = undefined; b.refreshedAt = Date.now(); n++ } return n }
-export function sweep() { const now = Date.now(); for (const [id, b] of bids) if (b.status === 'open' && !b.internal && (R.expired(b.refreshedAt, now) || (b.expiresAt && now > b.expiresAt) || (b.awaySince && now - b.awaySince > R.BIDDER_GRACE_MS))) bids.delete(id) }
+export function dropSocket(ws: WebSocket) { const now = Date.now(); const mints = new Set<string>(); for (const b of bids.values()) if (b.ws === ws && b.status === 'open') { b.ws = null; b.awaySince = now; mints.add(b.mint) } for (const m of mints) bookChanged(m) }
+export function reattach(ws: WebSocket, bidder: string) { let n = 0; const mints = new Set<string>(); for (const b of bids.values()) if (b.bidder === bidder && b.status === 'open' && !b.internal && !b.ws) { b.ws = ws; b.awaySince = undefined; b.refreshedAt = Date.now(); n++; mints.add(b.mint) } for (const m of mints) bookChanged(m); return n }
+export function sweep() { const now = Date.now(); for (const [id, b] of bids) if (b.status === 'open' && !b.internal && (R.expired(b.refreshedAt, now) || (b.expiresAt && now > b.expiresAt) || (b.awaySince && now - b.awaySince > R.BIDDER_GRACE_MS))) { bids.delete(id); bookChanged(b.mint) } }
 
 export async function book(mint: string, me?: string) {
   const m = await market(mint)
@@ -136,13 +136,13 @@ export async function fill(id: string, seller: string, txB64: string, sol?: numb
   })
 }
 /** After a fill: shrink the bid by what was taken; close it when nothing fillable is left. */
-function settleAmount(b: Bid, took: number) { const left = b.sol - took; if (left > 0.05 && !b.rfq) { b.sol = left; b.status = 'open'; b.refreshedAt = Date.now() } else { b.status = 'filled'; bids.delete(b.id) } }
+function settleAmount(b: Bid, took: number) { const left = b.sol - took; if (left > 0.05 && !b.rfq) { b.sol = left; b.status = 'open'; b.refreshedAt = Date.now() } else { b.status = 'filled'; bids.delete(b.id) } bookChanged(b.mint) }
 /** Bidder's answer to a relayed fill */
 export function settle(id: string, ok: boolean, sig?: string, err?: string) {
   const p = pending.get(id); const b = bids.get(id); if (!p) return
   clearTimeout(p.timer); pending.delete(id)
   if (ok && sig) { if (b) { const took = (p as any).takeSol || b.sol; b.fills++; settleAmount(b, took); recordFill({ t: Date.now(), mint: b.mint, symbol: b.symbol, seller: (p as any).seller || '', bidder: b.bidder, sol: took, discBps: b.discBps, tokens: (p as any).tokens || 0, sig, vault: false }); rfqNoteFill(id, took) } p.resolve({ sig }) }
-  else { if (b) b.status = 'open'; p.reject(new Error(err || 'bidder rejected')) }
+  else { if (b) { b.status = 'open'; bookChanged(b.mint) } p.reject(new Error(err || 'bidder rejected')) }
 }
 export const stats = () => ({ openBids: [...bids.values()].filter((b) => b.status === 'open').length, markets: books().length })
 
@@ -151,6 +151,8 @@ export type Rfq = { id: string; mint: string; symbol: string; seller: string; si
 const rfqs = new Map<string, Rfq>()
 const sockets = new Set<WebSocket>()
 export function registerBidderSocket(ws: WebSocket) { sockets.add(ws); ws.on('close', () => sockets.delete(ws)) }
+/** Push a 'book changed' note for a mint to every client; they re-read the book immediately instead of waiting for the poll. */
+export const bookChanged = (mint: string) => broadcast({ type: 'book', mint, t: Date.now() })
 export const broadcast = (o: any, except?: WebSocket) => { const s = JSON.stringify(o); for (const w of sockets) if (w !== except && w.readyState === 1) w.send(s) }
 export let onVaultFill: ((bidder: string, sol: number, tokens: number) => void) | null = null
 export function setOnVaultFill(f: typeof onVaultFill) { onVaultFill = f }
@@ -189,4 +191,4 @@ export async function rfqRespond(ws: WebSocket, bidder: string, rfqId: string, d
 }
 export function rfqNoteFill(bidId: string, sol: number) { for (const r of rfqs.values()) if (r.matches.includes(bidId) || r.counters.some((c) => c.bidId === bidId)) { r.filledSol += sol; r.matches = r.matches.filter((x) => x !== bidId); r.counters = r.counters.filter((c) => c.bidId !== bidId); if (r.filledSol >= r.sizeSol - 0.01) r.status = 'done' } }
 export function rfqCancel(id: string, seller: string) { const r = rfqs.get(id); if (r && r.seller === seller && r.status === 'open') r.status = 'cancelled' }
-export function rfqSweep() { const now = Date.now(); for (const [id, b] of bids) if (b.rfq && b.rfq !== 'buy' && b.status === 'open') { const r = rfqs.get(b.rfq); if (!r || r.status !== 'open' || now > r.expiresAt + 30000) bids.delete(id) } for (const [id, r] of rfqs) if (now > r.expiresAt + 600000) rfqs.delete(id) }
+export function rfqSweep() { const now = Date.now(); for (const [id, b] of bids) if (b.rfq && b.rfq !== 'buy' && b.status === 'open') { const r = rfqs.get(b.rfq); if (!r || r.status !== 'open' || now > r.expiresAt + 30000) { bids.delete(id); bookChanged(b.mint) } } for (const [id, r] of rfqs) if (now > r.expiresAt + 600000) rfqs.delete(id) }

@@ -5,11 +5,14 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '7 */6 * * *'
+  push:
+    branches: [main]
+    paths: ['server/src/**', '.github/workflows/live-desk.yml']
 permissions:
   contents: write
 concurrency:
   group: live-desk
-  cancel-in-progress: false
+  cancel-in-progress: true   # a newer server replaces the running one (clients re-place bids on reconnect)
 jobs:
   desk:
     runs-on: ubuntu-latest
