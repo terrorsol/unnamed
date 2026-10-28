@@ -1,5 +1,6 @@
 import { existsSync, createReadStream, readFileSync, appendFileSync, mkdirSync } from 'node:fs'
 import { uploadMetadata } from './ipfs.ts'
+import * as IPFS from './ipfs.ts'
 import * as VM from './vamp.ts'
 import * as KEEP from './keeper.ts'
 import * as LL from './launchlab.ts'
@@ -29,7 +30,7 @@ const isPk = (x: any) => typeof x === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$
 
 const wlSet = new Set<string>(); const wlIp = new Map<string, number[]>()
 const server = createServer(async (req, res) => {
-  const u = new URL(req.url!, 'http://x'); const p = u.pathname
+  const u = new URL(req.url!, 'http://x'); const p = u.pathname; IPFS.learnBase(req as any)
     // private beta gate: every write route needs a session from a redeemed invite key (GATE=1). Reads stay open so the terminal is visible without one.
     const sessionWallet = INV.session(String(req.headers['x-banker-session'] || u.searchParams.get('session') || '')); (req as any).sessionWallet = sessionWallet
     if (INV.GATE && req.method === 'POST' && !['/invite/redeem', '/invite/session', '/waitlist', '/ipfs'].includes(p) && !sessionWallet) return json(res, 401, { error: 'invite key required', gate: true })
@@ -39,7 +40,7 @@ const server = createServer(async (req, res) => {
   try {
     // pubkey-shaped path params only
     for (const seg of [p.startsWith('/book/') && p.slice(6), p.startsWith('/vault/mint/') && p.slice(12), p.startsWith('/family/') && p.slice(8), p.startsWith('/vamp/') && p.slice(6), p.startsWith('/dev/') && p.slice(5), p.startsWith('/import/quote/') && p.slice(14)]) if (seg && !isPk(seg)) throw new Error('bad address')
-    if (p === '/health') return json(res, 200, { ok: true, gate: INV.GATE, invites: INV.stats(), rpc: RPC.replace(/api-key=.*/, 'api-key=…'), treasury: TREASURY, desk: D.stats(), vaults: V.list().length, vaultWallet: V.sharedPub(), mints: MP.stats(), stream: streamStats(), beta: { deskOnly: DESK_ONLY, paper: V.PAPER, importFeeSol: R.IMPORT_FEE_SOL, importSeedSol: R.IMPORT_SEED_SOL, keeper: KEEP.status(), feeBps: R.CROSS_FEE_BPS, maxChestSol: V.MAX_CHEST_SOL, pumpStream: !!process.env.PUMPPORTAL_KEY, ipfs: !!process.env.PINATA_JWT, landing: process.env.JITO === '1' ? 'jito' : C.FAST ? 'sender' : 'rpc', lastRoute: C.lastRoute } })
+    if (p === '/health') return json(res, 200, { ok: true, gate: INV.GATE, invites: INV.stats(), rpc: RPC.replace(/api-key=.*/, 'api-key=…'), treasury: TREASURY, desk: D.stats(), vaults: V.list().length, vaultWallet: V.sharedPub(), mints: MP.stats(), stream: streamStats(), beta: { deskOnly: DESK_ONLY, paper: V.PAPER, importFeeSol: R.IMPORT_FEE_SOL, importSeedSol: R.IMPORT_SEED_SOL, keeper: KEEP.status(), feeBps: R.CROSS_FEE_BPS, maxChestSol: V.MAX_CHEST_SOL, pumpStream: !!process.env.PUMPPORTAL_KEY, ipfs: process.env.PINATA_JWT ? 'pinata' : 'self-hosted', landing: process.env.JITO === '1' ? 'jito' : C.FAST ? 'sender' : 'rpc', lastRoute: C.lastRoute } })
     if (p === '/ask/quote' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await D.askQuote(b.askId, b.buyer, b.sol ? +b.sol : undefined)) }
     if (p === '/ask/fill' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await D.askFill(b.askId, b.buyer, b.tx, b.sol ? +b.sol : undefined)) }
     if (p === '/myasks') { const me = u.searchParams.get('me') || ''; if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(me)) return json(res, 400, { error: 'me' }); return json(res, 200, D.myAsks(me)) }
@@ -52,6 +53,7 @@ const server = createServer(async (req, res) => {
     if (p.startsWith('/family/')) return json(res, 200, await V.family(p.slice(8)))
     if (p.startsWith('/dev/')) return json(res, 200, V.byDev(p.slice(5)))
     if (DESK_ONLY && (p.startsWith('/vault') || p.startsWith('/import') || p.startsWith('/redeem') || p === '/bundle' || p === '/ipfs' || p.startsWith('/tape') || p.startsWith('/ll/launch') || p === '/ll/platform/build')) return json(res, 503, { error: 'this server runs the desk only — vaults live on the main server' })
+    if (p.startsWith('/meta/') && req.method === 'GET') { const f = IPFS.serveMeta(p.slice(6)); if (!f) return json(res, 404, { error: 'no such file' }); res.writeHead(200, { 'content-type': f.type, 'cache-control': 'public, max-age=31536000, immutable', 'access-control-allow-origin': '*' }); return res.end(f.body) }
     if (p === '/ipfs' && req.method === 'POST') { const b = await readBody(req); try { return json(res, 200, await uploadMetadata(b)) } catch (e: any) { return json(res, e.status || 400, { error: e.message }) } }
     if (p === '/redeem/quote' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, V.redeemQuote(b.mint, +b.tokens)) }
     if (p === '/redeem' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.redeem(b.mint, b.holder, +b.tokens, b.tx)) }
