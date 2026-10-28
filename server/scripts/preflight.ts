@@ -285,6 +285,27 @@ await step('launchlab: launch bundle [create+dev buy, vault buy] → decode + si
   return `${txs.length} create tx · signers ${txs.map((t) => t.message.header.numRequiredSignatures).join('/')} · dev ${(built.devTokens / 1e6).toFixed(3)}M tok (${z.devPct.toFixed(2)}%) · vault buy ${(z.vaultTokens / 1e6).toFixed(3)}M (${z.vaultPct.toFixed(2)}%) programs ${progs} · mcap after ${z.mcapSol.toFixed(1)} SOL · ` + sims.join(' · ')
 })
 
+await step('launchlab: HTTP routes on a live server (/ll/platform, /ll/pool, /ll/trade, /ll/launch/build) → simulate', async () => {
+  const { spawn } = await import('node:child_process'); const { LAUNCHPAD_PLATFORM } = await import('@raydium-io/raydium-sdk-v2')
+  const port = 4321 + Math.floor(Math.random() * 500)
+  const proc = spawn(process.execPath, ['--experimental-strip-types', 'src/index.ts'], { env: { ...process.env, PORT: String(port), DATA_DIR: `/tmp/pf-${port}`, PLATFORM_ID: LAUNCHPAD_PLATFORM.toBase58(), VAMPS: '0', DEV_AUTH: '0' }, stdio: ['ignore', 'pipe', 'pipe'] })
+  let log = ''; proc.stdout.on('data', (d) => { log += d }); proc.stderr.on('data', (d) => { log += d })
+  try {
+    const base = `http://127.0.0.1:${port}`; let up = false
+    for (let i = 0; i < 40 && !up; i++) { await sleep(500); up = await fetch(base + '/health').then((r) => r.ok).catch(() => false) }
+    if (!up) throw new Error('server did not start: ' + log.slice(-300))
+    const post = (p: string, b: any) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) }).then((r) => r.json())
+    const plat: any = await (await fetch(base + '/ll/platform')).json(); if (!plat.chain?.exists) throw new Error('/ll/platform: ' + JSON.stringify(plat).slice(0, 160))
+    const pool: any = LLX.mint ? await (await fetch(base + '/ll/pool/' + LLX.mint)).json() : null
+    const tr: any = LLX.mint ? await post('/ll/trade', { owner: PAYER.toBase58(), action: 'buy', mint: LLX.mint, amount: 0.01 }) : null
+    const trSim = tr?.tx ? await sim(VersionedTransaction.deserialize(Buffer.from(tr.tx, 'base64')), 'route buy') : 'no live pool'
+    const lb: any = await post('/ll/launch/build', { dev: PAYER.toBase58(), name: 'preflight', symbol: 'PRE', uri: 'https://ipfs.io/ipfs/bafkreigh2akiscaildc', devBuySol: 0.05 })
+    if (!lb.txs?.length) throw new Error('/ll/launch/build: ' + JSON.stringify(lb).slice(0, 200))
+    const cs = await sim(VersionedTransaction.deserialize(Buffer.from(lb.txs[0], 'base64')), 'route create')
+    return `platform ${plat.chain.feeRate}% · pool ${pool ? `${pool.priceSol.toPrecision(3)} sold ${pool.soldPct}%` : '—'} · ${trSim.slice(0, 60)} · launch mint ${lb.mint.slice(0, 6)}… ${cs.slice(0, 60)}`
+  } finally { proc.kill() }
+})
+
 // ---------- jupiter ----------
 await step('jupiter: api.jup.ag quote + swap → simulate', async () => {
   const h: Record<string, string> = process.env.JUP_KEY ? { 'x-api-key': process.env.JUP_KEY } : {}

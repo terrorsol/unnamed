@@ -52,11 +52,13 @@ export function create(dev: string, stakeSol: number, copyOf?: string, mode: 'fl
 export async function arm(id: string, mint: string, symbol: string, name = '', auth?: { msg?: string; sig?: string }) {
   const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) return pub(v)
   if (!v.imported) devAuth(v, 'arm', mint, auth)
-  const bal = await balanceSol(v.pub); if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL`)
+  // after a block-zero bundle half the stake is already in tokens, so the SOL check is against the other half
+  const bundled = v.activity.some((a) => (a.msg || '').startsWith('signed block-zero'))
+  const bal = await balanceSol(v.pub); if (bal < v.stakeSol * (bundled ? 0.4 : 0.95)) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL`)
   v.mint = mint; v.symbol = symbol; v.name = name; v.armed = true; v.chest = bal; VM.watch(mint); try { const sup = await conn.getTokenSupply(new PublicKey(mint)); v.supply = +(sup.value.uiAmount || 1e9) } catch {} v.activity.unshift({ t: Date.now(), kind: 'stake', sol: bal, msg: 'dev stake received' })
   // seed: spend half the stake on supply at launch, keep half as chest for dips (skipped when the vault already bought in the block-zero bundle)
   const seed = +(bal * 0.5).toFixed(4)
-  if (v.activity.some((a) => (a.msg || '').startsWith('signed block-zero'))) {
+  if (bundled) {
     await sync(v)
     // the bundle can be signed and still not land (Jito drops it, tip too low). Tokens on the vault wallet are the only proof.
     if (v.tokens > 0) { v.avgCost = (v.stakeSol * 0.5) / v.tokens; v.activity.unshift({ t: Date.now(), kind: 'seed', sol: v.stakeSol * 0.5, tokens: v.tokens, msg: 'block-zero vault supply (bundled)' }); save(); return pub(v) }
