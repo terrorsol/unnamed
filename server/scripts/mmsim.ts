@@ -4,7 +4,7 @@ import * as MM from '../src/mm.ts'
 import * as R from '../src/rules.ts'
 
 const arg = (k: string, d: number) => { const a = process.argv.find((x) => x.startsWith(k + '=')); return a ? +a.split('=')[1] : d }
-const HOURS = arg('hours', 24), PCT = arg('pct', 30), CHEST = arg('chest', 5), SEED = arg('seed', 1), SOLUSD = 180
+const HOURS = arg('hours', 24), PCT = arg('pct', 30), TARGET = arg('target', PCT), CHEST = arg('chest', 5), SEED = arg('seed', 1), SOLUSD = 180
 const TICK = 5000
 
 // ---- seeded rng (the policy's own jitter uses Math.random; we pin it for reproducible runs)
@@ -25,7 +25,7 @@ class Pool {
 }
 
 type Agent = (t: number, w: World) => void
-type World = { pool: Pool; chest: { v: number }; s: MM.State; p: MM.Params; desk: { sol: number; px: number } | null; log: string[]; stats: { defenses: number; captures: number; deskFills: number; minChest: number; minNav: number }; organicTok: number }
+type World = { pool: Pool; chest: { v: number }; s: MM.State; p: MM.Params; desk: { sol: number; px: number } | null; log: string[]; stats: { defenses: number; captures: number; deskFills: number; minChest: number; minNav: number; accum: number }; organicTok: number }
 
 function vaultTick(w: World, t: number) {
   const { pool, s, p } = w; const m = pool.market(t); const px = m.priceSol
@@ -33,6 +33,7 @@ function vaultTick(w: World, t: number) {
   const { dd } = MM.observe(s, px, t, p)
   const dec = MM.defense(s, m, px, t, dd, MM.sellerShare(pool.recent(t), t, p), p)
   if (dec) { const got = pool.buy(dec.spend, 'VAULT', t, w.chest); w.chest.v -= dec.spend; s.tokens += got; s.chest = w.chest.v; MM.onDefended(s, dec.spend, got, dec.level, t, p); w.stats.defenses++ }
+  else { const a = MM.accumulate(s, m, px, t, p); if (a) { const got = pool.buy(a, 'VAULT', t, w.chest); w.chest.v -= a; s.tokens += got; s.chest = w.chest.v; MM.onAccumulated(s, a, got, t); w.stats.accum++ } }
   // standing desk bid (−4%): sized by policy, refreshed every tick in the sim
   const want = MM.deskBid(s, Math.max(0.2, m.liqSol * 0.02), t, p); w.desk = want > 0 && w.chest.v * 0.7 >= want ? { sol: want, px: px * 0.96 } : null
   s.ddPrev = dd; w.stats.minChest = Math.min(w.stats.minChest, w.chest.v); w.stats.minNav = Math.min(w.stats.minNav, w.chest.v + s.tokens * px)
@@ -105,10 +106,10 @@ function run(name: string, p: MM.Params, agents: Agent[], pnl?: (w: World) => nu
   const pool = new Pool(); const chest = { v: 0 }
   // block zero: dev 0.5 SOL, vault buys PCT% of supply, then the chest
   pool.buy(0.5, 'dev', 0, chest)
-  const want = (PCT / 100) * 1e9; let lo = 0, hi = 200, vsol = 0; for (let i = 0; i < 40; i++) { vsol = (lo + hi) / 2; const net = vsol * 0.9775; const out = pool.vA - (pool.vA * pool.vB) / (pool.vB + net); if (out > want) hi = vsol; else lo = vsol }
-  const tok = pool.buy(vsol, 'VAULT', 0, chest); chest.v += CHEST
-  const s: MM.State = { chest: chest.v, tokens: tok, supply: 1e9, pct: PCT, avgCost: vsol / tok, mode: 'mm', ceiling: 0.3, samples: [], high15: [], ema5: null, ema15: null, spentEpisode: 0, tranchesFired: [], lastBuy: 0, trimmedToday: 0, trimDay: 0, buyTimes: [], lastCapture: 0 }
-  const w: World = { pool, chest, s, p, desk: null, log: [], stats: { defenses: 0, captures: 0, deskFills: 0, minChest: chest.v, minNav: Infinity }, organicTok: 0 }
+  const want = (PCT / 100) * 1e9; let lo = 0, hi = 200, vsol = 0; if (PCT > 0) for (let i = 0; i < 40; i++) { vsol = (lo + hi) / 2; const net = vsol * 0.9775; const out = pool.vA - (pool.vA * pool.vB) / (pool.vB + net); if (out > want) hi = vsol; else lo = vsol }
+  const tok = PCT > 0 ? pool.buy(vsol, 'VAULT', 0, chest) : 0; chest.v += CHEST
+  const s: MM.State = { chest: chest.v, tokens: tok, supply: 1e9, pct: TARGET, avgCost: tok ? vsol / tok : 0, mode: 'mm', ceiling: 0.3, samples: [], high15: [], ema5: null, ema15: null, spentEpisode: 0, tranchesFired: [], lastBuy: 0, trimmedToday: 0, trimDay: 0, buyTimes: [], lastCapture: 0 }
+  const w: World = { pool, chest, s, p, desk: null, log: [], stats: { defenses: 0, captures: 0, deskFills: 0, minChest: chest.v, minNav: Infinity, accum: 0 }, organicTok: 0 }
   // organic inventory: every non-vault, non-attacker buy adds to the organic bag
   const ob = pool.buy.bind(pool); pool.buy = (sol, trader, t, c) => { const out = ob(sol, trader, t, c); if (trader.startsWith('org')) w.organicTok += out; return out }
   const nav0 = chest.v + tok * pool.price, floor0 = chest.v / 1e9, px0 = pool.price, chest0 = chest.v; pool.taxIn = 0
@@ -134,6 +135,6 @@ const rows: any[] = []
 for (const [name, mk] of scenarios) for (const [pn, p] of [['no vault', NONE], ['old', OLD], ['new', NEW]] as const) { const sc = mk(); rows.push({ policy: pn, ...run(name, p, sc.agents, sc.pnl) }) }
 const f = (x: number, d = 1) => (Number.isFinite(x) ? x.toFixed(d) : '—')
 console.log(`# mm sim · ${HOURS}h · vault ${PCT}% supply (${f(rows[0].vsol, 1)} SOL) + ${CHEST} SOL chest · seed ${SEED}`)
-console.log('| scenario | policy | chest | tax in | mm own P&L | worst chest | worst NAV | tokens | price | NAV | defenses | captures | desk fills | attacker edge vs hold |')
-console.log('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|')
-for (const r of rows) console.log(`| ${r.name} | ${r.policy} | ${f(r.chest, 2)} | ${f(r.taxIn, 2)} | ${f(r.mmPnl, 2)} | ${f(-r.drain, 0)}% | ${f(-Math.max(0, r.navDd), 0)}% | ${f(r.tokens, 1)}% | ${f(r.pxPct, 0)}% | ${f(r.navPct, 0)}% | ${r.defenses} | ${r.captures} | ${r.deskFills} | ${f(r.atk, 2)} |`)
+console.log('| scenario | policy | chest | tax in | mm own P&L | worst chest | worst NAV | tokens | price | NAV | defenses | accum | captures | desk fills | attacker edge vs hold |')
+console.log('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|')
+for (const r of rows) console.log(`| ${r.name} | ${r.policy} | ${f(r.chest, 2)} | ${f(r.taxIn, 2)} | ${f(r.mmPnl, 2)} | ${f(-r.drain, 0)}% | ${f(-Math.max(0, r.navDd), 0)}% | ${f(r.tokens, 1)}% | ${f(r.pxPct, 0)}% | ${f(r.navPct, 0)}% | ${r.defenses} | ${r.accum} | ${r.captures} | ${r.deskFills} | ${f(r.atk, 2)} |`)

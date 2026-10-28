@@ -214,14 +214,14 @@ export default function App() {
     try { const before = ws.sol || 0; const sig = await T.sell({ ...x, depthSol: c.depthSol, venue: c.venue }, c.mint, frac, BigInt(h.raw), c.onCurve, (h.amount * (c.raw?.priceNative ? +c.raw.priceNative : 0)) * frac); const after = await connection.getBalance(x.owner).then((b) => b / 1e9).catch(() => before); recordSell(ws.owner, c.mint, c.symbol, frac, Math.max(0, after - before), sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Sold ${Math.round(frac * 100)}% ${c.symbol}`, rows: [['Landed', landing()], ['Received', '≈ ' + S(Math.max(0, after - before)) + ' SOL'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
     catch (e: any) { toast({ kind: 'err', title: 'Sell failed', rows: [['Reason', String(e?.message || e).slice(0, 120)]] }) } finally { setBusy('') }
   }
-  const onLaunch = async (meta: any, dev: number, stake: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = 0.3, venue: 'launchlab' | 'pump' = 'launchlab', permTax = false, vaultBuy?: number) => {
+  const onLaunch = async (meta: any, dev: number, stake: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = 0.3, venue: 'launchlab' | 'pump' = 'launchlab', permTax = false, vaultBuy?: number, targetPct?: number) => {
     const buy = +(vaultBuy ?? stake * 0.5).toFixed(4)
     const x = ctx(); if (!x) return needWallet()
     try {
       let vault: K.VaultPub | null = null
       // a vault funded by a launch that failed later (expired blockhash, rejected signature) is reused on the retry instead of orphaning the stake
       const pend = pendingVault.current; if (stake > 0 && pend && pend.dev === ws.owner && pend.stake === stake && pend.venue === venue) vault = pend.v
-      if (stake > 0 && !vault) { setBusy('Creating vault…'); vault = await K.vaultCreate(ws.owner, stake, copyOf, mode, ceiling, venue, buy).catch((e) => { toast({ kind: 'err', title: 'Vault server unreachable — launching without a vault', rows: [['Error', String(e.message)]] }); return null }) }
+      if (stake > 0 && !vault) { setBusy('Creating vault…'); vault = await K.vaultCreate(ws.owner, stake, copyOf, mode, ceiling, venue, buy, targetPct).catch((e) => { toast({ kind: 'err', title: 'Vault server unreachable — launching without a vault', rows: [['Error', String(e.message)]] }); return null }) }
       let sig: string, mint: string, bundled = false
       if (vault) {
         // fund the vault first so it can buy in block zero (skipped when retrying with an already-funded vault)

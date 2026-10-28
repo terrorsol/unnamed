@@ -20,7 +20,10 @@ export const P = {
   minBuySol: 0.05,
   episodeAnchor: true,
   captureOn: true,
-  defendBelowVwap: 1.02,                       // a dip is only bought under the 30-min and 2-hour VWAP (a −20% dip from a +300% pump is not a dip)                         // false = legacy behaviour (rolling 15-min high only), kept for the simulator's before/after
+  defendBelowVwap: 1.02,
+  accumulateFrac: 0.10,                        // tax-funded vault: when under its supply target, spend ≤10% of the chest per buy, under VWAP, every ≥2 min
+  accumulateEveryMs: 120_000,
+  accumulateMinChest: 0.3,                       // a dip is only bought under the 30-min and 2-hour VWAP (a −20% dip from a +300% pump is not a dip)                         // false = legacy behaviour (rolling 15-min high only), kept for the simulator's before/after
 }
 export type Params = typeof P
 
@@ -88,12 +91,23 @@ export function defense(s: State, m: Market, p: number, now: number, dd: number,
   const ref = Math.min(R.vwap(s.samples), R.vwap(s.samplesLong || s.samples)); if (ref > 0 && p > ref * p_.defendBelowVwap) return null
   let budget = s.chest * p_.defenseEpisodeFrac * R.inventorySkew(vaultedPct(s), s.pct || 5).defend
   if (toxic) budget *= 0.5
-  const dayRoom = Math.max(0, (s.dayChest0 ?? s.chest) * p_.defenseDayFrac - (s.dayDefense || 0))
+  const dayRoom = Math.max(0, Math.max(s.dayChest0 ?? 0, s.chest) * p_.defenseDayFrac - (s.dayDefense || 0))
   const impactRoom = m.liqSol > 0 ? m.liqSol * p_.poolImpactMax : Infinity
   const spend = +Math.min(budget / 3 * (0.85 + rnd * 0.3), s.chest - 0.02, Math.max(0, budget - s.spentEpisode), dayRoom, impactRoom).toFixed(4)
   if (spend < p_.minBuySol) return null
   return { spend, level }
 }
+/** Accumulation for a vault that started with less supply than its target (tax-funded launch): buy under VWAP, small, slow. null = nothing. */
+export function accumulate(s: State, m: Market, p: number, now: number, p_: Params = P, rnd = Math.random()): number | null {
+  if (s.chest < p_.accumulateMinChest || now - s.lastBuy < p_.accumulateEveryMs || now < (s.cooldownUntil || 0)) return null
+  const target = s.pct || 0; if (target <= 0 || vaultedPct(s) >= target * 0.98) return null
+  const ref = Math.min(R.vwap(s.samples), R.vwap(s.samplesLong || s.samples)); if (!ref || p > ref * p_.defendBelowVwap) return null
+  const dayRoom = Math.max(0, Math.max(s.dayChest0 ?? 0, s.chest) * p_.defenseDayFrac - (s.dayDefense || 0))
+  const impactRoom = m.liqSol > 0 ? m.liqSol * p_.poolImpactMax : Infinity
+  const spend = +Math.min(s.chest * p_.accumulateFrac * (0.8 + rnd * 0.4), s.chest - 0.02, dayRoom, impactRoom).toFixed(4)
+  return spend >= p_.minBuySol ? spend : null
+}
+export function onAccumulated(s: State, spend: number, got: number, now: number) { s.avgCost = (s.avgCost * (s.tokens - got) + spend) / Math.max(s.tokens, 1e-9); s.dayDefense = (s.dayDefense || 0) + spend; s.lastBuy = now }
 /** Book a defense buy that landed. */
 export function onDefended(s: State, spend: number, got: number, level: number, now: number, p_: Params = P) {
   if (!s.epHigh && p_.episodeAnchor) { s.epHigh = Math.max(...s.high15.map((x) => x.p)); s.epStart = now }
@@ -120,7 +134,7 @@ export function onCaptured(s: State, tokens: number, now: number) { s.trimmedTod
 export function deskBid(s: State, minBlock: number, now: number, p_: Params = P, rnd = Math.random()): number {
   if (now < (s.deskPauseUntil || 0) || p_.deskBidFrac <= 0) return 0
   // desk fills count against the same day budget as dip buys: together ≤50% of the chest the day started with
-  const dayRoom = Math.max(0, (s.dayChest0 ?? s.chest) * p_.defenseDayFrac - (s.dayDefense || 0))
+  const dayRoom = Math.max(0, Math.max(s.dayChest0 ?? 0, s.chest) * p_.defenseDayFrac - (s.dayDefense || 0))
   const want = +Math.min(Math.max(s.chest * p_.deskBidFrac * (0.9 + rnd * 0.2), minBlock), dayRoom).toFixed(3)
   if (want < 0.2 || s.chest * 0.7 < want) return 0
   return want

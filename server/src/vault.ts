@@ -48,13 +48,15 @@ export function solForPct(pct: number, devSol = 0) { let lo = 0, hi = 500; for (
 /** Beta cap: vault keys are hot on this server, so no single chest may hold more than this until the on-chain program lands. 0 = no cap. */
 export const MAX_CHEST_SOL = +(process.env.MAX_CHEST_SOL ?? 25)
 const capCheck = (sol: number) => { if (MAX_CHEST_SOL > 0 && sol > MAX_CHEST_SOL) throw new Error(`beta cap: a vault chest holds at most ${MAX_CHEST_SOL} SOL right now (custodial keys) — the on-chain program lifts this`) }
-export function create(dev: string, stakeSol: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = R.MM_MAX_CAPTURE, venue: 'pump' | 'launchlab' = 'pump', vaultBuySol?: number) {
+export function create(dev: string, stakeSol: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = R.MM_MAX_CAPTURE, venue: 'pump' | 'launchlab' = 'pump', vaultBuySol?: number, targetPct?: number) {
   if (!Number.isFinite(stakeSol) || stakeSol < 0) throw new Error('bad stake')
   // stake = block-zero buy + chest. Without an explicit buy, half of the stake buys supply (legacy / pump launches).
+  // A launchpad vault may start with no buy at all: the 2% tax fills the chest and the bot accumulates toward targetPct under VWAP.
   const buy = vaultBuySol != null && Number.isFinite(vaultBuySol) ? Math.min(Math.max(0, vaultBuySol), stakeSol) : stakeSol * 0.5
+  if (stakeSol - buy < 0.05) throw new Error('the chest needs at least 0.05 SOL for fees')
   capCheck(stakeSol - buy)
   const k = Keypair.generate(); const id = bs58.encode(randomBytes(8))
-  const pct = +vaultPct(buy).toFixed(2)
+  const pct = targetPct != null && Number.isFinite(targetPct) ? +Math.min(50, Math.max(5, targetPct)).toFixed(2) : +vaultPct(buy).toFixed(2)
   vaults[id] = { id, venue, vaultBuySol: buy, pub: k.publicKey.toBase58(), sk: enc(k.secretKey), dev, stakeSol, pct, cut: pct, armed: false, renounced: false, createdAt: Date.now(), copyOf: copyOf || undefined, streamed: 0, redeemed: 0, supply: 1e9, deskBid: 0, trimmedToday: 0, trimDay: 0, depositedTokens: 0, funders: {}, avgCost: 0, tokens: 0, chest: 0, spentEpisode: 0, high15: [], samples: [], ema5: null, ema15: null, lastBuy: 0, lastTrim: 0, activity: [], devPaid: 0 }
   vaults[id].mode = mode; vaults[id].ceiling = Math.min(R.MM_MAX_CAPTURE, Math.max(0.05, ceiling)); save(); return pub(vaults[id])
 }
@@ -66,8 +68,9 @@ export async function arm(id: string, mint: string, symbol: string, name = '', a
   const bundled = v.activity.some((a) => (a.msg || '').startsWith('signed block-zero'))
   const buy = v.vaultBuySol ?? v.stakeSol * 0.5; const bal = await balanceSol(v.pub); if (bal < (bundled ? (v.stakeSol - buy) * 0.8 : v.stakeSol * 0.95)) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL`)
   v.mint = mint; v.symbol = symbol; v.name = name; v.armed = true; v.chest = bal; VM.watch(mint); try { const sup = await conn.getTokenSupply(new PublicKey(mint)); v.supply = +(sup.value.uiAmount || 1e9) } catch {} v.activity.unshift({ t: Date.now(), kind: 'stake', sol: bal, msg: 'dev stake received' })
-  // seed: spend half the stake on supply at launch, keep half as chest for dips (skipped when the vault already bought in the block-zero bundle)
+  // seed: the block-zero buy (skipped when the vault already bought in the bundle, or when the launch is tax-funded: no buy, the bot accumulates)
   const seed = +Math.min(buy, bal - 0.05).toFixed(4)
+  if (seed < 0.05) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: `tax-funded: no block-zero buy, accumulating toward ${v.pct}% under VWAP` }); save(); return pub(v) }
   if (bundled) {
     await sync(v)
     // the bundle can be signed and still not land (Jito drops it, tip too low). Tokens on the vault wallet are the only proof.
@@ -298,6 +301,14 @@ async function tickOne(v: Vault) {
         await sync(v); const got = v.tokens - before; MM.onDefended(v, spend, got, level, now)
         v.score.dipBought += spend; v.score.dips++; v.score.redeployed += spend
         v.activity.unshift({ t: now, kind: 'buy', sol: spend, tokens: got, price: p, sig, msg: `tranche ${level + 1} · ${(dd * 100).toFixed(0)}% from high` })
+      }
+      // tax-funded vault: under its supply target → small buys under VWAP from the chest (the 2% tax keeps refilling it)
+      else if ((() => { const a = MM.accumulate(v, m, p, now); if (a) (v as any)._acc = a; return !!a })()) {
+        const spend = (v as any)._acc as number; delete (v as any)._acc
+        const before = v.tokens; const sig = await trade(v, 'buy', spend, true, p)
+        await sync(v); const got = v.tokens - before; MM.onAccumulated(v, spend, got, now)
+        v.score.redeployed += spend
+        v.activity.unshift({ t: now, kind: 'buy', sol: spend, tokens: got, price: p, sig, msg: `accumulating · ${MM.vaultedPct(v).toFixed(1)}% of ${v.pct}% target` })
       }
       // trim
       else if (v.mode !== 'mm' && v.tokens > 0 && R.mayTrim(p, v.avgCost, R.vwap(v.samples), v.ema5!, v.ema15!) && now - v.lastTrim > R.VAULT_TRIM_COOLDOWN_MS && trimAllowed(v, m, p, now) > 0) {
