@@ -10,6 +10,7 @@
     "preflight": "node --experimental-strip-types scripts/preflight.ts"
   },
   "dependencies": {
+    "@raydium-io/raydium-sdk-v2": "^0.2.76-alpha",
     "@solana/spl-token": "^0.4.8",
     "@solana/web3.js": "^1.95.3",
     "bs58": "^6.0.0",

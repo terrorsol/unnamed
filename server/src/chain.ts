@@ -26,7 +26,7 @@ export async function tokenBalance(owner: string, mint: string) {
   const r = await conn.getParsedTokenAccountsByOwner(new PublicKey(owner), { mint: new PublicKey(mint) })
   const a = r.value[0]; return a ? { ui: +(a.account.data as any).parsed.info.tokenAmount.uiAmount, raw: BigInt((a.account.data as any).parsed.info.tokenAmount.amount) } : { ui: 0, raw: 0n }
 }
-export let lastRoute: 'pumpportal' | 'jupiter' = 'pumpportal'
+export let lastRoute: 'pumpportal' | 'jupiter' | 'launchlab' = 'pumpportal'
 const WSOL = 'So11111111111111111111111111111111111111112'
 const JUP = () => process.env.JUP_URL || 'https://api.jup.ag/swap/v1'
 /** Jupiter swap tx for a vault wallet (routes pump curve, PumpSwap, Raydium, Meteora — including Token-2022 / mayhem coins). `amount` like PumpPortal's: SOL for buys, token ui amount or 'NN%' for sells. */
@@ -60,6 +60,10 @@ export async function pumpTrade(kp: Keypair, action: 'buy' | 'sell', mint: strin
     const simErr = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true }).then((x) => x?.value?.err ?? null, () => null)
     if (simErr) { lastRoute = 'jupiter'; tx = await jupBuild(kp.publicKey, action, mint, amount, denominatedInSol, slippage * 100) } else lastRoute = 'pumpportal'
   }
+  return signSend(kp, tx, signer, jito)
+}
+/** tip (Sender) → sign → send fast with rebroadcast → confirm. Shared by every venue. */
+export async function signSend(kp: Keypair, tx: VersionedTransaction, signer?: (tx: VersionedTransaction) => VersionedTransaction, jito = process.env.JITO === '1') {
   if (!jito && FAST) tx = await addTip(conn, tx, kp.publicKey, TIP_LAMPORTS).catch(() => tx)
   if (signer) tx = signer(tx); else tx.sign([kp])
   const raw = tx.serialize(); const sig = bs58.encode(tx.signatures[0])
@@ -69,6 +73,16 @@ export async function pumpTrade(kp: Keypair, action: 'buy' | 'sell', mint: strin
   else await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 })
   const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 2000)
   try { await confirm(sig); return sig } finally { clearInterval(rb) }
+}
+/** LaunchLab trade for a server-held key: built by the official SDK (no PumpPortal, no 0.5%), Jupiter if the build fails the dry-run. */
+export async function llTrade(kp: Keypair, action: 'buy' | 'sell', mint: string, amount: number | string, slippageBps = 1000, signer?: (tx: VersionedTransaction) => VersionedTransaction) {
+  const L = await import('./launchlab.ts')
+  let tx = action === 'buy' ? await L.buildTrade(kp.publicKey, 'buy', mint, amount, { slippageBps }) : await L.sellPct(kp.publicKey, mint, typeof amount === 'string' ? parseFloat(amount) : +amount, slippageBps)
+  if (process.env.TRADE_SIM !== '0') {
+    const simErr = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true }).then((x) => x?.value?.err ?? null, () => null)
+    if (simErr) { lastRoute = 'jupiter'; tx = await jupBuild(kp.publicKey, action, mint, amount, action === 'buy', slippageBps) } else lastRoute = 'launchlab'
+  }
+  return signSend(kp, tx, signer)
 }
 /** Helius Sender when the RPC is Helius (or FAST=1): tip + CU price, dual-routed. FAST=0 forces plain RPC. */
 export const FAST = process.env.FAST ? process.env.FAST === '1' : /helius/.test(RPC)

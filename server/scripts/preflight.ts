@@ -221,6 +221,63 @@ await step('pumpportal: collectCreatorFee → shape', async () => {
   const tx = VersionedTransaction.deserialize(new Uint8Array(await r.arrayBuffer())); return `${tx.message.compiledInstructions.length} ix`
 })
 
+// ---------- launchlab: our launchpad ----------
+const LLX: { mint?: string; platformId?: string } = {}
+await step('launchlab: reference platform + default config decode', async () => {
+  const LL = await import('../src/launchlab.ts'); const { LAUNCHPAD_PLATFORM, PlatformConfig, LaunchpadConfig } = await import('@raydium-io/raydium-sdk-v2')
+  const [pi, ci] = await Promise.all([conn.getAccountInfo(LAUNCHPAD_PLATFORM), conn.getAccountInfo(LL.CONFIG_ID)])
+  if (!pi || !ci) throw new Error('platform/config account missing')
+  const pd: any = PlatformConfig.decode(pi.data), cd: any = LaunchpadConfig.decode(ci.data)
+  return `raydium platform fee ${+pd.feeRate / 1e4}% creator ${+pd.creatorFeeRate / 1e4}% · config#${cd.index} curve ${cd.curveType} protocol fee ${+cd.tradeFeeRate / 1e4}% · ours: tax ${LL.TAX_BPS} bps creator ${LL.CREATOR_FEE_BPS} bps · platform ${LL.PLATFORM_ID?.toBase58() || 'unset (PLATFORM_ADMIN)'}`
+})
+await step('launchlab: live pool decode vs geckoterminal price', async () => {
+  const LL = await import('../src/launchlab.ts'); await sleep(2500)
+  let dexId = ''
+  for (const pg of [1, 2, 3]) { const d: any = await (await fetch(`${GT}/networks/solana/dexes?page=${pg}`, { headers: { accept: 'application/json' } })).json(); const hit = (d.data || []).find((x: any) => /launchlab|launch-lab/i.test(x.id)); if (hit) { dexId = hit.id; break } await sleep(2200) }
+  if (!dexId) throw new Error('no launchlab dex id on geckoterminal')
+  await sleep(2200); const d: any = await (await fetch(`${GT}/networks/solana/dexes/${dexId}/pools?page=1&sort=h24_volume_usd_desc`, { headers: { accept: 'application/json' } })).json()
+  const notes: string[] = []
+  for (const p of (d.data || []).slice(0, 8)) {
+    const mint = p.relationships.base_token.data.id.replace('solana_', ''); const pl = await LL.pool(mint, 0)
+    if (!pl) { notes.push(`${p.attributes.name}: no pool pda`); continue }
+    if (pl.migrated) { notes.push(`${p.attributes.name}: migrated`); continue }
+    const gpx = +p.attributes.base_token_price_native_currency; const dev = Math.abs(pl.priceSol / gpx - 1) * 100
+    LLX.mint = mint; LLX.platformId = pl.platformId
+    return `dex ${dexId} · ${p.attributes.name} · pool ${pl.poolId.slice(0, 8)}… status ${pl.status} sold ${pl.soldPct}% · ours ${pl.priceSol.toPrecision(4)} vs gecko ${gpx.toPrecision(4)} (${dev.toFixed(1)}% apart) · liq ${pl.liqSol.toFixed(1)} SOL · platform ${pl.platformId.slice(0, 8)}… fee pending ${(Number(pl.platformFee) / 1e9).toFixed(4)} SOL` + (notes.length ? ' · skipped ' + notes.join('; ') : '')
+  }
+  throw new Error('no live (unmigrated) launchlab pool in top 8 · ' + notes.join('; '))
+})
+await step('launchlab: buy tx via sdk → simulate', async () => {
+  if (!LLX.mint) throw new Error('no pool'); const LL = await import('../src/launchlab.ts')
+  const tx = await LL.buildTrade(PAYER, 'buy', LLX.mint, 0.01, { slippageBps: 1500 })
+  const keys = tx.message.staticAccountKeys.map((k) => k.toBase58()); if (!keys.includes(LL.PROGRAM.toBase58())) throw new Error('launchlab program not in tx')
+  return `${tx.message.compiledInstructions.length} ix · ` + (await sim(tx, 'll buy'))
+})
+await step('launchlab: platform fee claim tx shape → simulate as that platform', async () => {
+  if (!LLX.mint || !LLX.platformId) throw new Error('no pool'); const LL = await import('../src/launchlab.ts'); const { PlatformConfig } = await import('@raydium-io/raydium-sdk-v2')
+  const pi = await conn.getAccountInfo(new PublicKey(LLX.platformId)); const pd: any = PlatformConfig.decode(pi!.data)
+  // build as the pool's real platform (its fee wallet is the signer); simulate with sigVerify off
+  const { Raydium, TxVersion, LAUNCHPAD_PROGRAM } = await import('@raydium-io/raydium-sdk-v2')
+  const r = await Raydium.load({ connection: conn, owner: pd.platformClaimFeeWallet, disableLoadToken: true, disableFeatureCheck: true, cluster: 'mainnet' })
+  const b: any = await r.launchpad.claimPlatformFee({ programId: LAUNCHPAD_PROGRAM, platformId: new PublicKey(LLX.platformId), platformClaimFeeWallet: pd.platformClaimFeeWallet, poolId: LL.poolIdOf(LLX.mint), mintB: LL.WSOL, txVersion: TxVersion.V0 })
+  return `${b.transaction.message.compiledInstructions.length} ix · fee wallet ${pd.platformClaimFeeWallet.toBase58().slice(0, 8)}… · ` + (await sim(b.transaction, 'claim').catch((e) => 'simulate: ' + String(e.message).slice(0, 140)))
+})
+await step('launchlab: create platform config tx → simulate', async () => {
+  const LL = await import('../src/launchlab.ts'); const { tx, platformId } = await LL.buildPlatformTx(PAYER)
+  const t = VersionedTransaction.deserialize(Buffer.from(tx, 'base64'))
+  return `platform pda ${platformId.slice(0, 8)}… · ${t.message.compiledInstructions.length} ix · ` + (await sim(t, 'create platform').catch((e) => 'simulate: ' + String(e.message).slice(0, 140)))
+})
+await step('launchlab: launch bundle [create+dev buy, vault buy] → decode + simulate create', async () => {
+  const LL = await import('../src/launchlab.ts'); const { LAUNCHPAD_PLATFORM } = await import('@raydium-io/raydium-sdk-v2')
+  const built = await LL.buildLaunch(PAYER, { name: 'preflight', symbol: 'PRE', uri: 'https://ipfs.io/ipfs/bafkreigh2akiscaildc' }, 0.05, LAUNCHPAD_PLATFORM)
+  const txs = built.txs.map((b) => VersionedTransaction.deserialize(Buffer.from(b, 'base64')))
+  const vt = await LL.buildTrade(PAYER, 'buy', built.mint, 0.1, { poolState: built.afterDev, fromCreate: true, slippageBps: 3000 })
+  const progs = vt.message.compiledInstructions.map((ix) => vt.message.staticAccountKeys[ix.programIdIndex]?.toBase58().slice(0, 6)).join(',')
+  const z = LL.blockZero(0.05, 0.1)
+  const sims: string[] = []; for (const [i, t] of txs.entries()) sims.push(await sim(t, `create#${i}`).catch((e) => `create#${i} simulate: ` + String(e.message).slice(0, 120)))
+  return `${txs.length} create tx · signers ${txs.map((t) => t.message.header.numRequiredSignatures).join('/')} · dev ${(built.devTokens / 1e6).toFixed(3)}M tok (${z.devPct.toFixed(2)}%) · vault buy ${(z.vaultTokens / 1e6).toFixed(3)}M (${z.vaultPct.toFixed(2)}%) programs ${progs} · mcap after ${z.mcapSol.toFixed(1)} SOL · ` + sims.join(' · ')
+})
+
 // ---------- jupiter ----------
 await step('jupiter: api.jup.ag quote + swap → simulate', async () => {
   const h: Record<string, string> = process.env.JUP_KEY ? { 'x-api-key': process.env.JUP_KEY } : {}

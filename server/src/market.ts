@@ -1,9 +1,24 @@
 import type { Market } from './rules.ts'
 import { poolSpot } from './pool.ts'
+import * as LL from './launchlab.ts'
 const cache = new Map<string, { t: number; it: number; m: any }>()
-export async function market(mint: string, maxAgeMs = 5000): Promise<(Market & { symbol: string; pair?: string; t?: number; dexId?: string; exact?: boolean }) | null> {
+let solUsdV = 0, solUsdT = 0
+export async function solUsd() {
+  if (Date.now() - solUsdT < 60000 && solUsdV) return solUsdV
+  try { const r = await fetch(`${process.env.DEX_URL || 'https://api.dexscreener.com'}/tokens/v1/solana/So11111111111111111111111111111111111111112`); const a: any[] = await r.json(); const x = +(a?.[0]?.priceUsd || 0); if (x) { solUsdV = x; solUsdT = Date.now() } } catch {}
+  return solUsdV
+}
+export async function market(mint: string, maxAgeMs = 5000): Promise<(Market & { symbol: string; pair?: string; t?: number; dexId?: string; exact?: boolean; venue?: string }) | null> {
   const c = cache.get(mint)
   if (c && Date.now() - c.t < maxAgeMs) return c.m
+  // our own launchpad first: a LaunchLab pool is the exact source and exists before any indexer has seen the coin
+  const ll = await LL.pool(mint).catch(() => null)
+  if (ll && !ll.migrated) {
+    const fresh = c && Date.now() - c.it < 5000; const idx: any = fresh ? c.m : (await fromIndexer(mint).catch(() => null)) || c?.m || {}; const it = fresh ? c!.it : Date.now()
+    const usd = await solUsd(); const mcapUsd = ll.priceSol * 1e9 * usd
+    const m = { ...idx, mcapUsd, imcap: mcapUsd, ipx: ll.priceSol, priceSol: ll.priceSol, liqSol: ll.liqSol, onCurve: true, symbol: idx.symbol || '', pair: ll.poolId, dexId: 'launchlab', vol1h: idx.vol1h || 0, t: Date.now(), exact: true, venue: 'launchlab', ours: LL.isOurs(ll), soldPct: ll.soldPct }
+    cache.set(mint, { t: m.t, it, m }); return m
+  }
   // indexer fields (symbol, mcap, volume, pair) refresh at most every 5s; the PRICE is re-read from the pool itself whenever asked
   const fresh = c && Date.now() - c.it < 5000; const base = fresh ? c.m : (await fromIndexer(mint)) || c?.m; if (!base) return null; const it = fresh ? c!.it : Date.now()
   const spot = await poolSpot(mint, { onCurve: base.onCurve, pair: base.pair, dexId: (base as any).dexId, decimals: (base as any).decimals })
