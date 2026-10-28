@@ -13,7 +13,7 @@ test('gate + min block + discount band', () => {
   assert.match(R.deskWhy({ ...M, vol1h: 100 }), /volume/); assert.match(R.deskWhy({ ...M, liqSol: 2 }), /thin/); assert.equal(R.deskWhy(M), null)
   assert.equal(R.minBlockSol(M), 2); assert.equal(R.minBlockSol({ ...M, liqSol: 1 }), 0.2)
   assert.equal(R.validBid(2, 400, M), null)
-  assert.match(R.validBid(1, 400, M), /min block/); assert.match(R.validBid(2, 200, M), /discount/); assert.match(R.validBid(2, 600, M), /discount/)
+  assert.match(R.validBid(1, 400, M), /min block/); assert.match(R.validBid(2, 50, M), /discount/); assert.match(R.validBid(2, 1600, M), /discount/); assert.equal(R.validBid(2, 1500, M), null)
 })
 test('fill quote math', () => {
   const q = R.fillQuote(2, 400, 0.00001, 6)

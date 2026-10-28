@@ -67,3 +67,17 @@ export function useCoins(mints: string[], ms = 15000) {
   }, [key])
   return m
 }
+
+/** Flash class ('flash-up' / 'flash-dn') for ~1s whenever a numeric value changes. */
+export function useFlash(v: number | null | undefined) {
+  const prev = useRef(v); const [cls, setCls] = useState('')
+  useEffect(() => { if (v == null || prev.current == null || v === prev.current) { prev.current = v; return } setCls(v > prev.current ? 'flash-up' : 'flash-dn'); prev.current = v; const t = setTimeout(() => setCls(''), 950); return () => clearTimeout(t) }, [v])
+  return cls
+}
+/** A short confetti burst for a landed fill. */
+export function confetti() {
+  const el = document.createElement('div'); el.className = 'confetti'
+  const cols = ['#3ecf8e', '#e3b64f', '#f6f5f0', '#9fb7ff']
+  for (let i = 0; i < 26; i++) { const p = document.createElement('i'); p.style.left = 30 + Math.random() * 40 + '%'; p.style.background = cols[i % cols.length]; p.style.animationDelay = Math.random() * 0.25 + 's'; p.style.animationDuration = 0.9 + Math.random() * 0.6 + 's'; el.appendChild(p) }
+  document.body.appendChild(el); setTimeout(() => el.remove(), 1800)
+}

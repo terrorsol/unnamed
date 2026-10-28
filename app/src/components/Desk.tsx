@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import * as K from '../lib/desk'
+import { Spark } from './Chart'
 import { F, S, ago, short } from '../lib/fmt'
 import { solscan } from '../lib/rpc'
 
@@ -29,18 +30,27 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
   const myAsk = (book?.asks || []).find((a) => a.mine)
   const buyNow = async () => { setMsg(''); try { await d.bidder!.buyBlock(mint, +sol, prem, 120); setMsg(`Asked. Holders are being pinged — they can sell to you for the next 2 minutes.`); load() } catch (e: any) { setMsg(e.message) } }
   const Wallet = () => <button className="btn pri big" onClick={() => d.needWallet?.()}>Connect a wallet to use the desk</button>
-  return <div className="panel" style={{ gap: 12 }}>
+  const mk = book.market; const chg = (mk as any)?.ch5m
+  return <div className="panel" style={{ gap: 10 }}>
     <div className="row" style={{ gap: 8 }}>
       <div style={{ fontSize: 15, fontWeight: 600 }}>Trade {symbol} off the chart</div>
       <span className="nm">big buys and sells here don't move the price</span>
       <span className="sp" /><span className={'tag ' + (book.open ? 'live' : '')}>{book.open ? 'open' : 'closed'}</span><button className="btn sm" onClick={togglePro}>Pro</button>
     </div>
+    <div className="card pricestrip"><div className="row" style={{ gap: 14, padding: '8px 12px' }}>
+      <div><div className="l">Price</div><div className="v num">{px ? '$' + (px * d.solPrice).toPrecision(3) : '—'} <span className="dim" style={{ fontSize: 11 }}>{px ? px.toPrecision(3) + ' SOL' : ''}</span></div></div>
+      <div><div className="l">Mcap</div><div className="v num">{mk?.mcapUsd ? F(mk.mcapUsd) : '—'}</div></div>
+      <div><div className="l">Min block</div><div className="v num">{S(book.minBlock || 0, 2)} SOL</div></div>
+      <div style={{ flex: 1, minWidth: 120 }}><Spark pool={mk?.pair} tone={''} /></div>
+    </div></div>
     {!book.open && <div className="note">Closed for this coin right now: {book.why || 'not enough market'}. It opens on its own when the coin qualifies.</div>}
-    <div className="seg" style={{ alignSelf: 'flex-start' }}><button className={side === 'sell' ? 'on' : ''} onClick={() => setSide('sell')}>I want to sell</button><button className={side === 'buy' ? 'on' : ''} onClick={() => setSide('buy')}>I want to buy</button></div>
-    {side === 'sell' && <>
+    <div className="lay desk2" style={{ gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+    <div className="col">
+    <div className="lbl">I want to sell</div>
+    {true && <>
       {best ? <div className="card" style={{ padding: 14 }}>
         <div className="lbl">Best offer right now</div>
-        <div style={{ fontSize: 22, fontWeight: 600 }} className="num">{S(best.sol, 2)} SOL <span className="dim" style={{ fontSize: 14, fontWeight: 500 }}>at {best.discBps < 0 ? `${(Math.abs(best.discBps) / 100).toFixed(1)}% above` : `${(best.discBps / 100).toFixed(1)}% under`} the price</span></div>
+        <div style={{ fontSize: 19, fontWeight: 600 }} className="num">{S(best.sol, 2)} SOL <span className="dim" style={{ fontSize: 14, fontWeight: 500 }}>at {best.discBps < 0 ? `${(Math.abs(best.discBps) / 100).toFixed(1)}% above` : `${(best.discBps / 100).toFixed(1)}% under`} the price</span></div>
         <div className="nm" style={{ marginTop: 4 }}>{d.holdingUi <= 0 ? `You don't hold ${symbol}.` : myValSol >= best.sol ? `You'd get ≈ ${S(best.sol * (1 - book.rules.feeBps / 10000), 2)} SOL for ${(best.sol / px).toLocaleString(undefined, { maximumFractionDigits: 0 })} ${symbol}. Nothing prints on the chart.` : canSellTo(best) ? `Your bag is smaller than the offer — you'd sell all of it for ≈ ${S(takeOf(best) * (1 - book.rules.feeBps / 10000), 2)} SOL.` : `Your bag (${S(myValSol, 2)} SOL) is under this desk's minimum (${S(book.minBlock || 0, 2)} SOL) — use the normal Sell button instead.`}</div>
         <div className="row" style={{ marginTop: 10, gap: 8 }}>{!d.connected ? <Wallet /> : <button className="btn pri big" disabled={!canSellTo(best) || !!d.busy} onClick={() => d.takeBid(best.id, takeOf(best) < best.sol - 1e-9 ? +takeOf(best).toFixed(4) : undefined)}>{d.busy || `Sell ${myValSol >= best.sol ? 'into this offer' : 'my bag'}`}</button>}{offers.length > 1 && <span className="nm">{offers.length - 1} more offer{offers.length > 2 ? 's' : ''} in Pro</span>}</div>
       </div> : <div className="card" style={{ padding: 14 }}><div className="lbl">No offers yet</div><div className="nm">Nobody is bidding for {symbol} on the desk right now.</div></div>}
@@ -54,14 +64,17 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
         <div className="nm">Name your price. Buyers who want size take it off-chart whenever they're ready. Your {symbol} stays in your wallet until then.</div>
         {myAsk ? <div className="row" style={{ marginTop: 10, gap: 8 }}><b className="num">{S(myAsk.sol, 2)} SOL at {myAsk.discBps <= 0 ? `+${(Math.abs(myAsk.discBps) / 100).toFixed(1)}% over` : `${(myAsk.discBps / 100).toFixed(1)}% under`}</b><span className="nm">live</span><span className="sp" /><button className="btn sm" onClick={async () => { await d.bidder?.cancelAsk(myAsk.id); load() }}>Cancel</button></div> : <>
         <div className="presets lg" style={{ marginTop: 10 }}>{[0.5, 1, 2, 5].map((v) => <button key={v} className={+askSol === v ? 'on' : ''} onClick={() => setAskSol(String(v))}>{v} SOL</button>)}</div>
-        <div className="row" style={{ marginTop: 8 }}><span className="dim" style={{ fontSize: 12 }}>Price vs market</span><input type="range" className="slider" min={-500} max={500} step={25} value={-askBps} onChange={(e) => setAskBps(-+e.target.value)} /><b className={'num ' + (askBps <= 0 ? 'up' : 'dn')}>{askBps <= 0 ? '+' : '−'}{(Math.abs(askBps) / 100).toFixed(2)}%</b></div>
+        <div className="row" style={{ marginTop: 8 }}><span className="dim" style={{ fontSize: 12 }}>Price vs market</span><input type="range" className="slider" min={-1500} max={1500} step={25} value={-askBps} onChange={(e) => setAskBps(-+e.target.value)} /><b className={'num ' + (askBps <= 0 ? 'up' : 'dn')}>{askBps <= 0 ? '+' : '−'}{(Math.abs(askBps) / 100).toFixed(2)}%</b></div>
         <div className="row" style={{ marginTop: 10 }}>{!d.connected ? <Wallet /> : <button className="btn pri big" disabled={!book.open || !d.bidder?.connected() || d.holdingUi <= 0 || +askSol < (book.minBlock || 0) || myValSol < +askSol * 0.98} onClick={postAsk}>{!d.bidder?.connected() ? 'Linking…' : d.holdingUi <= 0 ? `You don't hold ${symbol}` : myValSol < +askSol * 0.98 ? `Your bag is ≈ ${S(myValSol, 2)} SOL` : +askSol < (book.minBlock || 0) ? `Min here is ${S(book.minBlock || 0, 2)} SOL` : `Offer ${askSol} SOL of ${symbol} at ${askBps <= 0 ? '+' : '−'}${(Math.abs(askBps) / 100).toFixed(1)}%`}</button>}</div></>}
       </div>
     </>}
-    {side === 'buy' && <>
+    </div>
+    <div className="col">
+    <div className="lbl">I want to buy</div>
+    {true && <>
       {asksOpen[0] && (() => { const a = asksOpen[0]; return <div className="card" style={{ padding: 14 }}>
         <div className="lbl">Best sell offer right now</div>
-        <div style={{ fontSize: 22, fontWeight: 600 }} className="num">{S(a.sol, 2)} SOL <span className="dim" style={{ fontSize: 14, fontWeight: 500 }}>of {symbol} at {a.discBps <= 0 ? `${(Math.abs(a.discBps) / 100).toFixed(1)}% over` : `${(a.discBps / 100).toFixed(1)}% under`} the price</span></div>
+        <div style={{ fontSize: 19, fontWeight: 600 }} className="num">{S(a.sol, 2)} SOL <span className="dim" style={{ fontSize: 14, fontWeight: 500 }}>of {symbol} at {a.discBps <= 0 ? `${(Math.abs(a.discBps) / 100).toFixed(1)}% over` : `${(a.discBps / 100).toFixed(1)}% under`} the price</span></div>
         <div className="nm" style={{ marginTop: 4 }}>You'd get ≈ {px ? (a.sol / (px * (1 - a.discBps / 10000))).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'} {symbol} for {S(a.sol * (1 + book.rules.feeBps / 10000), 2)} SOL. Nothing prints on the chart.{asksOpen.length > 1 ? ` ${asksOpen.length - 1} more in Pro.` : ''}</div>
         <div className="row" style={{ marginTop: 10 }}>{!d.connected ? <Wallet /> : <button className="btn pri big" disabled={!book.open || !!d.busy} onClick={() => d.takeAsk?.(a.id)}>{d.busy || 'Buy this block'}</button>}</div>
       </div> })()}
@@ -73,6 +86,8 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
         <div className="row" style={{ marginTop: 10 }}>{!d.connected ? <Wallet /> : <button className="btn pri big" disabled={!book.open || !d.bidder?.connected() || +sol < (book.minBlock || 0)} onClick={post}>{!d.bidder?.connected() ? 'Linking…' : +sol < (book.minBlock || 0) ? `Min here is ${S(book.minBlock || 0, 2)} SOL` : `Offer ${sol} SOL at ${(disc / 100).toFixed(1)}% under`}</button>}</div>
       </div>
     </>}
+    </div>
+    </div>
     {msg && <div className="note">{msg}</div>}
   </div>
 }

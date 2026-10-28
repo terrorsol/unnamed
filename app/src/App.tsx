@@ -7,7 +7,7 @@ import { due, removeOrder, loadOrders } from './lib/orders'
 import { confirmByPolling } from './lib/rpc'
 import WalletPanel from './components/WalletPanel'
 import * as B from './lib/burner'
-import { useRoute, useSettings, useSolPrice, useTrending, useNewTokens, useWalletState, useCoins } from './hooks'
+import { confetti, useRoute, useSettings, useSolPrice, useTrending, useNewTokens, useWalletState, useCoins } from './hooks'
 import Home from './components/Home'
 import CoinPage from './components/CoinPage'
 import Launch from './components/Launch'
@@ -24,7 +24,7 @@ import { S, short } from './lib/fmt'
 import type { Coin } from './lib/dex'
 
 // three mains + bag; everything else lives under More
-const NAV: [string, string, string][] = [['home', 'Home', 'runners · our coins'], ['desk', 'Desk', 'blocks off-chart · any coin'], ['vault', 'Vault', 'holder-owned market maker'], ['portfolio', 'Bag', 'P&L']]
+const NAV: [string, string, string, string][] = [['home', 'Home', 'runners · our coins', '◼'], ['desk', 'Desk', 'blocks off-chart', '⇄'], ['vault', 'Vault', 'holder-owned mm', '◆'], ['portfolio', 'Bag', 'positions · p&l', '◎']]
 const MORE: [string, string][] = [['dev', 'My launches'], ['vault/import', 'Import a coin'], ['settings', 'Settings'], ['docs', 'Docs']]
 
 function Tabs({ tabs, sel, go }: { tabs: [string, React.ReactNode][]; sel: string; go: (t: string) => void }) {
@@ -83,7 +83,9 @@ export default function App() {
     if (!activeB58 || !deskUp) { setBidder(null); return }
     const sess = K.openBidder(connection, activeB58, signMsg, signLegacy, async (m) => { const c = await D.tokenPairs(m); return c?.raw?.priceNative ? +c.raw.priceNative : 0 }, (e) => {
       setDeskTick((t) => t + 1)
-      if (e.type === 'sold') { toast({ kind: 'ok', title: `Your sell offer filled`, rows: [['Received', S(Number(BigInt(e.expect.sellerLamports)) / 1e9) + ' SOL'], ['Tx', short(e.sig, 6)]], href: solscan(e.sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
+      if (e.type === 'sold') { confetti(); toast({ kind: 'ok', title: `Your sell offer filled`, rows: [['Received', S(Number(BigInt(e.expect.sellerLamports)) / 1e9) + ' SOL'], ['Tx', short(e.sig, 6)]], href: solscan(e.sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
+      if (e.type === 'ask_posted') toast({ kind: 'ok', title: `${e.symbol}: someone is selling ${S(e.sol, 2)} SOL at ${e.discBps <= 0 ? '+' + (Math.abs(e.discBps) / 100).toFixed(1) + '% over' : (e.discBps / 100).toFixed(1) + '% under'} market`, rows: [['You have a bid on it', 'tap to buy the block instead']], href: '#/coin/' + e.mint + '/desk' })
+      if (e.type === 'bid_posted') toast({ kind: 'ok', title: `${e.symbol}: a buyer wants ${S(e.sol, 2)} SOL at ${(e.discBps / 100).toFixed(1)}% under market`, rows: [['You have a sell offer on it', 'tap to sell into the bid']], href: '#/coin/' + e.mint + '/desk' })
       if (e.type === 'buy_rfq') toast({ kind: 'ok', title: `Someone wants ${S(e.sol, 2)} SOL of ${e.symbol} at +${(e.premiumBps / 100).toFixed(1)}% over market`, rows: [['Open for', e.secondsLeft + 's'], ['Sell to them', 'coin page → Desk / OTC']], href: '#/coin/' + e.mint })
       if (e.type === 'rfq' && e.rfq.seller !== activeB58) setPings((l) => [e.rfq, ...l.filter((x) => x.id !== e.rfq.id)].slice(0, 4))
       if (e.type === 'authed' && e.rfqs) setPings(e.rfqs.filter((r: K.Rfq) => r.seller !== activeB58).slice(0, 4))
@@ -102,12 +104,12 @@ export default function App() {
   const gate = (q: any) => new Promise<boolean>((ok) => { if (!q.needsConfirm) return ok(true); setGateQ({ q, ok: (v) => { setGateQ(null); ok(v) } }) })
   const takeAsk = async (id: string, sol?: number) => {
     if (!activeB58) return needWallet()
-    try { const { sig, quote } = await K.takeAsk(connection, activeB58, id, signLegacy, setBusy, { sol, cuPriceMicro: Math.floor(Math.min(settings.priorityFeeSol, 0.0002) * 1e9 * 1e6 / 80_000) }); const paid = Number(BigInt(quote.sellerLamports) + BigInt(quote.fee)) / 1e9; recordBuy(ws.owner, quote.mint, quote.ask.symbol, paid, sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Bought a block off-chart`, rows: [['Paid', S(paid) + ' SOL'], ['Price', (quote.ask.discBps < 0 ? '+' : '−') + (Math.abs(quote.ask.discBps) / 100).toFixed(1) + '% vs market'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
+    try { const { sig, quote } = await K.takeAsk(connection, activeB58, id, signLegacy, setBusy, { sol, cuPriceMicro: Math.floor(Math.min(settings.priorityFeeSol, 0.0002) * 1e9 * 1e6 / 80_000) }); const paid = Number(BigInt(quote.sellerLamports) + BigInt(quote.fee)) / 1e9; recordBuy(ws.owner, quote.mint, quote.ask.symbol, paid, sig); setLedgerV((v) => v + 1); confetti(); toast({ kind: 'ok', title: `Bought a block off-chart`, rows: [['Paid', S(paid) + ' SOL'], ['Price', (quote.ask.discBps < 0 ? '+' : '−') + (Math.abs(quote.ask.discBps) / 100).toFixed(1) + '% vs market'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
     catch (e: any) { toast({ kind: 'err', title: 'Could not buy the block', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
   }
   const takeBid = async (id: string, sol?: number) => {
     if (!activeB58) return needWallet()
-    try { const { sig, quote } = await K.takeBid(connection, activeB58, id, signLegacy, setBusy, gate, { sol, cuPriceMicro: Math.floor(Math.min(settings.priorityFeeSol, 0.0002) * 1e9 * 1e6 / 80_000) }); const got = Number(BigInt(quote.sellerLamports)) / 1e9; recordSell(ws.owner, quote.mint, quote.bid.symbol, 0, got, sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Block sold on the desk`, rows: [['Received', S(got) + ' SOL'], ['Discount', '−' + (quote.bid.discBps / 100).toFixed(1) + '%'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
+    try { const { sig, quote } = await K.takeBid(connection, activeB58, id, signLegacy, setBusy, gate, { sol, cuPriceMicro: Math.floor(Math.min(settings.priorityFeeSol, 0.0002) * 1e9 * 1e6 / 80_000) }); const got = Number(BigInt(quote.sellerLamports)) / 1e9; recordSell(ws.owner, quote.mint, quote.bid.symbol, 0, got, sig); setLedgerV((v) => v + 1); confetti(); toast({ kind: 'ok', title: `Block sold on the desk`, rows: [['Received', S(got) + ' SOL'], ['Discount', '−' + (quote.bid.discBps / 100).toFixed(1) + '%'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
     catch (e: any) { toast({ kind: 'err', title: 'Desk fill failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') }
   }
   const onRedeem = async (c: Coin, tokens: number, decimals: number) => {
@@ -250,8 +252,8 @@ export default function App() {
       <button className="btn pri" onClick={() => setLaunch(true)}>Launch</button>
     </div>
     <div className="body">
-      <nav className="side">{NAV.map(([k, l, d]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={page === k ? 'on' : ''}><span>{l}</span><span className="dim" style={{ fontSize: 10, marginLeft: 'auto', fontWeight: 400 }}>{d}</span></a>)}
-        <div className="cap">More</div>{MORE.map(([k, l]) => <a key={k} href={'#/' + k} className={(page + '/' + arg === k || page === k) ? 'on' : ''} style={{ padding: '5px 10px', fontSize: 12, fontWeight: 400 }}>{l}</a>)}
+      <nav className="side">{NAV.map(([k, l, d, i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={'nav' + (page === k ? ' on' : '')}><span className="ico">{i}</span><span className="lab"><b>{l}</b><small>{d}</small></span></a>)}
+        <div className="cap">More</div>{MORE.map(([k, l]) => <a key={k} href={'#/' + k} className={'nav sub' + ((page + '/' + arg === k || page === k) ? ' on' : '')}><span className="lab"><b>{l}</b></span></a>)}
         <div className="foot">Desk + vault: <span className={deskUp ? 'up' : 'dn'}>{deskUp ? 'online' : 'offline'}</span> · beta</div></nav>
       <main className="main">{content()}</main>
     </div>

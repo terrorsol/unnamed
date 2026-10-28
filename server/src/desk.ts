@@ -58,7 +58,11 @@ export async function place(ws: WebSocket, bidder: string, mint: string, sol: nu
   const bal = await balanceSol(bidder); if (bal < committed + sol * (1 + R.CROSS_FEE_BPS / 10000) + 0.01) throw new Error(`insufficient balance for ${sol} SOL bid (have ${bal.toFixed(3)}, ${committed.toFixed(2)} already committed)`)
   const id = Math.random().toString(36).slice(2, 10)
   const b: Bid = { id, mint, symbol: m.symbol, bidder, sol, discBps, placedAt: Date.now(), refreshedAt: Date.now(), status: 'open', ws, fills: 0 }
-  bids.set(id, b); bookChanged(mint); setTimeout(() => { if (bids.get(id)?.status === 'open') bookChanged(mint) }, R.REST_MS + 50); return pubBid(b, bidder)
+  bids.set(id, b); bookChanged(mint); setTimeout(() => { if (bids.get(id)?.status === 'open') bookChanged(mint) }, R.REST_MS + 50)
+  // tell everyone with an open sell offer on this coin — a buyer showed up
+  const note = JSON.stringify({ type: 'bid_posted', mint, symbol: m.symbol, sol, discBps, bidId: id })
+  const told = new Set<WebSocket>(); for (const a of asks.values()) if (a.mint === mint && a.status === 'open' && a.ws && a.ws !== ws && a.ws.readyState === 1 && !told.has(a.ws)) { told.add(a.ws); a.ws.send(note) }
+  return pubBid(b, bidder)
 }
 /** Buy a block: buyer posts "I'll take up to `sol` SOL of this coin at up to +premiumBps over spot for ttl seconds". Any holder fills it
  *  with the normal fill tx (seller signs, buyer's browser co-signs). Zero chart impact on entry; holders get an exit above spot. */
@@ -85,7 +89,11 @@ export async function placeAsk(ws: WebSocket, seller: string, mint: string, sol:
   const open = [...asks.values()].filter((a) => a.seller === seller && a.status === 'open'); if (open.length >= 5) throw new Error('max 5 open offers')
   const id = 's' + Math.random().toString(36).slice(2, 10)
   const a: Ask = { id, mint, symbol: m.symbol, seller, sol, discBps, placedAt: Date.now(), refreshedAt: Date.now(), status: 'open', ws }
-  asks.set(id, a); bookChanged(mint); return pubAsk(a, seller)
+  asks.set(id, a); bookChanged(mint)
+  // tell everyone with an open bid on this coin — they may want to take it
+  const note = JSON.stringify({ type: 'ask_posted', mint, symbol: m.symbol, sol, discBps, askId: id })
+  const told = new Set<WebSocket>(); for (const b of bids.values()) if (b.mint === mint && b.status === 'open' && b.ws && b.ws !== ws && b.ws.readyState === 1 && !told.has(b.ws)) { told.add(b.ws); b.ws.send(note) }
+  return pubAsk(a, seller)
 }
 export function cancelAsk(seller: string, id: string) { const a = asks.get(id); if (a && a.seller === seller && a.status === 'open') { asks.delete(id); bookChanged(a.mint); return true } return false }
 export const myAsks = (me: string) => [...asks.values()].filter((a) => a.seller === me && a.status === 'open').map((a) => pubAsk(a, me))

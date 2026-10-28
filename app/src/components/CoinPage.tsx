@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useFlash } from '../hooks'
 import * as D from '../lib/dex'
 import { Pfp, Ch, Mc, Status, Addr } from './ui'
 import { F, S, ago, pct } from '../lib/fmt'
@@ -34,6 +35,7 @@ function Orders({ c, owner, held, ordersV, bump }: { c: D.Coin; owner: string; h
 export default function CoinPage(p: Props) {
   const [coin, setCoin] = useState<D.Coin | undefined>(p.coin)
   const [side, setSide] = useState<'buy' | 'sell'>('buy'); const [amt, setAmt] = useState(String(p.quickSol)); const [frac, setFrac] = useState(1)
+  const flash = useFlash(coin?.priceUsd)
   const [tab, setTab] = useState<'trades' | 'desk' | 'vault' | 'protocol'>(location.hash.endsWith('/desk') ? 'desk' : location.hash.endsWith('/vault') ? 'vault' : 'trades');
   useEffect(() => { const f = () => { if (location.hash.endsWith('/desk')) setTab('desk'); else if (location.hash.endsWith('/vault')) setTab('vault') }; addEventListener('hashchange', f); return () => removeEventListener('hashchange', f) }, []); const [sb, setSb] = useState(false); const [route, setRoute] = useState('')
   // Smart sell: if a resting desk bid beats the chart impact and fits inside the size, take it first; the rest goes to the pool.
@@ -80,7 +82,7 @@ export default function CoinPage(p: Props) {
       <span className="sp" />{vault ? <span className="tag live" style={{ marginRight: 8 }}>VAULTED</span> : vault === null && !c.onCurve ? <button className="btn sm pri" style={{ marginRight: 8 }} onClick={() => p.go('vault/import/' + c.mint)}>+ Add vault · 15 SOL</button> : null}<button className="btn sm" onClick={() => p.toggleWatch(c.mint)}>{p.watch.includes(c.mint) ? '★ Watching' : '☆ Watch'}</button></div>
     <div className="tiles compact" style={{ marginBottom: 10 }}>
       <div className="tile"><div className="l">Market cap</div><div className="v"><Mc v={c.mcap} /></div><div className="s"><Ch v={c.ch24} /> 24h</div></div>
-      <div className="tile"><div className="l">Price</div><div className="v num">${c.priceUsd < 0.01 ? c.priceUsd.toPrecision(3) : c.priceUsd.toFixed(4)}</div><div className="s"><Ch v={c.ch1h} /> 1h · <Ch v={c.ch5m} /> 5m</div></div>
+      <div className={'tile ' + flash}><div className="l">Price</div><div className="v num">${c.priceUsd < 0.01 ? c.priceUsd.toPrecision(3) : c.priceUsd.toFixed(4)}</div><div className="s"><Ch v={c.ch1h} /> 1h · <Ch v={c.ch5m} /> 5m</div></div>
       <div className="tile"><div className="l">Your position</div><div className="v num">{held ? S(valSol) + ' SOL' : '—'}{cost ? <span className={'num ' + (pnl >= 0 ? 'up' : 'dn')} style={{ fontSize: 12, marginLeft: 8 }}>{pnl >= 0 ? '+' : ''}{((pnl / cost) * 100).toFixed(0)}%</span> : null}</div><div className="s num">{held ? `${held.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${c.symbol}` : 'not holding'}{cost ? <> · <span className={pnl >= 0 ? 'up' : 'dn'}>{pnl >= 0 ? '+' : ''}{S(pnl)} SOL (${S(Math.abs(pnl) * p.solPrice, 0)})</span></> : null}</div></div>
       <div className="tile"><div className="l">Liquidity</div><div className="v"><Mc v={c.liq} /></div><div className="s">{c.onCurve ? 'bonding curve' : c.dex}</div></div>
       <div className="tile"><div className="l">Volume 24h</div><div className="v"><Mc v={c.vol24} /></div><div className="s num"><span className="up">{c.buys24}</span> / <span className="dn">{c.sells24}</span> txns</div></div>

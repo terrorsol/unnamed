@@ -74,7 +74,7 @@ export function openBidder(conn: Connection, pubkey: string, signMsg: (m: Uint8A
         // server kept nothing (grace window passed) → re-place the bids this session owns
         if (!d.reattached && mine.size) { const again = [...mine.values()]; mine.clear(); for (const b of again) send({ type: 'place', mint: b.mint, sol: b.sol, discBps: b.discBps }) }
         return }
-      if (d.type === 'rfq' || d.type === 'swap' || d.type === 'buy_rfq') { onEvent(d); return }
+      if (d.type === 'rfq' || d.type === 'swap' || d.type === 'buy_rfq' || d.type === 'ask_posted' || d.type === 'bid_posted') { onEvent(d); return }
       if (d.type === 'rfq_responded') { waiters.get('rfq')?.ok(d.rfq); waiters.delete('rfq'); onEvent(d); return }
       if (d.type === 'placed') { if (d.bid && !d.bid.block) mine.set(d.bid.id, { mint: d.bid.mint, sol: d.bid.sol, discBps: d.bid.discBps }); waiters.get('place')?.ok(d.bid); waiters.delete('place'); onEvent(d); return }
       if (d.type === 'cancelled') { mine.delete(d.id); waiters.get('cancel:' + d.id)?.ok(d.ok); waiters.delete('cancel:' + d.id); onEvent(d); return }

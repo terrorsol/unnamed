@@ -10,6 +10,16 @@ import type { TradeEvt } from '../lib/pumpportal'
 type Bar = { time: UTCTimestamp; open: number; high: number; low: number; close: number; volume: number }
 const TF: Record<string, { path: string; agg: number; sec: number }> = { '1m': { path: 'minute', agg: 1, sec: 60 }, '5m': { path: 'minute', agg: 5, sec: 300 }, '15m': { path: 'minute', agg: 15, sec: 900 }, '1h': { path: 'hour', agg: 1, sec: 3600 } }
 
+/** Tiny live sparkline: last ~90 minutes of closes, refreshed every 30s. Used on the desk so you never trade blind. */
+export function Spark({ pool, tone }: { pool?: string; tone: 'up' | 'dn' | '' }) {
+  const ref = React.useRef<HTMLCanvasElement>(null); const [pts, setPts] = React.useState<number[]>([])
+  React.useEffect(() => { if (!pool) return; let on = true; const f = () => fetch(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${pool}/ohlcv/minute?aggregate=1&limit=90&currency=usd`, { headers: { accept: 'application/json' } }).then((r) => r.json()).then((d) => { if (!on) return; const l: number[][] = d?.data?.attributes?.ohlcv_list || []; setPts(l.sort((a, b) => a[0] - b[0]).map((x) => x[4])) }).catch(() => {}); f(); const i = setInterval(f, 30000); return () => { on = false; clearInterval(i) } }, [pool])
+  React.useEffect(() => { const c = ref.current; if (!c || pts.length < 2) return; const dpr = devicePixelRatio || 1; const W = c.clientWidth, H = c.clientHeight; c.width = W * dpr; c.height = H * dpr; const ctx = c.getContext('2d')!; ctx.scale(dpr, dpr); ctx.clearRect(0, 0, W, H)
+    const mn = Math.min(...pts), mx = Math.max(...pts); const y = (v: number) => H - 3 - ((v - mn) / Math.max(1e-12, mx - mn)) * (H - 6); const col = getComputedStyle(c).getPropertyValue(tone === 'dn' ? '--dn' : '--up').trim() || '#3ecf8e'
+    ctx.beginPath(); pts.forEach((v, i) => { const x = (i / (pts.length - 1)) * W; i ? ctx.lineTo(x, y(v)) : ctx.moveTo(x, y(v)) }); ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.stroke()
+    ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fillStyle = col + '22'; ctx.fill() }, [pts, tone])
+  return <canvas ref={ref} style={{ width: '100%', height: 44, display: 'block' }} />
+}
 async function gecko(pool: string, tf: string): Promise<Bar[]> {
   const t = TF[tf]
   const r = await fetch(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${pool}/ohlcv/${t.path}?aggregate=${t.agg}&limit=300&currency=usd`, { headers: { accept: 'application/json' } })
