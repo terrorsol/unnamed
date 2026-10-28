@@ -71,13 +71,15 @@ export function SettingsPage({ s, set }: { s: Settings; set: (p: Partial<Setting
 
 export function About() {
   return <div className="prose">
+    <h2>Three things, one terminal</h2>
+    <p><b>Vault.</b> A coin's own market maker, owned by its holders. Half the stake buys supply in the launch block, half sits in a chest. When a buy stretches the price, the vault sells a small slice into it and parks that SOL under the price — as a desk bid and as dip buys at −20 / −35 / −50%. It never withdraws. Timing, size and levels are randomized so it can't be front-run.</p>
+    <p><b>Desk.</b> Off-chart trading on any coin that clears the gate (graduated and ≥ $100K, or on the curve and ≥ $50K, with $5K/h of volume). Rest a bid 1–15% under spot, or a sell offer up to 15% either side. A fill is one transaction both sides sign — no candle, no slippage. Partial fills down to the min block. Names on the book are pseudonymous.</p>
+    <p><b>Vamps &amp; runners.</b> The home board scores every live coin: a <span className="tag pre">VAMP</span> tag means a younger, smaller copy of a coin that's moving — same ticker or name, launched inside its window, often the same deployer wallet or image — with a one-tap switch to the original. 🔥 marks runners by aged market cap × volume × buy pressure.</p>
     <h2>What's live right now</h2>
-    <p>Every button on the board, coin page, launch modal and portfolio is a real Solana transaction signed by your wallet. Buys and sells on bonding-curve coins route through pump.fun via PumpPortal; graduated coins route through Jupiter. Launches create real pump.fun coins. Balances and holdings are read from the chain. Prices, charts and the board come from DexScreener; new launches and curve trades stream from pump.fun in real time.</p>
-    <h2>Desk, vault, market maker — live, bot-run</h2>
-    <p><b>Desk:</b> resting bids 1–15% under spot and sell offers up to 15% either side, on any coin that clears the gate (graduated ≥ $100K or curve ≥ $50K, $5K/h volume). A fill is one transaction signed by both seller and bidder; our server only matches and relays, it never holds funds. <b>Vault:</b> coins launched here (or imported) get a vault our bot runs under fixed rules. In market-maker mode it counters a slice of stretched buys and puts every SOL back under the price — 60% as a desk bid, 40% as dip tranches — never withdraws, pays the dev cut only from profit. Launches put the vault in block zero via a Jito bundle. Custodial in this beta; the on-chain program comes next.</p>
+    <p>Every button is a real Solana transaction signed by your wallet. Curve coins route through pump.fun (via PumpPortal), graduated coins through Jupiter, landed through Helius Sender with a dual RPC route. Launches create real pump.fun coins with the vault in block zero via a Jito bundle. Prices come straight from the pool, not an indexer.</p>
     <h2>Fees</h2>
-    <p>No platform fee from us in this beta. PumpPortal charges <code>0.5%</code> on curve trades; pump.fun charges its usual 1%. Jupiter routes carry only DEX LP fees. Network fees + your priority fee apply to everything.</p>
-    <h2>Safety</h2>
-    <p>Non-custodial: we never see keys. Set slippage and priority in Settings. Memecoins can go to zero; size accordingly. This is beta software — verify every transaction in your wallet before signing.</p>
+    <p>Desk fills pay 0.5% to the treasury. No fee on trades from us. pump.fun takes 1%, PumpPortal 0.5% on curve trades; Jupiter routes carry only LP fees. Network and priority fees apply to everything.</p>
+    <h2>Custody</h2>
+    <p>Trading and the desk are non-custodial — we never see your keys. Vaults are run by a bot wallet in this beta: every signature passes a policy gate (purpose allowlist, per-transaction and hourly caps, never a withdrawal) and the chest is capped at 25 SOL per vault. Memecoins can go to zero; size accordingly, and read every transaction in your wallet before signing.</p>
   </div>
 }

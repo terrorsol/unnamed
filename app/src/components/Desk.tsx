@@ -177,7 +177,7 @@ export function DeskPage({ go, coins = [], owner = '', bidder = null }: { go: (p
       {(!list || !list.length) && <tr><td colSpan={4} className="empty">{err ? 'Desk server unreachable: ' + err : 'No bids resting anywhere yet. Open any graduated coin ≥ $100K and place one.'}</td></tr>}
       {list?.map((b) => <tr key={b.mint} onClick={() => go('coin/' + b.mint + '/desk')}><td className="tk">{b.symbol} <span className="nm">{short(b.mint, 4)}</span></td><td className="r num">{b.bids}</td><td className="r num">{S(b.sol, 2)}</td><td className="r num dn">−{(b.bestDisc / 100).toFixed(1)}%</td></tr>)}
     </tbody></table></div>
-    <div className="nm" style={{ marginTop: 12 }}>Blocks trade off-pool 3–5% under spot · all-or-none · 60s rest · min block 2% of reserve · opens at $100K mc graduated · 0.5% cross fee · settled by one tx both sides sign.</div>
+    <div className="nm" style={{ marginTop: 12 }}>Off-chart blocks: bids 1–15% under spot, sell offers up to 15% either side · partial fills down to the min block · one tx both sides sign · no candle.</div>
   </>
 }
 

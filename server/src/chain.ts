@@ -26,7 +26,27 @@ export async function tokenBalance(owner: string, mint: string) {
   const r = await conn.getParsedTokenAccountsByOwner(new PublicKey(owner), { mint: new PublicKey(mint) })
   const a = r.value[0]; return a ? { ui: +(a.account.data as any).parsed.info.tokenAmount.uiAmount, raw: BigInt((a.account.data as any).parsed.info.tokenAmount.amount) } : { ui: 0, raw: 0n }
 }
-/** pump.fun / PumpSwap / Raydium trade signed by a server-held keypair (vault) */
+export let lastRoute: 'pumpportal' | 'jupiter' = 'pumpportal'
+const WSOL = 'So11111111111111111111111111111111111111112'
+const JUP = () => process.env.JUP_URL || 'https://api.jup.ag/swap/v1'
+/** Jupiter swap tx for a vault wallet (routes pump curve, PumpSwap, Raydium, Meteora — including Token-2022 / mayhem coins). `amount` like PumpPortal's: SOL for buys, token ui amount or 'NN%' for sells. */
+export async function jupBuild(owner: PublicKey, action: 'buy' | 'sell', mint: string, amount: number | string, denominatedInSol: boolean, slippageBps: number): Promise<VersionedTransaction> {
+  const h: Record<string, string> = { 'content-type': 'application/json' }; if (process.env.JUP_KEY) h['x-api-key'] = process.env.JUP_KEY
+  let inMint = WSOL, outMint = mint, raw: bigint
+  if (action === 'buy') { if (!denominatedInSol) throw new Error('jupiter buy needs a SOL amount'); raw = BigInt(Math.floor(+amount * 1e9)) }
+  else {
+    inMint = mint; outMint = WSOL; const bal = await tokenBalance(owner.toBase58(), mint)
+    if (typeof amount === 'string' && amount.endsWith('%')) raw = bal.raw * BigInt(Math.round(parseFloat(amount) * 100)) / 10000n
+    else { const dec = (await conn.getTokenSupply(new PublicKey(mint))).value.decimals; raw = BigInt(Math.floor(+amount * 10 ** dec)) }
+    if (raw > bal.raw) raw = bal.raw; if (raw <= 0n) throw new Error('nothing to sell')
+  }
+  const q: any = await (await fetch(`${JUP()}/quote?inputMint=${inMint}&outputMint=${outMint}&amount=${raw}&slippageBps=${Math.round(slippageBps)}&restrictIntermediateTokens=true`, { headers: h })).json()
+  if (q.error || !q.outAmount) throw new Error('jupiter quote: ' + (q.error || 'no route'))
+  const sw: any = await (await fetch(`${JUP()}/swap`, { method: 'POST', headers: h, body: JSON.stringify({ quoteResponse: q, userPublicKey: owner.toBase58(), wrapAndUnwrapSol: true, dynamicComputeUnitLimit: true, prioritizationFeeLamports: { priorityLevelWithMaxLamports: { maxLamports: 1_000_000, priorityLevel: 'high' } } }) })).json()
+  if (sw.error || !sw.swapTransaction) throw new Error('jupiter swap: ' + (sw.error || 'no tx'))
+  return VersionedTransaction.deserialize(Buffer.from(sw.swapTransaction, 'base64'))
+}
+/** pump.fun / PumpSwap / Raydium trade signed by a server-held keypair (vault). PumpPortal builds; a failed dry-run falls back to Jupiter. */
 export async function pumpTrade(kp: Keypair, action: 'buy' | 'sell', mint: string, amount: number | string, denominatedInSol: boolean, slippage = 10, priorityFee = +(process.env.VAULT_PRIORITY_SOL || 0.001), signer?: (tx: VersionedTransaction) => VersionedTransaction) {
   const args = { publicKey: kp.publicKey.toBase58(), action, mint, amount, denominatedInSol: denominatedInSol ? 'true' : 'false', slippage, priorityFee, pool: 'auto' }
   const url = (process.env.PUMPPORTAL_URL || 'https://pumpportal.fun/api') + '/trade-local'
@@ -35,6 +55,11 @@ export async function pumpTrade(kp: Keypair, action: 'buy' | 'sell', mint: strin
   const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(jito ? [args] : args) })
   if (!r.ok) throw new Error('pumpportal ' + r.status + ' ' + (await r.text().catch(() => '')))
   let tx = jito ? VersionedTransaction.deserialize(bs58.decode((await r.json())[0])) : VersionedTransaction.deserialize(new Uint8Array(await r.arrayBuffer()))
+  // dry-run before spending a fee: mayhem/Token-2022 curve coins have failed PumpPortal's builder in preflight (pump error 6063). On a sim error, rebuild through Jupiter.
+  if (process.env.TRADE_SIM !== '0') {
+    const simErr = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true }).then((x) => x?.value?.err ?? null, () => null)
+    if (simErr) { lastRoute = 'jupiter'; tx = await jupBuild(kp.publicKey, action, mint, amount, denominatedInSol, slippage * 100) } else lastRoute = 'pumpportal'
+  }
   if (!jito && FAST) tx = await addTip(conn, tx, kp.publicKey, TIP_LAMPORTS).catch(() => tx)
   if (signer) tx = signer(tx); else tx.sign([kp])
   const raw = tx.serialize(); const sig = bs58.encode(tx.signatures[0])
