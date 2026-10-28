@@ -3,7 +3,7 @@
 export const FLIP_WINDOW_MIN = 30
 export const FLIP_MAX_RATE = 0.08
 export const WALLET_CAP = 0.025
-export const VAULT_CAP = 0.10
+export const VAULT_CAP = 0.50
 export const DESK_MIN_BLOCK_OF_RESERVE = 0.02
 export const DESK_GATE_MCAP_USD = 100_000
 export const REDEEM_HAIRCUT = 0.07
@@ -26,6 +26,8 @@ export function blockZero(devSol: number, stakeSol: number, feeOffBps = 0) {
   return { devPct: dev.tokens / CURVE0.supply * 100, vaultPct: Math.min(VAULT_CAP * 100, vault.tokens / CURVE0.supply * 100), mcapSol: price * CURVE0.supply, chestSol: stakeSol * 0.5 }
 }
 export function vaultPct(stakeSol: number, devSol = 0, feeOffBps = 0): number { return blockZero(devSol, stakeSol, feeOffBps).vaultPct }
+/** SOL the block-zero vault buy needs to take `pct` of supply, after a dev buy of `devSol` */
+export function solForPct(pct: number, devSol = 0, feeOffBps = 0): number { const dev = curveBuy(CURVE0, devSol, feeOffBps); const want = (pct / 100) * CURVE0.supply; let lo = 0, hi = 500; for (let i = 0; i < 50; i++) { const mid = (lo + hi) / 2; if (curveBuy(dev.after, mid, feeOffBps).tokens > want) hi = mid; else lo = mid } return +hi.toFixed(3) }
 /** Cost-weighted clock when adding to a position */
 export function mergeClock(oldT: number, oldCost: number, newCost: number, now: number): number { return Math.round((oldT * oldCost + now * newCost) / (oldCost + newCost)) }
 /** Vault dip-buy budget for a given drawdown: ≤40% of chest per crash */

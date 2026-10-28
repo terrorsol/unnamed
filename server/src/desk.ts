@@ -10,7 +10,7 @@ import { market } from './market.ts'
 import { balanceSol, decimals, TREASURY, tokenBalance } from './chain.ts'
 import { verifyFill } from './verify.ts'
 
-export type Bid = { id: string; mint: string; symbol: string; bidder: string; sol: number; discBps: number; placedAt: number; refreshedAt: number; status: 'open' | 'filling' | 'filled' | 'cancelled'; ws: WebSocket | null; fills: number; rfq?: string; expiresAt?: number; awaySince?: number; internal?: { sign?: (tx: Transaction, solOut: number) => void; kp: Keypair; label: string; maxSol: () => number } }
+export type Bid = { id: string; mint: string; symbol: string; bidder: string; sol: number; discBps: number; placedAt: number; refreshedAt: number; status: 'open' | 'filling' | 'filled' | 'cancelled'; ws: WebSocket | null; fills: number; rfq?: string; expiresAt?: number; awaySince?: number; internal?: { sign?: (tx: Transaction, solOut: number) => void; kp: Keypair; label: string; maxSol: () => number; deny?: (seller: string) => boolean } }
 const bids = new Map<string, Bid>()
 /** A resting SELL offer: seller holds the tokens, names a SOL size and a price vs spot (discBps>0 under, <0 over). Buyers take it; the seller's browser co-signs. */
 export type Ask = { id: string; mint: string; symbol: string; seller: string; sol: number; discBps: number; placedAt: number; refreshedAt: number; status: 'open' | 'filling' | 'filled' | 'cancelled'; ws: WebSocket | null; awaySince?: number; internal?: { sign: (tx: Transaction, solOut: number) => void; label: string }; feeBps?: number }
@@ -36,14 +36,14 @@ export function leaderboard(me?: string) {
   return Object.values(by).sort((a, b) => b.soldSol + b.boughtSol - (a.soldSol + a.boughtSol)).slice(0, 50).map((x) => ({ ...x, mine: !!me && x.wallet === me, wallet: alias(x.wallet) }))
 }
 /** Server-held bidder (the vault). Keeps one resting bid per mint; refreshed by the vault loop. */
-export async function placeInternal(kp: Keypair, label: string, mint: string, sol: number, discBps: number, maxSol: () => number, sign?: (tx: Transaction, solOut: number) => void) { return pubBid(await placeInternalRaw(kp, label, mint, sol, discBps, maxSol, false, sign)) }
-export async function placeInternalRaw(kp: Keypair, label: string, mint: string, sol: number, discBps: number, maxSol: () => number, fresh = false, sign?: (tx: Transaction, solOut: number) => void): Promise<Bid> {
+export async function placeInternal(kp: Keypair, label: string, mint: string, sol: number, discBps: number, maxSol: () => number, sign?: (tx: Transaction, solOut: number) => void, deny?: (seller: string) => boolean) { return pubBid(await placeInternalRaw(kp, label, mint, sol, discBps, maxSol, false, sign, deny)) }
+export async function placeInternalRaw(kp: Keypair, label: string, mint: string, sol: number, discBps: number, maxSol: () => number, fresh = false, sign?: (tx: Transaction, solOut: number) => void, deny?: (seller: string) => boolean): Promise<Bid> {
   const bidder = kp.publicKey.toBase58()
   const existing = fresh ? null : [...bids.values()].find((b) => b.bidder === bidder && b.mint === mint && b.status === 'open' && !b.rfq)
-  if (existing) { existing.sol = sol; existing.discBps = discBps; existing.refreshedAt = Date.now(); if (sign) existing.internal!.sign = sign; return existing }
+  if (existing) { existing.sol = sol; existing.discBps = discBps; existing.refreshedAt = Date.now(); if (sign) existing.internal!.sign = sign; if (deny) existing.internal!.deny = deny; return existing }
   const m = await market(mint); if (!m) throw new Error('unknown market'); const why = R.validBid(sol, discBps, m); if (why) throw new Error(why)
   const id = 'v' + Math.random().toString(36).slice(2, 9)
-  const b: Bid = { id, mint, symbol: m.symbol, bidder, sol, discBps, placedAt: Date.now(), refreshedAt: Date.now(), status: 'open', ws: null, fills: 0, internal: { kp, label, maxSol, sign } }
+  const b: Bid = { id, mint, symbol: m.symbol, bidder, sol, discBps, placedAt: Date.now(), refreshedAt: Date.now(), status: 'open', ws: null, fills: 0, internal: { kp, label, maxSol, sign, deny } }
   bids.set(id, b); bookChanged(mint); return b
 }
 export function cancelInternal(bidderPk: string, mint: string) { for (const [id, b] of bids) if (b.bidder === bidderPk && b.mint === mint && b.status === 'open') bids.delete(id) }
@@ -170,6 +170,7 @@ export async function quote(id: string, seller: string, sol?: number) {
   const b = bids.get(id); if (!b || b.status !== 'open') throw new Error('bid not open')
   if (!b.rfq && !R.restable(b.placedAt)) throw new Error(`bid resting — fillable in ${Math.ceil((R.REST_MS - (Date.now() - b.placedAt)) / 1000)}s`)
   if (b.bidder === seller) throw new Error('cannot fill your own bid')
+  if (b.internal?.deny?.(seller)) throw new Error('this bid is not open to your wallet right now')
   const m = await market(b.mint, R.QUOTE_MAX_AGE_MS); if (!m) throw new Error('no market')
   if (b.awaySince) throw new Error('bidder is away — try again in a moment')
   // partial fill: seller may take part of the block (≥ min block, or the whole thing); the remainder keeps resting
@@ -201,7 +202,7 @@ export async function fill(id: string, seller: string, txB64: string, sol?: numb
     try {
       if (b.sol > b.internal.maxSol()) throw new Error('vault bid no longer affordable')
       if (b.internal.sign) b.internal.sign(tx, q.takeSol); else tx.partialSign(b.internal.kp); const raw = tx.serialize(); const sig = await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }); const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 2000); try { await confirm(sig) } finally { clearInterval(rb) }
-      settleAmount(b, q.takeSol); recordFill({ t: Date.now(), mint: b.mint, symbol: b.symbol, seller, bidder: b.bidder, sol: q.takeSol, discBps: b.discBps, tokens: q.tokens, sig, vault: true }); rfqNoteFill(id, q.takeSol); onVaultFill?.(b.bidder, q.takeSol, q.tokens); return { sig }
+      settleAmount(b, q.takeSol); recordFill({ t: Date.now(), mint: b.mint, symbol: b.symbol, seller, bidder: b.bidder, sol: q.takeSol, discBps: b.discBps, tokens: q.tokens, sig, vault: true }); rfqNoteFill(id, q.takeSol); onVaultFill?.(b.bidder, q.takeSol, q.tokens, seller); return { sig }
     } catch (e) { b.status = 'open'; throw e }
   }
   return new Promise((resolve, reject) => {
@@ -229,7 +230,7 @@ export function registerBidderSocket(ws: WebSocket) { sockets.add(ws); ws.on('cl
 /** Push a 'book changed' note for a mint to every client; they re-read the book immediately instead of waiting for the poll. */
 export const bookChanged = (mint: string) => broadcast({ type: 'book', mint, t: Date.now() })
 export const broadcast = (o: any, except?: WebSocket) => { const s = JSON.stringify(o); for (const w of sockets) if (w !== except && w.readyState === 1) w.send(s) }
-export let onVaultFill: ((bidder: string, sol: number, tokens: number) => void) | null = null
+export let onVaultFill: ((bidder: string, sol: number, tokens: number, seller?: string) => void) | null = null
 export function setOnVaultFill(f: typeof onVaultFill) { onVaultFill = f }
 let vaultResponder: ((mint: string, sizeSol: number, maxBps: number, rfqId: string) => Promise<Bid | null>) | null = null
 export function setVaultResponder(f: typeof vaultResponder) { vaultResponder = f }

@@ -18,19 +18,21 @@ export const P = {
   deskPauseMs: 15 * 60_000,
   captureDayCap: R.MM_DAY_CAP,
   minBuySol: 0.05,
-  episodeAnchor: true,                         // false = legacy behaviour (rolling 15-min high only), kept for the simulator's before/after
+  episodeAnchor: true,
+  captureOn: true,
+  defendBelowVwap: 1.02,                       // a dip is only bought under the 30-min and 2-hour VWAP (a −20% dip from a +300% pump is not a dip)                         // false = legacy behaviour (rolling 15-min high only), kept for the simulator's before/after
 }
 export type Params = typeof P
 
 export type Swap = { t: number; side: 'buy' | 'sell'; sol: number; trader?: string }
 export type State = {
   chest: number; tokens: number; supply: number; pct: number; avgCost: number; mode: 'floor' | 'mm'; ceiling: number
-  samples: { t: number; p: number; v: number }[]; high15: { t: number; p: number }[]; ema5: number | null; ema15: number | null
+  samples: { t: number; p: number; v: number }[]; samplesLong?: { t: number; p: number; v: number }[]; high15: { t: number; p: number }[]; ema5: number | null; ema15: number | null
   spentEpisode: number; tranchesFired: number[]; levelJit?: number; ddPrev?: number; lastBuy: number
   epHigh?: number; epStart?: number; cooldownUntil?: number
   dayKey?: number; dayDefense?: number; dayChest0?: number; trimmedToday: number; trimDay: number
   buyTimes: number[]; nextCaptureAt?: number; lastCapture: number
-  deskPauseUntil?: number; lastDeskFill?: { t: number; p: number } | null
+  deskPauseUntil?: number; lastDeskFill?: { t: number; p: number; seller?: string } | null; toxicEvents?: number[]; denied?: Record<string, number>
 }
 export type Market = { priceSol: number; mcapUsd: number; liqSol: number; vol1h?: number }
 
@@ -39,12 +41,19 @@ export const vaultedPct = (s: State) => (s.supply ? (s.tokens / s.supply) * 100 
 /** One price observation. Updates windows, EMAs, the day budget and the crash episode. Returns the drawdown the defense will use. */
 export function observe(s: State, p: number, now: number, p_: Params = P): { dd: number; high: number; episode: boolean } {
   s.samples.push({ t: now, p, v: 1 }); s.samples = s.samples.filter((x) => now - x.t < 30 * 60_000)
+  const sl = (s.samplesLong ||= []); if (!sl.length || now - sl[sl.length - 1].t >= 30_000) sl.push({ t: now, p, v: 1 }); s.samplesLong = sl.filter((x) => now - x.t < 2 * 3600_000)
   s.high15.push({ t: now, p }); s.high15 = s.high15.filter((x) => now - x.t < 15 * 60_000)
   s.ema5 = R.ema(s.ema5, p, 5); s.ema15 = R.ema(s.ema15, p, 15)
   const day = Math.floor(now / 86400000); if (day !== s.dayKey) { s.dayKey = day; s.dayDefense = 0; s.dayChest0 = s.chest }
   if (day !== s.trimDay) { s.trimDay = day; s.trimmedToday = 0 }
   // desk toxicity: a block bought off-chart, then the chart drops → the seller was dumping into us. Pull the bid for a while.
-  if (s.lastDeskFill && now - s.lastDeskFill.t <= p_.deskToxicWindowMs && p < s.lastDeskFill.p * (1 - p_.deskToxicDrop)) { s.deskPauseUntil = now + p_.deskPauseMs; s.lastDeskFill = null }
+  // Each event doubles the pause (15 → 30 → 60 min …) and the seller is refused the vault's bids for 24h.
+  if (s.lastDeskFill && now - s.lastDeskFill.t <= p_.deskToxicWindowMs && p < s.lastDeskFill.p * (1 - p_.deskToxicDrop)) {
+    s.toxicEvents = (s.toxicEvents || []).filter((t) => now - t < 86400_000); s.toxicEvents.push(now)
+    s.deskPauseUntil = now + p_.deskPauseMs * 2 ** Math.min(6, s.toxicEvents.length - 1)
+    if (s.lastDeskFill.seller) (s.denied ||= {})[s.lastDeskFill.seller] = now + 86400_000
+    s.lastDeskFill = null
+  }
   const high15 = Math.max(...s.high15.map((x) => x.p))
   // episode: anchored to the high where the crash started, so a rolling window can't reset the budget while the price is still down
   let episode = !!s.epHigh
@@ -75,6 +84,8 @@ export function defense(s: State, m: Market, p: number, now: number, dd: number,
   const levels = toxic ? R.DEFENSE_TRANCHES.slice(0, 2) : R.DEFENSE_TRANCHES
   const level = levels.findIndex((L, i) => dd <= L + s.levelJit! && (s.ddPrev ?? 0) <= L + s.levelJit! && !(s.tranchesFired || []).includes(i))
   if (level < 0) return null
+  // price-aware: never buy a 'dip' that is still above where the coin traded for the last 30 min / 2 h
+  const ref = Math.min(R.vwap(s.samples), R.vwap(s.samplesLong || s.samples)); if (ref > 0 && p > ref * p_.defendBelowVwap) return null
   let budget = s.chest * p_.defenseEpisodeFrac * R.inventorySkew(vaultedPct(s), s.pct || 5).defend
   if (toxic) budget *= 0.5
   const dayRoom = Math.max(0, (s.dayChest0 ?? s.chest) * p_.defenseDayFrac - (s.dayDefense || 0))
@@ -92,7 +103,7 @@ export function onDefended(s: State, spend: number, got: number, level: number, 
 
 /** Capture decision when a buy of `solIn` lands: tokens to sell into it. 0 = let it run. */
 export function capture(s: State, m: Market, p: number, solIn: number, now: number, p_: Params = P, rnd = Math.random(), rnd2 = Math.random()): number {
-  if (s.mode !== 'mm' || solIn < R.MM_MIN_BUY_SOL || s.tokens <= 0) return 0
+  if (!p_.captureOn || s.mode !== 'mm' || solIn < R.MM_MIN_BUY_SOL || s.tokens <= 0) return 0
   s.buyTimes = (s.buyTimes || []).filter((t) => now - t < 60000); s.buyTimes.push(now)
   if (rnd > R.triggerRate(s.buyTimes.length)) return 0
   if (now < (s.nextCaptureAt || 0)) return 0
@@ -107,9 +118,13 @@ export function onCaptured(s: State, tokens: number, now: number) { s.trimmedTod
 
 /** Standing desk bid size (SOL) for this tick; 0 = no bid (paused after toxic flow, or too small). */
 export function deskBid(s: State, minBlock: number, now: number, p_: Params = P, rnd = Math.random()): number {
-  if (now < (s.deskPauseUntil || 0)) return 0
-  const want = +Math.max(s.chest * p_.deskBidFrac * (0.9 + rnd * 0.2), minBlock).toFixed(3)
+  if (now < (s.deskPauseUntil || 0) || p_.deskBidFrac <= 0) return 0
+  // desk fills count against the same day budget as dip buys: together ≤50% of the chest the day started with
+  const dayRoom = Math.max(0, (s.dayChest0 ?? s.chest) * p_.defenseDayFrac - (s.dayDefense || 0))
+  const want = +Math.min(Math.max(s.chest * p_.deskBidFrac * (0.9 + rnd * 0.2), minBlock), dayRoom).toFixed(3)
   if (want < 0.2 || s.chest * 0.7 < want) return 0
   return want
 }
-export function onDeskFill(s: State, sol: number, tokens: number, p: number, now: number) { const before = s.tokens; s.avgCost = (s.avgCost * before + sol) / Math.max(before + tokens, 1e-9); s.lastDeskFill = { t: now, p } }
+export function onDeskFill(s: State, sol: number, tokens: number, p: number, now: number, seller?: string) { s.dayDefense = (s.dayDefense || 0) + sol; const before = s.tokens; s.avgCost = (s.avgCost * before + sol) / Math.max(before + tokens, 1e-9); s.lastDeskFill = { t: now, p, seller } }
+/** a wallet that dumped the chart right after selling the vault a block is refused the vault's bids for a day */
+export function deskDenied(s: State, wallet: string, now: number) { return (s.denied?.[wallet] || 0) > now }

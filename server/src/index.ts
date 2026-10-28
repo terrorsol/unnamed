@@ -59,7 +59,7 @@ const server = createServer(async (req, res) => {
     if (p.startsWith('/tape/')) { const f = (process.env.DATA_DIR || './data') + '/tape/' + p.slice(6).replace(/[^1-9A-HJ-NP-Za-km-z]/g, '') + '.jsonl'; if (!existsSync(f)) return json(res, 404, { error: 'no tape' }); res.writeHead(200, { 'content-type': 'application/x-ndjson', 'access-control-allow-origin': '*' }); return createReadStream(f).pipe(res) }
     if (p.startsWith('/vault/mint/')) return json(res, 200, V.byMint(p.slice(12)))
     if (p.startsWith('/vault/') && req.method === 'GET') return json(res, 200, V.get(p.slice(7)))
-    if (p === '/vault/create' && req.method === 'POST') { const b = await readBody(req); if (!(b.stakeSol > 0)) throw new Error('stake required'); return json(res, 200, V.create(b.dev, +b.stakeSol, b.copyOf, b.mode === 'floor' ? 'floor' : 'mm', b.ceiling != null ? +b.ceiling : undefined, b.venue === 'launchlab' ? 'launchlab' : 'pump')) }
+    if (p === '/vault/create' && req.method === 'POST') { const b = await readBody(req); if (!(b.stakeSol > 0)) throw new Error('stake required'); return json(res, 200, V.create(b.dev, +b.stakeSol, b.copyOf, b.mode === 'floor' ? 'floor' : 'mm', b.ceiling != null ? +b.ceiling : undefined, b.venue === 'launchlab' ? 'launchlab' : 'pump', b.vaultBuySol != null ? +b.vaultBuySol : undefined)) }
     if (p === '/vault/arm' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.arm(b.id, b.mint, b.symbol || '', b.name || '', b.auth)) }
     if (p.startsWith('/import/quote/')) return json(res, 200, await V.importQuote(p.slice(14)))
     if (p === '/import/create' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importCreate(b.owner, b.mint)) }
@@ -73,7 +73,7 @@ const server = createServer(async (req, res) => {
     if (p === '/ll/platform' && req.method === 'GET') return json(res, 200, { ...LL.status(), chain: await LL.platform() })
     if (p === '/ll/platform/build' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await LL.buildPlatformTx(new PublicKey(b.admin))) }
     if (p.startsWith('/ll/pool/') && req.method === 'GET') { const pl = await LL.pool(p.slice(9), 0); return json(res, 200, pl ? { ...pl, virtualA: String(pl.virtualA), virtualB: String(pl.virtualB), realA: String(pl.realA), realB: String(pl.realB), totalSellA: String(pl.totalSellA), totalFundRaisingB: String(pl.totalFundRaisingB), platformFee: String(pl.platformFee), ours: LL.isOurs(pl) } : null) }
-    if (p === '/ll/quote' && req.method === 'GET') return json(res, 200, LL.blockZero(+(u.searchParams.get('dev') || 0), +(u.searchParams.get('vault') || 0)))
+    if (p === '/ll/quote' && req.method === 'GET') { const pct = u.searchParams.get('pct'); const dev = +(u.searchParams.get('dev') || 0); const vault = pct ? V.solForPct(+pct, dev) : +(u.searchParams.get('vault') || 0); return json(res, 200, { ...LL.blockZero(dev, vault), vaultSol: vault }) }
     if (p === '/ll/launch/build' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.buildLaunch(b)) }
     if (p.startsWith('/ll/permtax/') && req.method === 'GET') return json(res, 200, await LL.permTaxOf(p.slice(12)))
     if (p === '/ll/trade' && req.method === 'POST') { const b = await readBody(req); const tx = await LL.buildTrade(new PublicKey(b.owner), b.action === 'sell' ? 'sell' : 'buy', b.mint, b.amount, { slippageBps: b.slippageBps ? +b.slippageBps : undefined }); return json(res, 200, { tx: Buffer.from(tx.serialize()).toString('base64') }) }

@@ -214,19 +214,20 @@ export default function App() {
     try { const before = ws.sol || 0; const sig = await T.sell({ ...x, depthSol: c.depthSol, venue: c.venue }, c.mint, frac, BigInt(h.raw), c.onCurve, (h.amount * (c.raw?.priceNative ? +c.raw.priceNative : 0)) * frac); const after = await connection.getBalance(x.owner).then((b) => b / 1e9).catch(() => before); recordSell(ws.owner, c.mint, c.symbol, frac, Math.max(0, after - before), sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Sold ${Math.round(frac * 100)}% ${c.symbol}`, rows: [['Landed', landing()], ['Received', '≈ ' + S(Math.max(0, after - before)) + ' SOL'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
     catch (e: any) { toast({ kind: 'err', title: 'Sell failed', rows: [['Reason', String(e?.message || e).slice(0, 120)]] }) } finally { setBusy('') }
   }
-  const onLaunch = async (meta: any, dev: number, stake: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = 0.3, venue: 'launchlab' | 'pump' = 'launchlab', permTax = false) => {
+  const onLaunch = async (meta: any, dev: number, stake: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = 0.3, venue: 'launchlab' | 'pump' = 'launchlab', permTax = false, vaultBuy?: number) => {
+    const buy = +(vaultBuy ?? stake * 0.5).toFixed(4)
     const x = ctx(); if (!x) return needWallet()
     try {
       let vault: K.VaultPub | null = null
       // a vault funded by a launch that failed later (expired blockhash, rejected signature) is reused on the retry instead of orphaning the stake
       const pend = pendingVault.current; if (stake > 0 && pend && pend.dev === ws.owner && pend.stake === stake && pend.venue === venue) vault = pend.v
-      if (stake > 0 && !vault) { setBusy('Creating vault…'); vault = await K.vaultCreate(ws.owner, stake, copyOf, mode, ceiling, venue).catch((e) => { toast({ kind: 'err', title: 'Vault server unreachable — launching without a vault', rows: [['Error', String(e.message)]] }); return null }) }
+      if (stake > 0 && !vault) { setBusy('Creating vault…'); vault = await K.vaultCreate(ws.owner, stake, copyOf, mode, ceiling, venue, buy).catch((e) => { toast({ kind: 'err', title: 'Vault server unreachable — launching without a vault', rows: [['Error', String(e.message)]] }); return null }) }
       let sig: string, mint: string, bundled = false
       if (vault) {
         // fund the vault first so it can buy in block zero (skipped when retrying with an already-funded vault)
         if (!pend || pend.v.id !== vault.id) { setBusy('Funding vault…'); const t = new Transaction().add(SystemProgram.transfer({ fromPubkey: x.owner, toPubkey: new PublicKey(vault.pub), lamports: Math.floor(stake * 1e9) })); t.feePayer = x.owner; t.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
         const st = await signLegacy(t); const s2 = await connection.sendRawTransaction(st.serialize()); await confirmByPolling(connection, s2); pendingVault.current = { v: vault, dev: ws.owner, stake, venue } }
-        const r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, vault, +(stake * 0.5).toFixed(4), { sendBundle: K.sendBundle, signMsg, permTax }) : await T.launchBlockZero(x, meta, dev, vault, +(stake * 0.5).toFixed(4), { bundleSign: K.bundleSign, sendBundle: K.sendBundle, signMsg }); sig = r.sig; mint = r.mint; bundled = r.bundled
+        const r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, vault, buy, { sendBundle: K.sendBundle, signMsg, permTax }) : await T.launchBlockZero(x, meta, dev, vault, buy, { bundleSign: K.bundleSign, sendBundle: K.sendBundle, signMsg }); sig = r.sig; mint = r.mint; bundled = r.bundled
       } else { const r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, null, 0, { sendBundle: K.sendBundle, permTax }) : await T.launch(x, meta, dev); sig = r.sig; mint = r.mint }
       pendingVault.current = null; recordCreate(ws.owner, mint, meta.symbol, dev, sig); setLedgerV((v) => v + 1); setLaunch(false)
       toast({ kind: 'ok', title: `${meta.symbol} is live${venue === 'launchlab' ? ' on BANKER' : ' on pump'}${bundled ? ' · vault in block zero' : ''}`, rows: [['Mint', short(mint, 6)], ['Dev buy', S(dev) + ' SOL']], href: solscan(sig) }); go('coin/' + mint)

@@ -48,7 +48,7 @@ await pg.route(/api\.dexscreener\.com/, (r) => { const u = r.request().url(); if
 await pg.route(/geckoterminal\.com/, (r) => r.fulfill({ json: { data: [] } }))
 await pg.route(/raw\.githubusercontent\.com/, (r) => r.fulfill({ status: 404, body: '' }))
 await pg.route(/mainnet-beta\.solana\.com|helius-rpc\.com/, (r) => { const q = JSON.parse(r.request().postData()); const id = q.id
-  if (q.method === 'getBalance') return r.fulfill({ json: { jsonrpc: '2.0', id, result: { context: { slot: 1 }, value: 5e9 } } })
+  if (q.method === 'getBalance') return r.fulfill({ json: { jsonrpc: '2.0', id, result: { context: { slot: 1 }, value: 40e9 } } })
   if (q.method === 'getTokenAccountsByOwner') return r.fulfill({ json: { jsonrpc: '2.0', id, result: { context: { slot: 1 }, value: [] } } })
   if (q.method === 'sendTransaction') { sent.push(q.params[0]); return r.fulfill({ json: { jsonrpc: '2.0', id, result: '5'.repeat(87) } }) }
   if (q.method === 'getLatestBlockhash') return r.fulfill({ json: { jsonrpc: '2.0', id, result: { context: { slot: 1 }, value: { blockhash: bh, lastValidBlockHeight: 999999999 } } } })
@@ -74,12 +74,16 @@ chk('launch modal: pump is the other option, not recommended', (await pg.locator
 await pg.locator('.modal input:not([type=checkbox])').nth(0).fill('Ours'); await pg.locator('.modal input:not([type=checkbox])').nth(1).fill('OURS')
 const png = join(SC, 'logo.png'); writeFileSync(png, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64'))
 await pg.locator('.modal input[type=file]').setInputFiles(png); await pg.waitForTimeout(200)
-chk('launch modal: supply estimate uses the real curve (≈1.7% for 1 SOL stake)', /1\.[5-9]% supply/.test(await pg.locator('.modal .note').first().innerText()))
+const noteTxt = await pg.locator('.modal .note').first().innerText()
+chk('launch modal: vault supply defaults to 30% and the curve prices it at ≈12 SOL ' + JSON.stringify(noteTxt.slice(0, 60)), /30% · 1[1-3]\.\d+ SOL/.test(noteTxt))
+await pg.locator('.modal input[type=range]').nth(0).fill('20'); await pg.waitForTimeout(100)
+const noteTxt2 = await pg.locator('.modal .note').first().innerText()
+chk('slider 20–50%: at 20% the buy is ≈7 SOL', /20% · [67]\.\d+ SOL/.test(noteTxt2))
 const seenToasts = new Set(); await pg.locator('.modal .btn.pri', { hasText: 'Create coin' }).click(); for (let i = 0; i < 16; i++) { await pg.waitForTimeout(500); for (const t of await pg.locator('.toast').allInnerTexts().catch(() => [])) seenToasts.add(t) }
-chk('vault created on the launchlab venue', calls['/vault/create']?.[0]?.venue === 'launchlab' && calls['/vault/create'][0].dev === addr)
+chk('vault created on the launchlab venue with the explicit block-zero buy (20% ≈ 7 SOL) + 1 SOL chest', calls['/vault/create']?.[0]?.venue === 'launchlab' && calls['/vault/create'][0].dev === addr && calls['/vault/create'][0].vaultBuySol > 6.5 && Math.abs(calls['/vault/create'][0].stakeSol - calls['/vault/create'][0].vaultBuySol - 1) < 0.01)
 chk('vault funded first (stake transfer sent)', sent.length >= 1)
 const lb = calls['/ll/launch/build']?.[0]
-chk('server asked to build the launch for the dev', !!lb && lb.dev === addr && lb.symbol === 'OURS' && lb.vaultId === 'v1' && lb.vaultBuySol === 0.5 && lb.devBuySol === 0.5)
+chk('server asked to build the launch for the dev', !!lb && lb.dev === addr && lb.symbol === 'OURS' && lb.vaultId === 'v1' && lb.vaultBuySol > 6.5 && lb.vaultBuySol < 7.8 && lb.devBuySol === 0.5)
 chk('transfer tax off by default (one fee: the curve tax)', lb?.permTax === false)
 chk('launch build carries a dev signature (unnamed:launch:<vault>:<dev>:<minute>)', !!lb?.auth && lb.auth.msg.startsWith('unnamed:launch:v1:' + addr + ':') && lb.auth.sig.length > 60)
 chk('arm carries a dev signature', !!calls['/vault/arm']?.[0]?.auth && calls['/vault/arm'][0].auth.msg.startsWith('unnamed:arm:v1:' + MINT))

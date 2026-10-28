@@ -40,17 +40,22 @@ export function load() { if (existsSync(FILE)) vaults = JSON.parse(readFileSync(
 function save() { mkdirSync(DIR, { recursive: true }); writeFileSync(FILE, JSON.stringify(vaults)) }
 const kp = (v: Vault) => Keypair.fromSecretKey(dec(v.sk))
 const pub = (v: Vault) => ({ id: v.id, pub: v.pub, paper: !!v.paper, venue: v.venue || 'pump', taxClaimed: v.taxClaimed || 0, image: v.image, uri: v.uri, vampFlag: !!v.vampFlag, permTax: v.permTax || 0, crowd: v.crowd ? { goalSol: v.crowd.goalSol, raised: +v.crowd.raised.toFixed(3), backers: Object.keys(v.crowd.contributors).length, expiresAt: v.crowd.expiresAt, refunded: !!v.crowd.refunded } : undefined, mint: v.mint, symbol: v.symbol, name: v.name, dev: v.dev, stakeSol: v.stakeSol, pct: v.pct, cut: v.cut, armed: v.armed, renounced: v.renounced, avgCost: v.avgCost, tokens: v.tokens, chest: v.chest, devPaid: v.devPaid, activity: v.activity.slice(0, 50), createdAt: v.createdAt, copyOf: v.copyOf, imported: !!v.imported, mode: v.mode || 'floor', ceiling: v.ceiling ?? R.MM_MAX_CAPTURE, score: v.score || { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: 0 }, floor: v.supply ? v.chest / v.supply : 0, live: liveReadout(v), holders: v.holders || null, feePaid: v.feePaid || 0, depositedTokens: v.depositedTokens || 0, funders: v.funders || {}, streamed: v.streamed || 0, redeemed: v.redeemed || 0, supply: v.supply || 1e9, deskBid: v.deskBid || 0, copies: Object.values(vaults).filter((c) => c.copyOf === v.mint && c.armed).map((c) => ({ mint: c.mint, symbol: c.symbol, pub: c.pub })) })
-export const vaultPct = (s: number) => Math.min(10, L.blockZero(0, s * 0.5).vaultPct) // real curve: half the stake buys block-zero supply
+export const vaultPct = (buySol: number) => Math.min(50, L.blockZero(0, buySol).vaultPct) // real curve: what the block-zero buy takes of supply (20–50% is the launch range)
+/** SOL the block-zero buy needs for `pct` of supply (binary search on the curve) */
+export function solForPct(pct: number, devSol = 0) { let lo = 0, hi = 500; for (let i = 0; i < 50; i++) { const mid = (lo + hi) / 2; if (L.blockZero(devSol, mid).vaultPct > pct) hi = mid; else lo = mid } return +hi.toFixed(4) }
 
 /** Step 1 (before launch): make a vault address the dev will fund */
 /** Beta cap: vault keys are hot on this server, so no single chest may hold more than this until the on-chain program lands. 0 = no cap. */
 export const MAX_CHEST_SOL = +(process.env.MAX_CHEST_SOL ?? 25)
 const capCheck = (sol: number) => { if (MAX_CHEST_SOL > 0 && sol > MAX_CHEST_SOL) throw new Error(`beta cap: a vault chest holds at most ${MAX_CHEST_SOL} SOL right now (custodial keys) — the on-chain program lifts this`) }
-export function create(dev: string, stakeSol: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = R.MM_MAX_CAPTURE, venue: 'pump' | 'launchlab' = 'pump') {
-  if (!Number.isFinite(stakeSol) || stakeSol < 0) throw new Error('bad stake'); capCheck(stakeSol)
+export function create(dev: string, stakeSol: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = R.MM_MAX_CAPTURE, venue: 'pump' | 'launchlab' = 'pump', vaultBuySol?: number) {
+  if (!Number.isFinite(stakeSol) || stakeSol < 0) throw new Error('bad stake')
+  // stake = block-zero buy + chest. Without an explicit buy, half of the stake buys supply (legacy / pump launches).
+  const buy = vaultBuySol != null && Number.isFinite(vaultBuySol) ? Math.min(Math.max(0, vaultBuySol), stakeSol) : stakeSol * 0.5
+  capCheck(stakeSol - buy)
   const k = Keypair.generate(); const id = bs58.encode(randomBytes(8))
-  const pct = +vaultPct(stakeSol).toFixed(2)
-  vaults[id] = { id, venue, pub: k.publicKey.toBase58(), sk: enc(k.secretKey), dev, stakeSol, pct, cut: pct, armed: false, renounced: false, createdAt: Date.now(), copyOf: copyOf || undefined, streamed: 0, redeemed: 0, supply: 1e9, deskBid: 0, trimmedToday: 0, trimDay: 0, depositedTokens: 0, funders: {}, avgCost: 0, tokens: 0, chest: 0, spentEpisode: 0, high15: [], samples: [], ema5: null, ema15: null, lastBuy: 0, lastTrim: 0, activity: [], devPaid: 0 }
+  const pct = +vaultPct(buy).toFixed(2)
+  vaults[id] = { id, venue, vaultBuySol: buy, pub: k.publicKey.toBase58(), sk: enc(k.secretKey), dev, stakeSol, pct, cut: pct, armed: false, renounced: false, createdAt: Date.now(), copyOf: copyOf || undefined, streamed: 0, redeemed: 0, supply: 1e9, deskBid: 0, trimmedToday: 0, trimDay: 0, depositedTokens: 0, funders: {}, avgCost: 0, tokens: 0, chest: 0, spentEpisode: 0, high15: [], samples: [], ema5: null, ema15: null, lastBuy: 0, lastTrim: 0, activity: [], devPaid: 0 }
   vaults[id].mode = mode; vaults[id].ceiling = Math.min(R.MM_MAX_CAPTURE, Math.max(0.05, ceiling)); save(); return pub(vaults[id])
 }
 /** Step 2 (after the coin exists + dev sent the stake): bind mint, seed the position */
@@ -59,14 +64,14 @@ export async function arm(id: string, mint: string, symbol: string, name = '', a
   if (!v.imported) devAuth(v, 'arm', mint, auth)
   // after a block-zero bundle half the stake is already in tokens, so the SOL check is against the other half
   const bundled = v.activity.some((a) => (a.msg || '').startsWith('signed block-zero'))
-  const bal = await balanceSol(v.pub); if (bal < v.stakeSol * (bundled ? 0.4 : 0.95)) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL`)
+  const buy = v.vaultBuySol ?? v.stakeSol * 0.5; const bal = await balanceSol(v.pub); if (bal < (bundled ? (v.stakeSol - buy) * 0.8 : v.stakeSol * 0.95)) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL`)
   v.mint = mint; v.symbol = symbol; v.name = name; v.armed = true; v.chest = bal; VM.watch(mint); try { const sup = await conn.getTokenSupply(new PublicKey(mint)); v.supply = +(sup.value.uiAmount || 1e9) } catch {} v.activity.unshift({ t: Date.now(), kind: 'stake', sol: bal, msg: 'dev stake received' })
   // seed: spend half the stake on supply at launch, keep half as chest for dips (skipped when the vault already bought in the block-zero bundle)
-  const seed = +(bal * 0.5).toFixed(4)
+  const seed = +Math.min(buy, bal - 0.05).toFixed(4)
   if (bundled) {
     await sync(v)
     // the bundle can be signed and still not land (Jito drops it, tip too low). Tokens on the vault wallet are the only proof.
-    if (v.tokens > 0) { v.avgCost = (v.stakeSol * 0.5) / v.tokens; v.activity.unshift({ t: Date.now(), kind: 'seed', sol: v.stakeSol * 0.5, tokens: v.tokens, msg: 'block-zero vault supply (bundled)' }); save(); return pub(v) }
+    if (v.tokens > 0) { v.avgCost = buy / v.tokens; v.activity.unshift({ t: Date.now(), kind: 'seed', sol: buy, tokens: v.tokens, msg: 'block-zero vault supply (bundled)' }); save(); return pub(v) }
     v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'bundle did not land — seeding now' })
   }
   try { const sig = await trade(v, 'buy', seed, true, 0); await sync(v); v.avgCost = seed / Math.max(v.tokens, 1e-9); v.activity.unshift({ t: Date.now(), kind: 'seed', sol: seed, tokens: v.tokens, sig, msg: 'block-zero vault supply' }) }
@@ -312,7 +317,7 @@ async function tickOne(v: Vault) {
       try {
         const mb = R.minBlockSol(m); const want = MM.deskBid(v, mb, now)
         if (!v.bidRefreshAt || now > v.bidRefreshAt) v.bidRefreshAt = now + 45000 + Math.random() * 60000 // re-quote at random 45–105s, not on the minute
-        if (R.deskOpen(m) && want > 0 && !PAPER) { if (Math.abs(want - v.deskBid) > v.chest * 0.05 || now > v.bidRefreshAt - 1000) { const disc = Math.round(R.deskDiscountBps(R.sigma(v.samples)) + (Math.random() * 100 - 50)); await D.placeInternal(kp(v), 'VAULT', v.mint, want, disc, () => v.chest - 0.02, (tx, solOut) => { KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'desk_fill', solOut) }); if (!v.deskBid) v.activity.unshift({ t: now, kind: 'bid', sol: want, msg: `vault bid resting on desk at −${(disc / 100).toFixed(1)}%` }); v.deskBid = want } }
+        if (R.deskOpen(m) && want > 0 && !PAPER) { if (Math.abs(want - v.deskBid) > v.chest * 0.05 || now > v.bidRefreshAt - 1000) { const disc = Math.round(R.deskDiscountBps(R.sigma(v.samples)) + (Math.random() * 100 - 50)); await D.placeInternal(kp(v), 'VAULT', v.mint, want, disc, () => v.chest - 0.02, (tx, solOut) => { KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'desk_fill', solOut) }, (seller) => MM.deskDenied(v, seller, Date.now())); if (!v.deskBid) v.activity.unshift({ t: now, kind: 'bid', sol: want, msg: `vault bid resting on desk at −${(disc / 100).toFixed(1)}%` }); v.deskBid = want } }
         else if (v.deskBid) { D.cancelInternal(v.pub, v.mint); v.deskBid = 0 }
       } catch {}
       v.ddPrev = ddNow
@@ -328,12 +333,12 @@ export async function respondRfq(mint: string, sizeSol: number, maxBps: number, 
   if (Date.now() < (v.deskPauseUntil || 0)) return null
   const sol = +Math.min(sizeSol, v.chest * MM.P.deskBidFrac - 0.02).toFixed(3); if (sol < 0.2) return null
   const m = await market(mint); if (!m || sol < R.minBlockSol(m)) return null
-  const b = await D.placeInternalRaw(kp(v), 'VAULT', mint, sol, 400, () => v.chest - 0.02, true, (tx, solOut) => { KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'desk_fill', solOut) }); b.rfq = rfqId
+  const b = await D.placeInternalRaw(kp(v), 'VAULT', mint, sol, 400, () => v.chest - 0.02, true, (tx, solOut) => { KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'desk_fill', solOut) }, (seller) => MM.deskDenied(v, seller, Date.now())); b.rfq = rfqId
   v.activity.unshift({ t: Date.now(), kind: 'bid', sol, msg: `answered block request at −4%` })
   return b
 }
 
-D.setOnVaultFill((pub, sol, tokens) => { const v = Object.values(vaults).find((x) => x.pub === pub); if (!v || !v.score) return; MM.onDeskFill(v, sol, tokens, v.samples.at(-1)?.p || 0, Date.now()); v.score.deskBought += sol; v.score.deskFills++; v.score.redeployed += sol; v.deskBid = 0; v.activity.unshift({ t: Date.now(), kind: 'buy', sol, tokens, msg: 'desk fill · bought a block off-chart' }); sync(v).then(save).catch(() => {}) })
+D.setOnVaultFill((pub, sol, tokens, seller) => { const v = Object.values(vaults).find((x) => x.pub === pub); if (!v || !v.score) return; MM.onDeskFill(v, sol, tokens, v.samples.at(-1)?.p || 0, Date.now(), seller); v.score.deskBought += sol; v.score.deskFills++; v.score.redeployed += sol; v.deskBid = 0; v.activity.unshift({ t: Date.now(), kind: 'buy', sol, tokens, msg: 'desk fill · bought a block off-chart' }); sync(v).then(save).catch(() => {}) })
 // exact buys for curve coins via the pump.fun stream
 let pws: any = null
 export function startStream() {
@@ -359,7 +364,7 @@ import { PublicKey as PK, SystemProgram as SP, Transaction as TX } from '@solana
 export async function signBundleTx(id: string, mint: string, txB64: string, maxSol: number, createB64?: string, auth?: { msg?: string; sig?: string }) {
   const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('already armed'); devAuth(v, 'bundle', mint, auth)
   const bal = await balanceSol(v.pub); if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL`)
-  const spend = Math.min(maxSol, bal * 0.5); if (spend < 0.05) throw new Error('nothing to spend')
+  const spend = Math.min(maxSol, v.vaultBuySol ?? bal * 0.5, bal - 0.05); if (spend < 0.05) throw new Error('nothing to spend')
   const tx = VersionedTransaction.deserialize(Buffer.from(txB64, 'base64'))
   // decode the buy itself: the client chose the numbers PumpPortal built from, so policy is enforced on what the tx really does
   const dec = await decimals(mint).catch(() => 6)
@@ -375,7 +380,7 @@ export async function signBundleTx(id: string, mint: string, txB64: string, maxS
   }
   if (cost + b.tipSol > spend * 1.05 + 0.01) throw new Error(`block-zero buy costs ${cost.toFixed(3)} SOL, policy allows ${spend.toFixed(3)}`)
   if (b.maxSolCost > bal) throw new Error(`max_sol_cost ${b.maxSolCost.toFixed(3)} exceeds the vault balance`)
-  KEEP.sign({ id: v.id, chest: v.stakeSol, sk: kp(v) }, tx, 'trade', cost + b.tipSol)
+  KEEP.sign({ id: v.id, chest: bal, sk: kp(v) }, tx, 'launch', cost + b.tipSol)
   v.mint = mint; v.activity.unshift({ t: Date.now(), kind: 'note', msg: `signed block-zero buy · ${cost.toFixed(3)} SOL for ${(b.tokens / 1e6).toFixed(2)}M tokens (${(b.tokens / (v.supply || 1e9) * 100).toFixed(2)}% of supply)` }); save()
   return { tx: Buffer.from(tx.serialize()).toString('base64'), spend: cost, tokens: b.tokens }
 }
@@ -393,10 +398,10 @@ export async function buildLaunch(b: { dev: string; name: string; symbol: string
     const v = vaults[b.vaultId]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('already armed')
     v.venue = 'launchlab'
     const bal = await balanceSol(v.pub); if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL`)
-    vaultSpend = +Math.min(+(b.vaultBuySol || v.stakeSol * 0.5), bal * 0.5).toFixed(4)
+    vaultSpend = +Math.min(+(b.vaultBuySol || v.vaultBuySol || v.stakeSol * 0.5), bal - 0.05).toFixed(4)
     if (vaultSpend >= 0.05) {
       const tx = await LL.buildTrade(kp(v).publicKey, 'buy', built.mint, vaultSpend, { poolState: built.afterDev, fromCreate: true, slippageBps: 3000, tipLamports: Math.floor(+(process.env.TIP_SOL || 0.001) * 1e9), permTaxBps: built.permTax })
-      KEEP.sign({ id: v.id, chest: v.stakeSol, sk: kp(v) }, tx, 'trade', vaultSpend)
+      KEEP.sign({ id: v.id, chest: bal, sk: kp(v) }, tx, 'launch', vaultSpend)
       vaultTx = Buffer.from(tx.serialize()).toString('base64'); vaultTokens = LL.quote(built.afterDev, vaultSpend).tokens
       v.mint = built.mint; v.uri = b.uri; v.symbol = b.symbol; v.name = b.name; v.permTax = built.permTax; resolveImage(v); v.activity.unshift({ t: Date.now(), kind: 'note', msg: `signed block-zero buy · ${vaultSpend.toFixed(3)} SOL for ${(vaultTokens / 1e6).toFixed(2)}M tokens (launchlab)` }); save()
     }
