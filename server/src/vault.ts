@@ -41,7 +41,7 @@ export const vaultPct = (s: number) => Math.min(10, L.blockZero(0, s * 0.5).vaul
 /** Beta cap: vault keys are hot on this server, so no single chest may hold more than this until the on-chain program lands. 0 = no cap. */
 export const MAX_CHEST_SOL = +(process.env.MAX_CHEST_SOL ?? 25)
 const capCheck = (sol: number) => { if (MAX_CHEST_SOL > 0 && sol > MAX_CHEST_SOL) throw new Error(`beta cap: a vault chest holds at most ${MAX_CHEST_SOL} SOL right now (custodial keys) — the on-chain program lifts this`) }
-export function create(dev: string, stakeSol: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = R.MM_MAX_CAPTURE, venue: 'pump' | 'launchlab' = 'launchlab') {
+export function create(dev: string, stakeSol: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = R.MM_MAX_CAPTURE, venue: 'pump' | 'launchlab' = 'pump') {
   if (!Number.isFinite(stakeSol) || stakeSol < 0) throw new Error('bad stake'); capCheck(stakeSol)
   const k = Keypair.generate(); const id = bs58.encode(randomBytes(8))
   const pct = +vaultPct(stakeSol).toFixed(2)

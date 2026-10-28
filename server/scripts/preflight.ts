@@ -27,10 +27,11 @@ const sleep = (n: number) => new Promise((r) => setTimeout(r, n))
 async function sim(tx: VersionedTransaction, label: string) {
   const r = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed' })
   const v = r.value; const logs = (v.logs || []).slice(-3).join(' | ')
+  if (v.err && JSON.stringify(v.err).includes('6063') && ctx.curveIsT22) return `${label}: PumpPortal 6063 on a Token-2022 (mayhem) coin — known, routed to Jupiter in prod`
   if (v.err) throw new Error(`${label} simulate err ${JSON.stringify(v.err)} · ${logs}`)
   return `${label} ok · ${v.unitsConsumed} CU · ${logs.slice(0, 160)}`
 }
-const ctx: { curveMint?: string; mayhemMint?: string; ammMint?: string; ammPool?: string; sol?: number } = {}
+const ctx: { curveMint?: string; curveIsT22?: boolean; mayhemMint?: string; ammMint?: string; ammPool?: string; sol?: number } = {}
 
 // ---------- market data shapes ----------
 await step('dexscreener: SOL pairs shape', async () => {
@@ -56,7 +57,7 @@ await step('geckoterminal: pump-fun curve pools (dex id)', async () => {
   }
   // most live curve coins are now Token-2022 ("mayhem mode"). Prefer a plain one for the classic checks, but keep a mayhem one to test the routes against.
   const pick = live || mayhem; if (!pick) throw new Error('no live curve coin among ' + cands.length + ' · ' + skipped.join('; '))
-  ctx.curveMint = pick.relationships.base_token.data.id.replace('solana_', ''); if (mayhem) ctx.mayhemMint = mayhem.relationships.base_token.data.id.replace('solana_', '')
+  ctx.curveMint = pick.relationships.base_token.data.id.replace('solana_', ''); ctx.curveIsT22 = !live; if (mayhem) ctx.mayhemMint = mayhem.relationships.base_token.data.id.replace('solana_', '')
   return `${pools.length} pools · picked ${pick.attributes.name} (${live ? 'plain' : 'mayhem/token-2022'}) mint ${ctx.curveMint.slice(0, 8)}… h24 $${(+pick.attributes.volume_usd.h24).toFixed(0)}` + (mayhem ? ` · mayhem sample ${mayhem.attributes.name}` : ' · no mayhem coin in top 10') + (skipped.length ? ` · skipped ${skipped.join('; ')}` : '')
 })
 await sleep(2500)
