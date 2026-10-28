@@ -29,7 +29,7 @@ const server = createServer(async (req, res) => {
     if (p === '/health') return json(res, 200, { ok: true, rpc: RPC.replace(/api-key=.*/, 'api-key=…'), treasury: TREASURY, desk: D.stats(), vaults: V.list().length, stream: streamStats() })
     if (p === '/books') return json(res, 200, D.books())
     if (p === '/fills') return json(res, 200, D.history(u.searchParams.get('mint') || undefined))
-    if (p === '/leaderboard') return json(res, 200, D.leaderboard())
+    if (p === '/leaderboard') return json(res, 200, D.leaderboard(u.searchParams.get('me') || undefined))
     if (p.startsWith('/family/')) return json(res, 200, await V.family(p.slice(8)))
     if (p.startsWith('/dev/')) return json(res, 200, V.byDev(p.slice(5)))
     if (p === '/ipfs' && req.method === 'POST') { const b = await readBody(req); try { return json(res, 200, await uploadMetadata(b)) } catch (e: any) { return json(res, e.status || 400, { error: e.message }) } }

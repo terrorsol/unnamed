@@ -10,7 +10,7 @@ import { confirmByPolling } from './rpc'
 
 export const SERVER = (import.meta as any).env?.VITE_SERVER_URL || localStorage.getItem('unnamed_server') || 'https://unnamed-server.onrender.com'
 const WS = SERVER.replace(/^http/, 'ws')
-export type BookBid = { id: string; mint: string; symbol: string; sol: number; discBps: number; placedAt: number; restable: boolean; status: string; bidder: string; mine: boolean }
+export type BookBid = { id: string; mint: string; symbol: string; sol: number; discBps: number; placedAt: number; restable: boolean; status: string; bidder: string; mine: boolean; vault?: boolean; block?: boolean; expiresAt?: number }
 export type Book = { open: boolean; minBlock: number | null; market: any; bids: BookBid[]; rules: { discMin: number; discMax: number; restMs: number; feeBps: number; gateUsd: number } }
 export type Expect = { mint: string; seller: string; bidder: string; treasury: string; base: string; sellerLamports: string; fee: string; priceSol: number; discBps: number; decimals: number; tokenProgram: string }
 
@@ -42,7 +42,7 @@ export function verifyFill(tx: Transaction, e: Expect): string | null {
   return null
 }
 
-export type BidderSession = { close: () => void; place: (mint: string, sol: number, discBps: number) => Promise<BookBid>; cancel: (id: string) => Promise<boolean>; connected: () => boolean; respond: (rfqId: string, discBps: number, sol: number) => Promise<any> }
+export type BidderSession = { close: () => void; place: (mint: string, sol: number, discBps: number) => Promise<BookBid>; buyBlock: (mint: string, sol: number, premiumBps: number, ttlSec: number) => Promise<BookBid>; cancel: (id: string) => Promise<boolean>; connected: () => boolean; respond: (rfqId: string, discBps: number, sol: number) => Promise<any> }
 /** Open a bidder session. `sign` co-signs fills (in-app wallet: silent; extension: prompts). `spot` returns current SOL price of a mint for the economic check. */
 export function openBidder(conn: Connection, pubkey: string, signMsg: (m: Uint8Array) => Promise<Uint8Array>, signTx: (t: Transaction) => Promise<Transaction>, spot: (mint: string) => Promise<number>, onEvent: (e: any) => void): BidderSession {
   let ws: WebSocket | null = null, closed = false, authed = false, timer: any, hb: any
@@ -54,7 +54,7 @@ export function openBidder(conn: Connection, pubkey: string, signMsg: (m: Uint8A
     ws.onmessage = async (m) => {
       const d = JSON.parse(m.data)
       if (d.type === 'authed') { authed = true; onEvent(d); hb = setInterval(() => send({ type: 'refresh' }), 20000); return }
-      if (d.type === 'rfq' || d.type === 'swap') { onEvent(d); return }
+      if (d.type === 'rfq' || d.type === 'swap' || d.type === 'buy_rfq') { onEvent(d); return }
       if (d.type === 'rfq_responded') { waiters.get('rfq')?.ok(d.rfq); waiters.delete('rfq'); onEvent(d); return }
       if (d.type === 'placed') { waiters.get('place')?.ok(d.bid); waiters.delete('place'); onEvent(d); return }
       if (d.type === 'cancelled') { waiters.get('cancel:' + d.id)?.ok(d.ok); waiters.delete('cancel:' + d.id); onEvent(d); return }
@@ -78,6 +78,7 @@ export function openBidder(conn: Connection, pubkey: string, signMsg: (m: Uint8A
     close: () => { closed = true; clearTimeout(timer); clearInterval(hb); ws?.close() },
     connected: () => authed,
     place: (mint, sol, discBps) => new Promise((ok, no) => { if (!authed) return no(new Error('desk not connected')); waiters.set('place', { ok, no }); send({ type: 'place', mint, sol, discBps }); setTimeout(() => { if (waiters.has('place')) { waiters.delete('place'); no(new Error('timeout')) } }, 15000) }),
+    buyBlock: (mint, sol, premiumBps, ttlSec) => new Promise((ok, no) => { if (!authed) return no(new Error('desk not connected')); waiters.set('place', { ok, no }); send({ type: 'buy_rfq', mint, sol, premiumBps, ttlSec }); setTimeout(() => { if (waiters.has('place')) { waiters.delete('place'); no(new Error('timeout')) } }, 15000) }),
     cancel: (id) => new Promise((ok) => { waiters.set('cancel:' + id, { ok, no: ok }); send({ type: 'cancel', id }); setTimeout(() => ok(false), 8000) }),
     respond: (rfqId, discBps, sol) => new Promise((ok, no) => { if (!authed) return no(new Error('desk not connected')); waiters.set('rfq', { ok, no }); send({ type: 'rfq_respond', rfqId, discBps, sol }); setTimeout(() => { if (waiters.has('rfq')) { waiters.delete('rfq'); no(new Error('timeout')) } }, 15000) }),
   }
@@ -116,7 +117,7 @@ export const vaults = (): Promise<VaultPub[]> => j('/vaults')
 // ---- history / leaderboard / family / dev / redeem ----
 export type FillRec = { t: number; mint: string; symbol: string; seller: string; bidder: string; sol: number; discBps: number; tokens: number; sig: string; vault: boolean }
 export const fills = (mint?: string): Promise<FillRec[]> => j('/fills' + (mint ? '?mint=' + mint : ''))
-export const leaderboard = (): Promise<{ wallet: string; soldSol: number; boughtSol: number; fills: number; saved: number }[]> => j('/leaderboard')
+export const leaderboard = (me?: string): Promise<{ wallet: string; soldSol: number; boughtSol: number; fills: number; saved: number; mine?: boolean }[]> => j('/leaderboard' + (me ? '?me=' + me : ''))
 export type SwapEvt = { type: 'swap'; mint: string; symbol: string; pool: string; sig: string; slot: number; side: 'buy' | 'sell'; sol: number; trader: string; t: number }
 export type Family = { root: string; members: { mint: string; symbol: string; mcapUsd: number; vol1h: number; score: number; original: boolean; vault: boolean; leader?: boolean }[] }
 export const family = (mint: string): Promise<Family> => j('/family/' + mint)

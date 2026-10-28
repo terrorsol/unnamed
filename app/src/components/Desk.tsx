@@ -8,11 +8,12 @@ export type DeskCtx = { owner: string; connected: boolean; bidder: K.BidderSessi
 /** Order book + bid/take controls for one coin */
 export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d: DeskCtx }) {
   const [book, setBook] = useState<K.Book | null>(null); const [err, setErr] = useState(''); const [sol, setSol] = useState('1'); const [disc, setDisc] = useState(400); const [msg, setMsg] = useState('')
+  const [mode, setMode] = useState<'rest' | 'block'>('rest'); const [prem, setPrem] = useState(200); const [ttl, setTtl] = useState(120)
   const load = () => K.getBook(mint, d.owner || undefined).then((b) => { setBook(b); setErr('') }).catch((e) => setErr(String(e.message || e)))
   useEffect(() => { load(); const i = setInterval(load, 5000); return () => clearInterval(i) }, [mint, d.owner])
   if (err) return <div className="panel"><div className="note">Desk server unreachable — <span className="dim">{err}</span>. Bids and fills resume automatically when it's back.</div></div>
   if (!book) return <div className="empty">Loading book…</div>
-  const place = async () => { setMsg(''); try { await d.bidder!.place(mint, +sol, disc); setMsg('Bid placed · rests 60s, then fillable'); load() } catch (e: any) { setMsg(e.message) } }
+  const place = async () => { setMsg(''); try { if (mode === 'block') { await d.bidder!.buyBlock(mint, +sol, prem, ttl); setMsg(`Block buy live for ${ttl}s · holders are being pinged`) } else { await d.bidder!.place(mint, +sol, disc); setMsg('Bid placed · rests 60s, then fillable') } load() } catch (e: any) { setMsg(e.message) } }
   const cancel = async (id: string) => { await d.bidder?.cancel(id); load() }
   return <div className="panel" style={{ gap: 12 }}>
     <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
@@ -26,21 +27,23 @@ export function CoinDesk({ mint, symbol, d }: { mint: string; symbol: string; d:
         <div className="card"><table><thead><tr><th className="r">Bid</th><th className="r">Disc</th><th className="r">Takes ≈</th><th className="r">Age</th><th className="r"></th></tr></thead><tbody>
           {book.bids.length === 0 && <tr><td colSpan={5} className="empty" style={{ padding: 18 }}>No bids resting</td></tr>}
           {book.bids.map((b) => { const px = book.market?.priceSol * (1 - b.discBps / 10000); const tokens = px ? b.sol / px : 0; const canTake = book.open && d.connected && !b.mine && b.restable && d.holdingUi >= tokens
-            return <tr key={b.id}><td className="r num">{S(b.sol, 2)} SOL</td><td className="r num dn">−{(b.discBps / 100).toFixed(1)}%</td><td className="r num dim">{tokens ? tokens.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' ' + symbol : '—'}</td><td className="r num dim">{ago(b.placedAt)}{!b.restable && <span className="gold"> · resting</span>}</td>
+            return <tr key={b.id}><td className="r num">{S(b.sol, 2)} SOL</td><td className="r num">{b.block && <span className="tag live" style={{ marginRight: 4 }}>BLOCK BUY</span>}<span className={b.discBps < 0 ? 'up' : 'dn'}>{b.discBps < 0 ? '+' : '−'}{(Math.abs(b.discBps) / 100).toFixed(1)}%</span></td><td className="r num dim">{tokens ? tokens.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' ' + symbol : '—'}</td><td className="r num dim">{b.block && b.expiresAt ? `${Math.max(0, Math.round((b.expiresAt - Date.now()) / 1000))}s left` : ago(b.placedAt)}{!b.restable && <span className="gold"> · resting</span>}</td>
               <td className="r">{b.mine ? <button className="btn sm" onClick={() => cancel(b.id)}>Cancel</button> : <button className="btn sm pri" disabled={!canTake || !!d.busy} title={!b.restable ? 'resting' : d.holdingUi < tokens ? 'you hold less than this block' : `fills at ${px ? px.toPrecision(3) : '?'} SOL/token, spot at signing`} onClick={() => d.takeBid(b.id)}>Sell → {S(b.sol * (1 - book.rules.feeBps / 10000), 2)} SOL</button>}</td></tr> })}
         </tbody></table></div>
         <div className="nm" style={{ marginTop: 6 }}>Price = spot at the moment you sign (reference ≤1.5s old) minus the bid's discount. Both browsers verify it independently; if either disagrees by &gt;1.5% nothing is sent. If spot fell &gt;5% since you posted a request, we ask before filling.</div>
       </div>
       <div>
-        <div className="lbl">Place a block bid</div>
+        <div className="row" style={{ gap: 8 }}><div className="lbl" style={{ margin: 0 }}>{mode === 'rest' ? 'Place a resting bid' : 'Buy a block now'}</div><span className="sp" /><span className="seg"><button className={mode === 'rest' ? 'on' : ''} onClick={() => setMode('rest')}>Bid under</button><button className={mode === 'block' ? 'on' : ''} onClick={() => setMode('block')}>Buy block</button></span></div>
         <div className="presets">{[0.5, 1, 2, 5].map((v) => <button key={v} className={+sol === v ? 'on' : ''} onClick={() => setSol(String(v))}>{v} SOL</button>)}</div>
         <div className="inp" style={{ marginTop: 8 }}><input value={sol} onChange={(e) => setSol(e.target.value)} inputMode="decimal" /><span>SOL</span></div>
-        <div className="row" style={{ marginTop: 8 }}><span className="dim" style={{ fontSize: 12 }}>Discount</span><input type="range" className="slider" min={book.rules.discMin} max={book.rules.discMax} step={25} value={disc} onChange={(e) => setDisc(+e.target.value)} /><b className="num dn">−{(disc / 100).toFixed(2)}%</b></div>
-        <div className="kv" style={{ marginTop: 6 }}><span>Fills at</span><b className="num">{book.market?.priceSol ? (book.market.priceSol * (1 - disc / 10000) * d.solPrice).toPrecision(3) + ' USD' : '—'}</b></div>
-        <div className="kv"><span>You receive ≈</span><b className="num">{book.market?.priceSol ? (+sol / (book.market.priceSol * (1 - disc / 10000))).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'} {symbol}</b></div>
-        <button className="btn pri big" style={{ marginTop: 10 }} disabled={!book.open || !d.connected || !d.bidder?.connected() || !(+sol >= (book.minBlock || 0))} onClick={place}>{!d.connected ? 'Connect wallet' : !d.bidder?.connected() ? 'Linking bidder…' : +sol < (book.minBlock || 0) ? `Min block ${S(book.minBlock || 0, 2)} SOL` : 'Place bid'}</button>
+        {mode === 'rest' ? <div className="row" style={{ marginTop: 8 }}><span className="dim" style={{ fontSize: 12 }}>Discount</span><input type="range" className="slider" min={book.rules.discMin} max={book.rules.discMax} step={25} value={disc} onChange={(e) => setDisc(+e.target.value)} /><b className="num dn">−{(disc / 100).toFixed(2)}%</b></div>
+          : <><div className="row" style={{ marginTop: 8 }}><span className="dim" style={{ fontSize: 12 }}>Pay up to</span><input type="range" className="slider" min={0} max={500} step={25} value={prem} onChange={(e) => setPrem(+e.target.value)} /><b className="num up">+{(prem / 100).toFixed(2)}%</b></div>
+            <div className="row" style={{ marginTop: 6 }}><span className="dim" style={{ fontSize: 12 }}>Open for</span><span className="presets" style={{ margin: 0 }}>{[60, 120, 300].map((v) => <button key={v} className={ttl === v ? 'on' : ''} onClick={() => setTtl(v)}>{v / 60} min</button>)}</span></div></>}
+        {(() => { const eff = mode === 'rest' ? disc : -prem; return <><div className="kv" style={{ marginTop: 6 }}><span>Fills at</span><b className="num">{book.market?.priceSol ? (book.market.priceSol * (1 - eff / 10000) * d.solPrice).toPrecision(3) + ' USD' : '—'}</b></div>
+        <div className="kv"><span>You receive ≈</span><b className="num">{book.market?.priceSol ? (+sol / (book.market.priceSol * (1 - eff / 10000))).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'} {symbol}</b></div></> })()}
+        <button className="btn pri big" style={{ marginTop: 10 }} disabled={!book.open || !d.connected || !d.bidder?.connected() || !(+sol >= (book.minBlock || 0))} onClick={place}>{!d.connected ? 'Connect wallet' : !d.bidder?.connected() ? 'Linking bidder…' : +sol < (book.minBlock || 0) ? `Min block ${S(book.minBlock || 0, 2)} SOL` : mode === 'block' ? `Buy block · up to +${(prem / 100).toFixed(1)}%` : 'Place bid'}</button>
         {msg && <div className="nm" style={{ marginTop: 6 }}>{msg}</div>}
-        <div className="nm" style={{ marginTop: 8 }}>SOL stays in your wallet. Bid lives while this tab is open; your browser verifies every fill before signing.</div>
+        <div className="nm" style={{ marginTop: 8 }}>{mode === 'block' ? 'Holders of this coin get pinged and can fill you off-chart at that price — zero impact on the chart on your way in. Fillable immediately, expires on its own.' : 'SOL stays in your wallet. Bid lives while this tab is open; your browser verifies every fill before signing.'}</div>
       </div>
     </div>
   </div>
@@ -151,11 +154,11 @@ export function MinePage({ owner, go, solPrice, onRenounce, onClaim, busy }: { o
 
 export function LeaderboardPage({ owner }: { owner: string }) {
   const [list, setList] = useState<Awaited<ReturnType<typeof K.leaderboard>> | null>(null); const [fl, setFl] = useState<K.FillRec[]>([]); const [err, setErr] = useState('')
-  useEffect(() => { const f = () => Promise.all([K.leaderboard(), K.fills()]).then(([l, f]) => { setList(l); setFl(f); setErr('') }).catch((e) => setErr(String(e.message || e))); f(); const i = setInterval(f, 15000); return () => clearInterval(i) }, [])
+  useEffect(() => { const f = () => Promise.all([K.leaderboard(owner || undefined), K.fills()]).then(([l, f]) => { setList(l); setFl(f); setErr('') }).catch((e) => setErr(String(e.message || e))); f(); const i = setInterval(f, 15000); return () => clearInterval(i) }, [])
   return <div className="lay" style={{ gridTemplateColumns: '1fr 1fr' }}>
     <div className="card"><h3>Desk leaderboard <span className="dim" style={{ fontWeight: 500 }}>· volume crossed off-pool</span></h3><table><thead><tr><th>#</th><th>Wallet</th><th className="r">Sold blocks</th><th className="r">Bought blocks</th><th className="r">Fills</th><th className="r">Saved vs chart</th></tr></thead><tbody>
       {(!list || !list.length) && <tr><td colSpan={6} className="empty">{err ? 'Server unreachable' : 'No desk fills yet'}</td></tr>}
-      {list?.map((r, i) => <tr key={r.wallet} className={r.wallet === owner ? 'on' : ''}><td className="dim num">{i + 1}</td><td className="num">{short(r.wallet, 4)}{r.wallet === owner && <span className="tag live" style={{ marginLeft: 6 }}>YOU</span>}</td><td className="r num">{S(r.soldSol, 2)} SOL</td><td className="r num">{S(r.boughtSol, 2)} SOL</td><td className="r num">{r.fills}</td><td className="r num up">≈{S(r.saved, 3)} SOL</td></tr>)}
+      {list?.map((r, i) => <tr key={r.wallet} className={r.mine ? 'on' : ''}><td className="dim num">{i + 1}</td><td className="num">{r.wallet}{r.mine && <span className="tag live" style={{ marginLeft: 6 }}>YOU</span>}</td><td className="r num">{S(r.soldSol, 2)} SOL</td><td className="r num">{S(r.boughtSol, 2)} SOL</td><td className="r num">{r.fills}</td><td className="r num up">≈{S(r.saved, 3)} SOL</td></tr>)}
     </tbody></table></div>
     <div className="card"><h3>Recent desk fills</h3><div className="feed">{fl.map((f) => <div className="it" key={f.sig}><span className="tk" style={{ width: 70 }}>{f.symbol}</span><span className="num" style={{ width: 80 }}>{S(f.sol, 2)} SOL</span><span className="num dn" style={{ width: 50 }}>−{(f.discBps / 100).toFixed(1)}%</span><span className="dim" style={{ flex: 1 }}>{f.vault ? 'vault bid' : short(f.bidder, 3)} ← {short(f.seller, 3)}</span><a className="dim" href={solscan(f.sig)} target="_blank" rel="noreferrer">↗</a><span className="nm">{ago(f.t)}</span></div>)}{!fl.length && <div className="empty">Nothing yet</div>}</div></div>
   </div>

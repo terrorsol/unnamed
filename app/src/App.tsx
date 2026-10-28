@@ -80,6 +80,7 @@ export default function App() {
     if (!activeB58 || !deskUp) { setBidder(null); return }
     const sess = K.openBidder(connection, activeB58, signMsg, signLegacy, async (m) => { const c = await D.tokenPairs(m); return c?.raw?.priceNative ? +c.raw.priceNative : 0 }, (e) => {
       setDeskTick((t) => t + 1)
+      if (e.type === 'buy_rfq') toast({ kind: 'ok', title: `Block buyer: ${S(e.sol, 2)} SOL of ${e.symbol} at +${(e.premiumBps / 100).toFixed(1)}%`, rows: [['Open for', e.secondsLeft + 's'], ['Fill it', 'coin page → Desk / OTC']], href: '#/coin/' + e.mint })
       if (e.type === 'rfq' && e.rfq.seller !== activeB58) setPings((l) => [e.rfq, ...l.filter((x) => x.id !== e.rfq.id)].slice(0, 4))
       if (e.type === 'authed' && e.rfqs) setPings(e.rfqs.filter((r: K.Rfq) => r.seller !== activeB58).slice(0, 4))
       if (e.type === 'filled') { toast({ kind: 'ok', title: 'Your bid was filled', rows: [['Paid', S(Number(BigInt(e.expect.sellerLamports) + BigInt(e.expect.fee)) / 1e9) + ' SOL'], ['Tx', short(e.sig, 6)]], href: solscan(e.sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }

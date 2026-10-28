@@ -25,11 +25,11 @@ export type Fill = { t: number; mint: string; symbol: string; seller: string; bi
 let fills: Fill[] = []; try { if (existsSync(HF)) fills = JSON.parse(readFileSync(HF, 'utf8')) } catch {}
 function recordFill(f: Fill) { fills.unshift(f); fills = fills.slice(0, 2000); try { mkdirSync(DIR, { recursive: true }); writeFileSync(HF, JSON.stringify(fills)) } catch {} }
 export const history = (mint?: string) => (mint ? fills.filter((f) => f.mint === mint) : fills).slice(0, 100).map((f) => ({ ...f, seller: alias(f.seller), bidder: f.vault ? 'vault' : alias(f.bidder) }))
-export function leaderboard() {
+export function leaderboard(me?: string) {
   const by: Record<string, { wallet: string; soldSol: number; boughtSol: number; fills: number; saved: number }> = {}
   for (const f of fills) { const s = (by[f.seller] ||= { wallet: f.seller, soldSol: 0, boughtSol: 0, fills: 0, saved: 0 }); s.soldSol += f.sol; s.fills++; s.saved += f.sol * 0.03
     if (!f.vault) { const b = (by[f.bidder] ||= { wallet: f.bidder, soldSol: 0, boughtSol: 0, fills: 0, saved: 0 }); b.boughtSol += f.sol; b.fills++; b.saved += f.sol * f.discBps / 10000 } }
-  return Object.values(by).sort((a, b) => b.soldSol + b.boughtSol - (a.soldSol + a.boughtSol)).slice(0, 50).map((x) => ({ ...x, wallet: alias(x.wallet) }))
+  return Object.values(by).sort((a, b) => b.soldSol + b.boughtSol - (a.soldSol + a.boughtSol)).slice(0, 50).map((x) => ({ ...x, mine: !!me && x.wallet === me, wallet: alias(x.wallet) }))
 }
 /** Server-held bidder (the vault). Keeps one resting bid per mint; refreshed by the vault loop. */
 export async function placeInternal(kp: Keypair, label: string, mint: string, sol: number, discBps: number, maxSol: () => number) { return pubBid(await placeInternalRaw(kp, label, mint, sol, discBps, maxSol)) }
