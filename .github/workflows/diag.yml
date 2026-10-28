@@ -1,0 +1,30 @@
+name: Diag (simulate a sell + claim on mainnet, no funds)
+on:
+  workflow_dispatch:
+    inputs:
+      mint: { description: 'mint', required: true, default: '7aAZbX5PsauTJmbsxm7Ab2j9UTP5K5mTYm8qcd7BANK' }
+      owner: { description: 'holder wallet', required: true, default: 'HuZGx4k41dCPuXR4PnBNdHNXJ4WzbUnDxo9wvU3VpXAY' }
+permissions:
+  contents: write
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+        working-directory: server
+      - name: Simulate
+        working-directory: server
+        env:
+          RPC_URL: ${{ secrets.HELIUS_RPC || 'https://mainnet.helius-rpc.com/?api-key=1372a143-458e-4428-a1f2-aacb1e44bd1a' }}
+          PLATFORM_SECRET: ${{ secrets.PLATFORM_SECRET }}
+          VAULT_SECRET: ${{ secrets.VAULT_SECRET || 'dev-only-secret-change-me' }}
+        run: |
+          node --experimental-strip-types scripts/simsell.ts "${{ github.event.inputs.mint }}" "${{ github.event.inputs.owner }}" > diag.txt 2>&1 || true
+          cat diag.txt
+          R=https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+          (git clone -q --branch reports-live --single-branch --depth 1 $R /tmp/pub || (mkdir -p /tmp/pub && cd /tmp/pub && git init -q && git checkout -qb reports-live)) && cd /tmp/pub && git config user.name unnamed-ci && git config user.email ci@unnamed.local
+          cp "$GITHUB_WORKSPACE/server/diag.txt" diag.txt && git add -A && (git diff --cached --quiet || (git commit -qm "diag $(date -u +%H:%M)" && (git pull -q --rebase -X theirs $R reports-live || true) && git push -q $R HEAD:reports-live)) || true

@@ -12,3 +12,12 @@ try { const pend = await LL.pendingFee(M); console.log('pending platform fee SOL
   const tx = await LL.buildClaim(M, LL.PLATFORM_ID, LL.platformKeypair().publicKey); const sim = await C.conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true })
   console.log('CLAIM sim err', JSON.stringify(sim.value.err)); console.log((sim.value.logs || []).slice(-8).join('\n'))
 } catch (e) { console.log('CLAIM build error', e.message) }
+// raw pool + platform fields, to see which bucket the 2% landed in
+try { const { LaunchpadPool, PlatformConfig, getPdaLaunchpadPoolId } = await import('@raydium-io/raydium-sdk-v2')
+  const { PublicKey: PK } = await import('@solana/web3.js')
+  const poolId = getPdaLaunchpadPoolId(LL.PROGRAM, new PK(M), new PK('So11111111111111111111111111111111111111112')).publicKey
+  const ai = await C.conn.getAccountInfo(poolId); const d: any = LaunchpadPool.decode(ai!.data)
+  const fee: any = {}; for (const k of Object.keys(d)) if (/fee|Fee/.test(k)) fee[k] = String(d[k]); console.log('pool fee fields', fee)
+  const pi = await C.conn.getAccountInfo(LL.PLATFORM_ID!); const pc: any = PlatformConfig.decode(pi!.data)
+  const pf: any = {}; for (const k of Object.keys(pc)) if (/fee|Fee|Rate|wallet|Wallet/.test(k)) pf[k] = String(pc[k]); console.log('platform config', pf)
+} catch (e) { console.log('raw decode error', e.message) }
