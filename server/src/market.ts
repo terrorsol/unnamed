@@ -28,7 +28,7 @@ async function fromIndexer(mint: string) {
 const GT = 'https://api.geckoterminal.com/api/v2'
 export async function fromGecko(mint: string) {
   if (process.env.GECKO === '0') return null
-  const r = await fetch(`${GT}/networks/solana/tokens/${mint}/pools?page=1`, { headers: { accept: 'application/json' } }); if (!r.ok) return null
+  const r = await fetch(`${GT}/networks/solana/tokens/${mint}/pools?page=1`, { headers: { accept: 'application/json' } }); if (!r.ok) throw new Error('geckoterminal ' + r.status)
   const d: any = await r.json(); const pools: any[] = (d.data || []).filter((x: any) => x.relationships?.quote_token?.data?.id === 'solana_So11111111111111111111111111111111111111112')
   const p = pools.sort((a: any, b: any) => +(b.attributes.reserve_in_usd || 0) - +(a.attributes.reserve_in_usd || 0))[0]; if (!p) return null
   const a = p.attributes; const dex = p.relationships?.dex?.data?.id || ''; const onCurve = dex === 'pump-fun'

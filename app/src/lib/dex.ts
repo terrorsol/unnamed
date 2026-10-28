@@ -49,8 +49,25 @@ export async function tokensByMint(mints: string[]): Promise<Record<string, Coin
   return out
 }
 export async function tokenPairs(mint: string): Promise<Coin | null> {
-  const pairs: Pair[] = await j(`${BASE}/token-pairs/v1/solana/${mint}`)
-  const b = bestPair(pairs); return b ? pairToCoin(b) : null
+  const pairs: Pair[] = await j(`${BASE}/token-pairs/v1/solana/${mint}`).catch(() => [])
+  const b = bestPair(pairs); const c = b ? pairToCoin(b) : null
+  // DexScreener misses or mis-prices many Token-2022 (mayhem) pump coins; GeckoTerminal tracks them. Same fallback as the server's market().
+  if (!c || !(c.vol1h > 0)) { const g = await fromGecko(mint).catch(() => null); if (g) return g }
+  return c
+}
+/** GeckoTerminal → Coin (fields DexScreener would give; no socials/image). */
+export async function fromGecko(mint: string): Promise<Coin | null> {
+  const r = await fetch(`https://api.geckoterminal.com/api/v2/networks/solana/tokens/${mint}/pools?page=1`, { headers: { accept: 'application/json' } }); if (!r.ok) return null
+  const d: any = await r.json(); const pools: any[] = (d.data || []).filter((x: any) => x.relationships?.quote_token?.data?.id === 'solana_So11111111111111111111111111111111111111112')
+  const p = pools.sort((a: any, b: any) => +(b.attributes.reserve_in_usd || 0) - +(a.attributes.reserve_in_usd || 0))[0]; if (!p) return null
+  const a = p.attributes; const dexId = p.relationships?.dex?.data?.id === 'pump-fun' ? 'pumpfun' : (p.relationships?.dex?.data?.id || '')
+  const priceNative = +(a.base_token_price_native_currency || 0), priceUsd = +(a.base_token_price_usd || 0); const solUsd = priceNative ? priceUsd / priceNative : 0
+  const reserveUsd = +(a.reserve_in_usd || 0)
+  const pair: Pair = { chainId: 'solana', dexId, url: `https://www.geckoterminal.com/solana/pools/${a.address}`, pairAddress: a.address, baseToken: { address: mint, name: (a.name || '').split(' / ')[0], symbol: (a.name || '').split(' / ')[0] }, quoteToken: { address: 'So11111111111111111111111111111111111111112', symbol: 'SOL' },
+    priceUsd: String(priceUsd), priceNative: String(priceNative), txns: { h1: { buys: +(a.transactions?.h1?.buys || 0), sells: +(a.transactions?.h1?.sells || 0) }, h24: { buys: +(a.transactions?.h24?.buys || 0), sells: +(a.transactions?.h24?.sells || 0) }, m5: { buys: +(a.transactions?.m5?.buys || 0), sells: +(a.transactions?.m5?.sells || 0) } },
+    volume: { h24: +(a.volume_usd?.h24 || 0), h1: +(a.volume_usd?.h1 || 0), m5: +(a.volume_usd?.m5 || 0) }, priceChange: { m5: +(a.price_change_percentage?.m5 || 0), h1: +(a.price_change_percentage?.h1 || 0), h24: +(a.price_change_percentage?.h24 || 0) },
+    liquidity: dexId === 'pumpfun' ? undefined : { usd: reserveUsd, quote: solUsd ? reserveUsd / 2 / solUsd : 0 }, fdv: +(a.fdv_usd || 0), marketCap: +(a.market_cap_usd || a.fdv_usd || 0), pairCreatedAt: Date.parse(a.pool_created_at || '') || 0 }
+  return pairToCoin(pair)
 }
 export async function search(q: string): Promise<Coin[]> {
   const r = await j(`${BASE}/latest/dex/search?q=${encodeURIComponent(q)}`)
