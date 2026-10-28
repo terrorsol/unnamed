@@ -149,6 +149,12 @@ await step('mayhem coin: pumpportal buy vs jupiter fallback → simulate', async
   if (!notes.some((n) => / ok /.test(n))) throw new Error(notes.join(' · '))
   return notes.join(' · ')
 })
+await step('market(): geckoterminal fallback fields for a curve coin', async () => {
+  const { fromGecko } = await import('../src/market.ts'); const g: any = await fromGecko(ctx.mayhemMint || ctx.curveMint!)
+  if (!g) throw new Error('no gecko pool'); for (const k of ['priceSol', 'mcapUsd', 'vol1h', 'pair', 'dexId']) if (g[k] == null) throw new Error('missing ' + k)
+  const { curveSpot } = await import('../src/pool.ts'); const sp = await curveSpot(ctx.mayhemMint || ctx.curveMint!)
+  return `${g.symbol} ${g.dexId} onCurve=${g.onCurve} px ${g.priceSol.toPrecision(4)} (curve ${sp?.priceSol.toPrecision(4)}, ${sp ? (Math.abs(sp.priceSol / g.priceSol - 1) * 100).toFixed(1) : '?'}% apart) · mcap $${g.mcapUsd.toFixed(0)} · vol1h $${g.vol1h.toFixed(0)} · liq ${g.liqSol.toFixed(1)} SOL`
+})
 await step('pumpportal: amm buy (single) → simulate', async () => {
   const notes: string[] = []
   for (const pool of ['auto', 'pump-amm']) {
