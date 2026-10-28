@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
     paths: ['server/**', '.github/workflows/preflight.yml']
+permissions:
+  contents: write
 jobs:
   preflight:
     runs-on: ubuntu-latest
@@ -20,3 +22,15 @@ jobs:
           RPC_URL: ${{ secrets.HELIUS_RPC || 'https://mainnet.helius-rpc.com/?api-key=1372a143-458e-4428-a1f2-aacb1e44bd1a' }}
           JUP_KEY: ${{ secrets.JUP_KEY }}
         run: node --experimental-strip-types scripts/preflight.ts
+      - name: Publish report to the reports branch
+        if: always()
+        run: |
+          set -e
+          cp -r server/reports /tmp/reports
+          git config user.name unnamed-ci && git config user.email ci@unnamed.local
+          git fetch origin reports:reports 2>/dev/null || git checkout --orphan reports
+          git checkout reports 2>/dev/null || true
+          git rm -rfq . 2>/dev/null || true
+          mkdir -p preflight && cp /tmp/reports/* preflight/
+          git add -A && git commit -qm "preflight ${{ github.run_id }}" || true
+          git push -f origin reports

@@ -179,5 +179,6 @@ await step('helius ws: logsSubscribe on amm pool → decode one swap', async () 
 
 const fails = out.filter((o) => !o.ok).length
 console.log(`\n${out.length - fails}/${out.length} checks passed`)
+{ const { writeFileSync, mkdirSync } = await import('node:fs'); mkdirSync('reports', { recursive: true }); writeFileSync('reports/preflight.md', `# Preflight · ${new Date().toISOString()} · ${out.length - fails}/${out.length} passed\n\n` + out.map((o) => `- ${o.ok ? 'OK  ' : 'FAIL'} **${o.name}** — ${o.info}`).join('\n') + '\n'); writeFileSync('reports/preflight.json', JSON.stringify({ at: Date.now(), out }, null, 1)) }
 if (process.env.GITHUB_STEP_SUMMARY) { const { appendFileSync } = await import('node:fs'); appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Preflight · ${out.length - fails}/${out.length} passed\n\n| check | ok | detail |\n|---|---|---|\n` + out.map((o) => `| ${o.name} | ${o.ok ? '✅' : '❌'} | ${o.info.replace(/\|/g, '/')} |`).join('\n') + '\n') }
 process.exit(fails ? 1 : 0)
