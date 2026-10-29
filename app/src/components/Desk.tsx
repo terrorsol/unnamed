@@ -355,14 +355,14 @@ export function VaultDeposit({ v, owner, holdingUi, busy, onDeposit, needWallet,
   const [sol, setSol] = useState(''); const [tok, setTok] = useState('')
   const isOwner = owner === v.dev
   return <>
-    <div className="lbl" style={{ marginTop: 10 }}>Fund the vault</div>
+    <div className="lbl" style={{ marginTop: 10 }}>Add to the chest</div>
     <div className="lay" style={{ gridTemplateColumns: '1fr 1fr', gap: 12 }}>
       <div>
-        <div className="inp"><input value={sol} onChange={(e) => setSol(e.target.value)} inputMode="decimal" placeholder="0.0" /><span>SOL → chest</span></div>
-        <div className="inp" style={{ marginTop: 6 }}><input value={tok} onChange={(e) => setTok(e.target.value)} inputMode="decimal" placeholder={holdingUi ? `up to ${holdingUi.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '0'} /><span>{v.symbol} → vault</span></div>
+        <div className="inp"><input value={sol} onChange={(e) => setSol(e.target.value)} inputMode="decimal" placeholder="0.0" /><span>SOL into the chest</span></div>
+        <div className="inp" style={{ marginTop: 6 }}><input value={tok} onChange={(e) => setTok(e.target.value)} inputMode="decimal" placeholder={holdingUi ? `up to ${holdingUi.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '0'} /><span>{v.symbol} into the chest</span></div>
         <div className="row" style={{ marginTop: 6 }}><button className="btn sm" onClick={() => setTok(String(Math.floor(holdingUi)))} disabled={!holdingUi}>all my {v.symbol}</button><span className="sp" /><button className="btn pri" disabled={!!busy || (connected && !(+sol > 0 || +tok > 0))} onClick={() => (connected ? onDeposit(+sol || 0, +tok || 0) : needWallet())}>{busy || (!connected ? 'Connect wallet' : 'Deposit')}</button></div>
       </div>
-      <div className="nm">{isOwner ? 'Deposited tokens only leave through the rules.' : 'More chest → bigger bid, bigger dip buys.'} Funders: {Object.keys(v.funders || {}).length || 0}</div>
+      <div className="nm">{isOwner ? 'Anything you add stays in the chest. It only leaves by the chest\'s rules.' : 'A bigger chest means bigger dip buys and a higher floor for everyone.'} {Object.keys(v.funders || {}).length || 0} people have added so far.</div>
     </div>
   </>
 }

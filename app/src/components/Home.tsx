@@ -45,7 +45,7 @@ export default function Home(p: Props) {
     <div className="row" style={{ marginBottom: 10 }}>
       <div className="seg"><button className={tab === 'ours' ? 'on' : ''} onClick={() => setTab('ours')}>Our coins</button><button className={tab === 'market' ? 'on' : ''} onClick={() => setTab('market')}>Market</button><button className={tab === 'stream' ? 'on' : ''} onClick={() => setTab('stream')}>Brand new</button></div>
     </div>
-    {tab === 'ours' && <div className="lay">
+    {tab === 'ours' && <div className="lay keep">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {ours.length > 0 && <div className="card"><h3>Coins with a chest <span className="nm">every trade pays into the chest · the chest buys dips and takes profit on pumps</span></h3><table><thead><tr><th>Coin</th><th className="r" title="what the whole coin is worth">Value</th><th className="r">1h</th><th className="r" title="SOL in this coin's chest">Chest</th><th className="r" title="what each coin is worth if you cash out against the chest">Floor price</th><th className="r" title="SOL the chest made selling into pumps">Profit taken</th><th className="r" title="our read on the chart right now">Health</th><th className="r"></th></tr></thead><tbody>
           {ours.map(({ v, c, sg }) => <tr key={v.id} onClick={() => p.go('coin/' + v.mint)}>
