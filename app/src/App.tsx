@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
+import bs58 from 'bs58'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { Keypair, PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
 import * as K from './lib/desk'
@@ -100,6 +101,14 @@ export default function App() {
   // private beta gate: health says whether the server is gated; a stored session is re-checked once, and any 401 from a write re-opens the gate
   const [gated, setGated] = useState<boolean | null>(null)
   useEffect(() => { const chk = async () => { try { const h = await K.health(); (window as any).__reclaim = !!(h as any).beta?.testReclaim; setDeskUp(true); setLaunchCurve((h as any).curve); if (!h.gate) { setGated(false); return } const t = K.sessionToken(); if (!t) { setGated(true); return } const r = await K.inviteSession(t).catch(() => ({ ok: false })); if (!r.ok) K.setSessionToken(''); setGated(!r.ok) } catch { setDeskUp(false) } }; chk(); const ping = () => { const t0 = performance.now(); return K.health().then(() => { setDeskUp(true); setLat(Math.round(performance.now() - t0)) }).catch(() => setDeskUp(false)) }; ping(); const i = setInterval(ping, 15000); const onGate = () => { K.setSessionToken(''); setGated(true) }; K.gateBus.addEventListener('gate', onGate); return () => { clearInterval(i); K.gateBus.removeEventListener('gate', onGate) } }, [])
+  // one beta key, any of your wallets: when the connected wallet isn't the one the session belongs to, it signs a one-time link message and gets its own session
+  const linking = useRef('')
+  useEffect(() => { const o = ws.owner; if (!o || !K.sessionToken() || linking.current === o) return; linking.current = o
+    K.inviteSession(K.sessionToken()).then(async (r) => { if (!r.ok || !r.wallet || r.wallet === o) return
+      const msg = `banker:link:${o}:${Math.floor(Date.now() / 60000)}`; const sig = bs58.encode(await signMsg(new TextEncoder().encode(msg)))
+      const t = await K.inviteLink(o, msg, sig); K.setSessionToken(t.token); toast({ kind: 'ok', title: 'Beta key now works on this wallet too', rows: [['Wallet', short(o, 6)]] }) })
+      .catch((e) => { linking.current = ''; toast({ kind: 'err', title: 'Could not add this wallet to your beta key', rows: [['Reason', String(e?.message || e).slice(0, 80)]] }) })
+  }, [ws.owner])
   useEffect(() => {
     if (!activeB58 || !deskUp) { setBidder(null); return }
     const sess = K.openBidder(connection, activeB58, signMsg, signLegacy, async (m) => { const c = await D.tokenPairs(m); return c?.raw?.priceNative ? +c.raw.priceNative : 0 }, (e) => {

@@ -212,6 +212,7 @@ export const vaultRenounce = (id: string, dev: string): Promise<VaultPub> => j('
 export const vaultByMint = (mint: string): Promise<VaultPub | null> => j('/vault/mint/' + mint)
 export const candles = (mint: string, tf = 60): Promise<{ time: number; open: number; high: number; low: number; close: number; volume: number }[]> => j(`/candles/${mint}?tf=${tf}`).then(arr)
 export const inviteRedeem = (code: string, wallet: string, msg: string, sig: string): Promise<{ token: string; wallet: string; exp: number }> => j('/invite/redeem', { code, wallet, msg, sig })
+export const inviteLink = (wallet: string, msg: string, sig: string): Promise<{ token: string; wallet: string; exp: number }> => j('/invite/link', { wallet, msg, sig })
 export const inviteSession = (token: string): Promise<{ ok: boolean; wallet?: string; gate?: boolean }> => j('/invite/session', { token })
 export const vaults = (): Promise<VaultPub[]> => j('/vaults').then(arr)
 

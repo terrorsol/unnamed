@@ -147,8 +147,14 @@ async function launchOursOnce(ctx: Ctx, meta: P.CreateMeta, uri: string, devBuyS
   const signed: VersionedTransaction[] = []; for (const t of txs) signed.push(await sign(t))
   const sig = bs58.encode(signed[0].signatures[0])
   if (b.vaultTx) {
-    try { onStatus?.('Sending bundle…'); await deps.sendBundle([...signed.map((t) => Buffer.from(t.serialize()).toString('base64')), b.vaultTx]); onStatus?.('Confirming…'); await confirmByPollingB58(conn, signed[0]); return { sig, mint: b.mint, bundled: true } }
-    catch (e: any) { onStatus?.('Bundle unavailable — plain launch…') }
+    // the vault's block-zero buy only exists inside the bundle: never fall back to a plain launch that would put the coin live without it
+    const bundle = [...signed.map((t) => Buffer.from(t.serialize()).toString('base64')), b.vaultTx]
+    for (let i = 0; i < 3; i++) {
+      try { onStatus?.(i ? `Resending bundle (${i + 1}/3)…` : 'Sending bundle…'); await deps.sendBundle(bundle) }
+      catch (e: any) { if (i === 2) throw new Error('Jito is not taking the launch bundle right now — nothing launched, your stake is still in the vault. Press Create again in a minute.'); await new Promise((r) => setTimeout(r, 1200)); continue }
+      try { onStatus?.('Confirming…'); await confirmByPollingB58(conn, signed[0]); return { sig, mint: b.mint, bundled: true } }
+      catch (e: any) { if (/blockhash|block height|expired/i.test(String(e?.message || e))) throw e; if (i === 2) throw new Error('the launch bundle did not land — nothing launched, your stake is still in the vault. Press Create again.') }
+    }
   }
   for (const t of signed) { const s2 = await conn.sendRawTransaction(t.serialize(), { skipPreflight: false, maxRetries: 3 }); await confirmByPollingB58(conn, t); void s2 }
   return { sig, mint: b.mint, bundled: false }

@@ -9,7 +9,7 @@ import bs58 from 'bs58'
 const DIR = () => process.env.DATA_DIR || './data'
 const FILE = () => DIR() + '/invites.json'
 export const GATE = process.env.GATE === '1'
-type Store = { keys: Record<string, { label: string; madeAt: number; wallet?: string; redeemedAt?: number }> }
+type Store = { keys: Record<string, { label: string; madeAt: number; wallet?: string; redeemedAt?: number; wallets?: string[] }> }
 const SECRET = process.env.INVITE_SECRET || process.env.VAULT_SECRET || 'dev-only-secret-change-me'
 let st: Store | null = null
 const load = (): Store => {
@@ -50,7 +50,18 @@ export function session(token?: string | null): string | null {
   if (!token) return null
   try { const b = Buffer.from(bs58.decode(token)); if (b.length !== 54) return null; const w = b.subarray(0, 32), e = b.subarray(32, 38), m = b.subarray(38)
     if (!timingSafeEqual(m, mac(w, e))) return null; if (e.readUIntBE(0, 6) * 1000 < Date.now()) return null
-    const wallet = bs58.encode(w); const bound = Object.values(load().keys).some((k) => k.wallet === wallet); return bound ? wallet : null } catch { return null }
+    const wallet = bs58.encode(w); const bound = Object.values(load().keys).some((k) => k.wallet === wallet || !!k.wallets?.includes(wallet)); return bound ? wallet : null } catch { return null }
+}
+/** link another wallet to the same key: the holder of a live session signs `banker:link:<newWallet>:<minute>` with the NEW wallet.
+ *  One key can then be used from any of the holder's wallets (up to 10), each proving itself once — no wallet lock, no shared sessions. */
+export function link(token: string, wallet: string, msg: string, sig: string): { token: string; wallet: string; exp: number } {
+  const from = session(token); if (!from) throw new Error('session expired — enter your key again')
+  const m = /^banker:link:([1-9A-HJ-NP-Za-km-z]{32,44}):(\d+)$/.exec(msg || ''); if (!m || m[1] !== wallet) throw new Error('bad link message')
+  if (Math.abs(Date.now() / 60000 - +m[2]) > 10) throw new Error('link message expired')
+  let ok = false; try { ok = nacl.sign.detached.verify(new TextEncoder().encode(msg), bs58.decode(sig), bs58.decode(wallet)) } catch {} if (!ok) throw new Error('bad signature')
+  const s = load(); const k = Object.values(s.keys).find((x) => x.wallet === from || !!x.wallets?.includes(from)); if (!k) throw new Error('no key behind this session')
+  if (k.wallet !== wallet) k.wallets = [...new Set([...(k.wallets || []), wallet])].slice(-10)
+  save(); const exp = Date.now() + 30 * 86400_000; return { token: tokenFor(wallet, exp), wallet, exp }
 }
 export const stats = () => { const s = load(); const ks = Object.values(s.keys); return { gate: GATE, keys: ks.length, redeemed: ks.filter((k) => k.wallet).length } }
 export const hashOf = hash

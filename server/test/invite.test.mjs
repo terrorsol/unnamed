@@ -19,3 +19,13 @@ test('invite keys: mint, redeem binds to the first wallet, second wallet refused
   assert.throws(() => INV.redeem(b, w2.publicKey.toBase58(), m2, sign(w1, m2), '1.1.1.3'), /bad signature/)
   assert.equal(INV.session('nope'), null); assert.equal(INV.stats().redeemed, 1)
 })
+test('one key, any of your wallets: a live session links a new wallet that signs once; a stranger without the session cannot', () => {
+  const [code] = INV.mint(1, 'link'); const a = Keypair.generate(), b = Keypair.generate(), c = Keypair.generate(); const min = Math.floor(Date.now() / 60000)
+  const ma = `banker:invite:${a.publicKey.toBase58()}:${min}`; const ra = INV.redeem(code, a.publicKey.toBase58(), ma, sign(a, ma), '2.2.2.2')
+  const mb = `banker:link:${b.publicKey.toBase58()}:${min}`
+  assert.throws(() => INV.link(ra.token, b.publicKey.toBase58(), mb, sign(c, mb)), /bad signature/, 'the new wallet itself must sign')
+  assert.throws(() => INV.link('nope', b.publicKey.toBase58(), mb, sign(b, mb)), /session expired/, 'no session, no link')
+  const rb = INV.link(ra.token, b.publicKey.toBase58(), mb, sign(b, mb)); assert.equal(INV.session(rb.token), b.publicKey.toBase58())
+  assert.equal(INV.session(ra.token), a.publicKey.toBase58(), 'the first wallet keeps working')
+  const ma2 = `banker:link:${a.publicKey.toBase58()}:${min}`; const back = INV.link(rb.token, a.publicKey.toBase58(), ma2, sign(a, ma2)); assert.equal(INV.session(back.token), a.publicKey.toBase58(), 'switching back works')
+})
