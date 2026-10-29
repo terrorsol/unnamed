@@ -64,7 +64,7 @@ export default function App() {
   const activeKey = useMemo(() => (activeB58 ? new PublicKey(activeB58) : null), [activeB58])
   const ws = useWalletState(activeKey, rk)
   const pendingVault = useRef<{ v: K.VaultPub; dev: string; stake: number; venue: string } | null>(null)
-  const [busy, setBusy] = useState(''); const [launch, setLaunch] = useState(false); const openLaunch = () => { if (STORE_SAFE) { toast({ kind: 'info', title: 'Launch coins on app.banker.cash', rows: [['In the app', 'buy, sell and track coins']] }); return } setLaunch(true) }; const [llp, setLlp] = useState<K.LLPlatform | null>(null); useEffect(() => { K.llPlatform().then(setLlp).catch(() => {}) }, [launch]); const [more, setMore] = useState(false); const [q, setQ] = useState(''); const [results, setResults] = useState<Coin[]>([])
+  const [lat, setLat] = useState<number | null>(null); const [busy, setBusy] = useState(''); const [launch, setLaunch] = useState(false); const openLaunch = () => { if (STORE_SAFE) { toast({ kind: 'info', title: 'Launch coins on app.banker.cash', rows: [['In the app', 'buy, sell and track coins']] }); return } setLaunch(true) }; const [llp, setLlp] = useState<K.LLPlatform | null>(null); useEffect(() => { K.llPlatform().then(setLlp).catch(() => {}) }, [launch]); const [more, setMore] = useState(false); const [q, setQ] = useState(''); const [results, setResults] = useState<Coin[]>([])
   const [ledgerV, setLedgerV] = useState(0)
   const ledger = useMemo(() => loadLedger(ws.owner), [ws.owner, ledgerV])
   const freshMints = useMemo(() => fresh.list.slice(0, 30).map((t) => t.mint), [fresh.list])
@@ -99,7 +99,7 @@ export default function App() {
   useEffect(() => { if (!deskUp) return; return K.openSwapFeed((sw) => setSwaps((l) => [{ mint: sw.mint, txType: sw.side, sol: sw.sol, tokens: 0, trader: sw.trader, mcapSol: 0, ts: sw.t, sig: sw.sig }, ...l].slice(0, 200))) }, [deskUp])
   // private beta gate: health says whether the server is gated; a stored session is re-checked once, and any 401 from a write re-opens the gate
   const [gated, setGated] = useState<boolean | null>(null)
-  useEffect(() => { const chk = async () => { try { const h = await K.health(); setDeskUp(true); setLaunchCurve((h as any).curve); if (!h.gate) { setGated(false); return } const t = K.sessionToken(); if (!t) { setGated(true); return } const r = await K.inviteSession(t).catch(() => ({ ok: false })); if (!r.ok) K.setSessionToken(''); setGated(!r.ok) } catch { setDeskUp(false) } }; chk(); const i = setInterval(() => K.health().then(() => setDeskUp(true)).catch(() => setDeskUp(false)), 30000); const onGate = () => { K.setSessionToken(''); setGated(true) }; K.gateBus.addEventListener('gate', onGate); return () => { clearInterval(i); K.gateBus.removeEventListener('gate', onGate) } }, [])
+  useEffect(() => { const chk = async () => { try { const h = await K.health(); setDeskUp(true); setLaunchCurve((h as any).curve); if (!h.gate) { setGated(false); return } const t = K.sessionToken(); if (!t) { setGated(true); return } const r = await K.inviteSession(t).catch(() => ({ ok: false })); if (!r.ok) K.setSessionToken(''); setGated(!r.ok) } catch { setDeskUp(false) } }; chk(); const ping = () => { const t0 = performance.now(); return K.health().then(() => { setDeskUp(true); setLat(Math.round(performance.now() - t0)) }).catch(() => setDeskUp(false)) }; ping(); const i = setInterval(ping, 15000); const onGate = () => { K.setSessionToken(''); setGated(true) }; K.gateBus.addEventListener('gate', onGate); return () => { clearInterval(i); K.gateBus.removeEventListener('gate', onGate) } }, [])
   useEffect(() => {
     if (!activeB58 || !deskUp) { setBidder(null); return }
     const sess = K.openBidder(connection, activeB58, signMsg, signLegacy, async (m) => { const c = await D.tokenPairs(m); return c?.raw?.priceNative ? +c.raw.priceNative : 0 }, (e) => {
@@ -297,6 +297,16 @@ export default function App() {
         <button className="btn sm simple-toggle" onClick={toggleSimple} title="Simple hides the pro tools; Pro shows everything">{simple ? 'Simple mode · switch to Pro' : 'Pro mode · switch to Simple'}</button><div className="foot">{deskUp ? 'beta' : <span className="dn">server offline</span>}</div></nav>
       <main className="main">{gated ? <Gate wallet={activeB58} connected={connected} signMsg={signMsg} needWallet={needWallet} onOpen={() => { setGated(false); setVaultV((n) => n + 1) }} /> : <React.Suspense fallback={<div className="empty">…</div>}>{content()}</React.Suspense>}</main>
     </div>
+    {!simple && <footer className="sbar">
+      <span className={'sb-live ' + (deskUp ? 'up' : 'dn')}><i />{deskUp ? 'Live' : 'Reconnecting'}</span>
+      {deskUp && lat != null && <span title="round trip to the BANKER server">server <b className="num">{lat} ms</b></span>}
+      <span>SOL <b className="num">{solPrice ? '$' + solPrice.toFixed(2) : '—'}</b></span>
+      <span title="the ⚡ button size">quick buy <b className="num">{settings.quickBuy} SOL</b></span>
+      <span title="the price can move at most this much before a trade cancels">slippage <b className="num">{(settings.slippageBps / 100).toFixed(0)}%</b></span>
+      <span title="tip that routes trades through validators fast">fast lane <b className={settings.mev ? 'up' : 'dim'}>{settings.mev ? 'on' : 'off'}</b></span>
+      <span className="sp" />
+      <span className="dim">non-custodial · your wallet signs every trade</span>
+    </footer>}
     {simple && page !== 'coin' && <SimpleNav page={page} onMore={() => setMore(true)} moreOn={more} />}
     <nav className="mnav" style={{ gridTemplateColumns: `repeat(${nav.length + 1},1fr)` }}>{nav.map(([k, l, , i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={page === k ? 'on' : ''}><b>{i}</b>{l}</a>)}<a href="#" onClick={(e) => { e.preventDefault(); setMore(true) }} className={more ? 'on' : ''}><b>≡</b>More</a></nav>
     {more && simple && <div className="modal s-sheet-bg" onClick={() => setMore(false)}><div className="s-sheet" onClick={(e) => e.stopPropagation()}>

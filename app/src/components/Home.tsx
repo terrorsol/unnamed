@@ -53,7 +53,7 @@ export default function Home(p: Props) {
             <td className="r">{c ? <Mc v={c.mcap} /> : (v as any).live?.price ? <Mc v={(v as any).live.price * (v.supply || 1e9) * p.solPrice} /> : '—'}</td><td className="r">{c ? <Ch v={c.ch1h} /> : (v as any).live?.vwap30 && (v as any).live?.price ? <Ch v={((v as any).live.price / (v as any).live.vwap30 - 1) * 100} /> : '—'}</td>
             <td className="r num"><Live v={v.chest}>{S(v.chest, 2)} SOL</Live></td><td className="r num">{px(v.floor * p.solPrice)}</td><td className="r num">{S(v.score?.captured || 0, 2)}</td>
             <td className="r">{sg ? <span className={'tag ' + labelTone(sg.label)} title={sg.reasons.join(' · ')}>{labelText(sg.label)}</span> : <span className="dim">—</span>}</td>
-            <td className="r">{c && <button className="btn sm pri" onClick={(e) => { e.stopPropagation(); p.quick(c) }}>⚡ {p.quickSol}</button>}</td></tr>)}
+            <td className="r">{c && <button className="btn sm qbuy" onClick={(e) => { e.stopPropagation(); p.quick(c) }}>⚡ {p.quickSol}</button>}</td></tr>)}
         </tbody></table></div>}
         <div className="card"><h3>Moving now <span className="nm">the most active coins on Solana</span></h3><table><thead><tr><th>Coin</th><th className="r" title="what the whole coin is worth">Value</th><th className="r">5m</th><th className="r">1h</th><th className="r" title="traded in the last hour">Traded 1h</th><th className="r" title="our read on the chart right now">Health</th><th className="r"></th></tr></thead><tbody>
           {!movers.length && <tr><td colSpan={7} className="empty">{p.err || 'Loading coins…'}</td></tr>}
@@ -61,7 +61,7 @@ export default function Home(p: Props) {
             <td><div className="row"><Pfp c={c} /><div><div className="tk">{c.symbol} {p.vaults.some((v) => v.mint === c.mint) && <span className="tag live" style={{ marginLeft: 4 }} title="has a chest defending it">CHEST</span>}{books[c.mint] && <span className="tag" style={{ marginLeft: 4 }} title="big trades can happen off the chart">DESK</span>}{vampMap[c.mint] && <span className="tag pre" style={{ marginLeft: 4 }} title={vampMap[c.mint].reasons.join(' · ')}>COPYCAT of {vampMap[c.mint].originalSymbol}</span>}</div><div className="nm">{vampMap[c.mint] ? vampMap[c.mint].reasons[0] : s.reasons[0]}</div></div></div></td>
             <td className="r"><Mc v={c.mcap} /></td><td className="r"><Ch v={c.ch5m} /></td><td className="r"><Ch v={c.ch1h} /></td><td className="r num"><Mc v={c.vol1h} /></td>
             <td className="r"><span className={'tag ' + (s.label === 'RUNNER' ? 'hot' : labelTone(s.label))}>{labelText(s.label)}</span></td>
-            <td className="r"><button className="btn sm pri" onClick={(e) => { e.stopPropagation(); p.quick(c) }}>⚡ {p.quickSol}</button></td></tr>)}
+            <td className="r"><button className="btn sm qbuy" onClick={(e) => { e.stopPropagation(); p.quick(c) }}>⚡ {p.quickSol}</button></td></tr>)}
         </tbody></table></div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -89,6 +89,6 @@ function MarketTable({ coins, go, quick, quickSol, vaults, err }: { coins: Coin[
     {rows.map((c) => { const sg = classify(featsFromCoin(c, null, vaults.some((v) => v.mint === c.mint))); return <tr key={c.mint} onClick={() => go('coin/' + c.mint)}>
       <td><div className="row"><Pfp c={c} /><div><div className="tk">{c.symbol} {sg.label !== 'HEALTHY' && <span className={'tag ' + labelTone(sg.label)} title={sg.reasons.join(' · ')}>{labelText(sg.label)}</span>}</div><div className="nm">{c.name.slice(0, 22)} · <Addr a={c.mint} /></div></div></div></td>
       <td className="r"><Mc v={c.mcap} /></td><td className="r"><Mc v={c.liq} /></td><td className="r"><Mc v={c.vol24} /></td><td className="r"><Ch v={c.ch1h} /></td><td className="r"><Ch v={c.ch24} /></td><td className="r dim num">{c.createdAt ? ago(c.createdAt) : '—'}</td>
-      <td className="r"><button className="btn sm pri" onClick={(e) => { e.stopPropagation(); quick(c) }}>⚡ {quickSol}</button></td></tr> })}
+      <td className="r"><button className="btn sm qbuy" onClick={(e) => { e.stopPropagation(); quick(c) }}>⚡ {quickSol}</button></td></tr> })}
   </tbody></table></div></div>
 }

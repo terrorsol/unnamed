@@ -43,5 +43,5 @@ export function Addr({ a }: { a: string }) { return <a className="dim num" href=
 export function DeskState({ b }: { b?: { bids: number; sol: number; asks?: number; askSol?: number } | null }) {
   if (b && b.bids > 0) return <span className="num up">{b.bids} bid{b.bids === 1 ? '' : 's'} · {b.sol.toFixed(1)} SOL</span>
   if (b && (b.asks || 0) > 0) return <span className="num gold">{b.asks} seller{b.asks === 1 ? '' : 's'} · {(b.askSol || 0).toFixed(1)} SOL</span>
-  return <span className="dn">no bids</span>
+  return <span className="dim">no bids yet</span>
 }

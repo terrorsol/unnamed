@@ -123,7 +123,7 @@ export function SimpleHome({ coins, byMint, vaults, solPrice, go, buyUsd, usd }:
     <header className="hh">
       <div className="hh-k">{greeting()}</div>
       <div className="hh-v num"><Roll v={inChests} from0 fmt={(n) => S(n, 1) + ' SOL'} /></div>
-      <div className="hh-s"><span className="live" />protecting holders right now{solPrice ? <> · ${S(inChests * solPrice, 0)}</> : null}</div>
+      <div className="hh-s"><span className="k-live" />protecting holders right now{solPrice ? <> · ${S(inChests * solPrice, 0)}</> : null}</div>
       <div className="hh-stats">
         <div><b className="num">{ours.length}</b><span>{ours.length === 1 ? 'coin protected' : 'coins protected'}</span></div>
         {(() => { const dips = vaults.reduce((a, v) => a + (v.score?.dips || 0), 0); return dips > 0 ? <div><b className="num">{dips}</b><span>dips bought</span></div> : <div><b className="num">{day.moves}</b><span>moves today</span></div> })()}

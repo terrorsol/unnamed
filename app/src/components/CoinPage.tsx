@@ -15,7 +15,7 @@ import { Safety, safetyChecks, USD_PRESETS } from './Simple'
 import { AreaChart } from './AreaChart'
 import { SimpleCoinView } from './SimpleCoin'
 import { ActionBar, TradeSheet, haptic } from './Flow'
-import { onToast } from '../lib/store'
+import { loadSettings, onToast } from '../lib/store'
 import { confetti } from '../hooks'
 import { coinBurst } from '../lib/fx'
 import { rugCheck, type RugCheck } from '../lib/rpc'
@@ -40,6 +40,9 @@ function Orders({ c, owner, held, ordersV, bump }: { c: D.Coin; owner: string; h
     <div className="nm">Only runs while this page is open in your browser.</div>
   </div>
 }
+/** what protects this order, at a glance (Axiom-style settings line under the ticket) */
+function TradeOpts() { const st = loadSettings(); return <div className="tradeopts"><span title="the price can move at most this much before the trade cancels">Slippage <b className="num">{(st.slippageBps / 100).toFixed(st.slippageBps % 100 ? 1 : 0)}%</b></span><span title="priority fee per trade">Priority <b className="num">{st.autoFee ? 'auto' : st.priorityFeeSol + ' SOL'}</b></span><span title="tip that routes your trade through validators fast, past most sandwich bots">Fast lane <b className={st.mev ? 'up' : 'dim'}>{st.mev ? 'on' : 'off'}</b></span><span title="BANKER never holds your money">Your wallet signs</span></div> }
+
 export default function CoinPage(p: Props) {
   const [coin, setCoin] = useState<D.Coin | undefined>(p.coin)
   const [side, setSide] = useState<'buy' | 'sell'>('buy'); const [amt, setAmt] = useState(String(p.quickSol)); const [frac, setFrac] = useState(1)
@@ -141,7 +144,7 @@ export default function CoinPage(p: Props) {
         </div>}
       </div>
       <div>{!p.simple && <div className="card"><div className="panel">
-        <div className="seg" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}><button className={side === 'buy' ? 'on' : ''} onClick={() => setSide('buy')}>Buy</button><button className={side === 'sell' ? 'on' : ''} onClick={() => setSide('sell')}>Sell</button></div>
+        <div className={'seg side-seg ' + side} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}><button className={side === 'buy' ? 'on' : ''} onClick={() => setSide('buy')}>Buy</button><button className={side === 'sell' ? 'on' : ''} onClick={() => setSide('sell')}>Sell</button></div>
         {side === 'buy' ? <>
           {p.simple && p.solPrice ? <>
             <div className="presets lg">{USD_PRESETS.map((u) => { const sol = +(u / p.solPrice).toFixed(4); return <button key={u} className={Math.abs(n - sol) < 1e-6 ? 'on' : ''} onClick={() => setAmt(String(sol))}>${u}</button> })}</div>
@@ -169,6 +172,7 @@ export default function CoinPage(p: Props) {
           {!p.simple && held > 0 && !c.onCurve && <button className="btn" style={{ width: '100%', fontSize: 12, fontWeight: 500 }} onClick={() => setSb(true)}>Sell a big amount without crashing the price</button>}
           {!p.simple && <Orders c={c} owner={p.desk.owner} held={held} ordersV={p.ordersV} bump={p.bumpOrders} />}
         </>}
+        <TradeOpts />
 
       </div></div>}
       <ProgressCard coin={c} vault={vault} solPrice={p.solPrice} held={held} simple={p.simple} />{p.simple && <Safety checks={safetyChecks(c, vault, rug)} />}</div>
