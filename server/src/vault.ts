@@ -427,7 +427,24 @@ async function syncChain(v: Vault, sig?: string, fallback = 0) { v.tokens = (awa
 
 const inflight = new Set<string>()
 /** One pass over all armed vaults, concurrently; a vault still confirming a trade from the last pass is skipped, never queued. */
+/** REBIND=<vaultId>:<mint>[,…] (operator): a vault armed onto a mint that never went live is moved to the coin that did — only when the
+ *  old mint has no pool and the new one does. Then it re-arms on the live coin. */
+let rebound = false
+async function rebind() {
+  if (rebound || !process.env.REBIND) return; rebound = true
+  for (const pair of process.env.REBIND.split(',')) {
+    const [id, mint] = pair.split(':').map((x) => x.trim()); const v = vaults[id]; if (!v || !mint || v.mint === mint) continue
+    try {
+      const oldPool = v.mint ? await LL.pool(v.mint).catch(() => null) : null; const newPool = await LL.pool(mint).catch(() => null)
+      if (oldPool || !newPool) { EV.log('error', `rebind ${id}: refused (old mint live: ${!!oldPool}, new mint has a pool: ${!!newPool})`); continue }
+      const from = v.mint; v.armed = false; v.mint = mint; v.venue = 'launchlab'
+      await arm(v.id, mint, v.symbol || '', v.name || '', { sessionWallet: v.dev })
+      v.activity.unshift({ t: Date.now(), kind: 'note', msg: `moved from ${from?.slice(0, 4)}… (never went live) to the live coin ${mint.slice(0, 4)}…` }); EV.log('vault', `${v.symbol || id} re-armed on the live coin ${mint}`, { id, from, mint }); save()
+    } catch (e: any) { EV.log('error', `rebind ${id}: ${String(e.message || e).slice(0, 140)}`) }
+  }
+}
 export async function tick() {
+  await rebind().catch(() => {})
   await Promise.all(Object.values(vaults).map((v) => tickOne(v)))
   await settleLateBooks().catch(() => {})
   save()
