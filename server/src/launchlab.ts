@@ -104,7 +104,7 @@ export async function buildLaunch(dev: PublicKey, meta: { name: string; symbol: 
   try { r = await withOwner(dev, (r) => r.launchpad.createLaunchpad({
     programId: PROGRAM, platformId, mintA: mintKp.publicKey, decimals: 6, name: meta.name, symbol: meta.symbol.slice(0, 10), uri: meta.uri, migrateType: 'cpmm',
     configId: CONFIG_ID, buyAmount: new BN(Math.floor(devBuySol * 1e9)), createOnly: devBuySol <= 0, slippage: new BN(1000), txVersion: TxVersion.V0, extraSigners: [mintKp],
-    computeBudgetConfig: { units: 600_000, microLamports: 100_000 }, ...launchOpts(permTax),
+    computeBudgetConfig: { units: 600_000, microLamports: 100_000 }, ...launchOpts(permTax), ...curveOpts(),
   })) } catch (e) { if (branded) MP.unuse(mintKp); throw e }
   const txs: VersionedTransaction[] = r.transactions
   for (const t of txs) { const keys = t.message.staticAccountKeys.map((k) => k.toBase58()); if (keys.includes(mintKp.publicKey.toBase58()) && t.message.header.numRequiredSignatures > 1) t.sign([mintKp]) }
@@ -112,7 +112,20 @@ export async function buildLaunch(dev: PublicKey, meta: { name: string; symbol: 
   return { mint: mintKp.publicKey.toBase58(), poolId: poolIdOf(mintKp.publicKey.toBase58()).toBase58(), txs: txs.map((t) => Buffer.from(t.serialize()).toString('base64')), devTokens: z.tokens, devCostSol: z.cost, afterDev: z.after, permTax: permTax ? PERM_TAX_BPS : 0 }
 }
 // default config curve (SDK LaunchpadPoolInitParam): virtual 30.00085 SOL × 1,073,025,605.6 tokens, 793.1M on the curve, 85 SOL raise
-export const CURVE0 = { virtualA: 1_073_025_605_596_382n, virtualB: 30_000_852_951n, totalSellA: 793_100_000_000_000n, totalFundRaisingB: 85_000_000_000n, supply: 1_000_000_000_000_000n }
+const CURVE_DEFAULT = { virtualA: 1_073_025_605_596_382n, virtualB: 30_000_852_951n, totalSellA: 793_100_000_000_000n, totalFundRaisingB: 85_000_000_000n, supply: 1_000_000_000_000_000n }
+/** Higher-liquidity launches (Float-style: bundling a $20K start costs ~5× a $4K one). LL_SELL_BPS = share of supply on the curve (7250 = 72.5%),
+ * LL_RAISE_SOL = SOL raised before graduation (265). Both unset = Raydium's default curve ($4K start, ~$62K graduation at $150 SOL). */
+export const CURVE_CUSTOM = +(process.env.LL_SELL_BPS || 0) > 0 && +(process.env.LL_RAISE_SOL || 0) > 0
+function curve() {
+  if (!CURVE_CUSTOM) return CURVE_DEFAULT
+  const supply = new BN(CURVE_DEFAULT.supply.toString()), totalSell = supply.muln(Math.round(+process.env.LL_SELL_BPS!)).divn(10000), totalFundRaising = new BN(Math.round(+process.env.LL_RAISE_SOL! * 1e9))
+  const r: any = (Curve as any).getCurve(0).getInitParam({ supply, totalFundRaising, totalSell, totalLockedAmount: new BN(0), migrateFee: new BN(0) })
+  return { virtualA: BigInt(r.a.toString()), virtualB: BigInt(r.b.toString()), totalSellA: BigInt(totalSell.toString()), totalFundRaisingB: BigInt(totalFundRaising.toString()), supply: CURVE_DEFAULT.supply }
+}
+export const CURVE0 = curve()
+/** what the app shows: start and graduation value in SOL, share on the curve, raise */
+export const curveInfo = () => { const a = Number(CURVE0.virtualA) / 1e6, b = Number(CURVE0.virtualB) / 1e9, sold = Number(CURVE0.totalSellA) / 1e6, raise = Number(CURVE0.totalFundRaisingB) / 1e9; return { custom: CURVE_CUSTOM, startMcapSol: +(b / a * 1e9).toFixed(2), gradMcapSol: +((b + raise) / (a - sold) * 1e9).toFixed(1), sellPct: +(sold / 1e9 * 100).toFixed(2), raiseSol: raise, vSol: b, vTok: a } }
+const curveOpts = () => CURVE_CUSTOM ? { supply: new BN(CURVE0.supply.toString()), totalSellA: new BN(CURVE0.totalSellA.toString()), totalFundRaisingB: new BN(CURVE0.totalFundRaisingB.toString()) } : {}
 export type State = { virtualA: bigint; virtualB: bigint; realA: bigint; realB: bigint }
 /** constant product on virtual reserves. Fees (protocol + platform + creator) come off the SOL in before it hits the curve. */
 export function quote(s: State, solIn: number, feeBps = 25 + TAX_BPS + CREATOR_FEE_BPS) {

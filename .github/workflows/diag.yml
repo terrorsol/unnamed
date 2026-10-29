@@ -4,6 +4,9 @@ on:
     inputs:
       mint: { description: 'mint', required: true, default: '7aAZbX5PsauTJmbsxm7Ab2j9UTP5K5mTYm8qcd7BANK' }
       owner: { description: 'holder wallet', required: true, default: 'HuZGx4k41dCPuXR4PnBNdHNXJ4WzbUnDxo9wvU3VpXAY' }
+      script: { description: 'sell | create', required: false, default: 'sell' }
+      sell_bps: { description: 'create: share of supply on the curve, bps', required: false, default: '7250' }
+      raise_sol: { description: 'create: SOL raised before graduation', required: false, default: '265' }
 permissions:
   contents: write
 jobs:
@@ -23,7 +26,11 @@ jobs:
           PLATFORM_ID: 4dsPD4ZkE47XtxXmJRPTZ5e5eZKLSP2PuYsxQob3F45C
           VAULT_SECRET: ${{ secrets.VAULT_SECRET || 'dev-only-secret-change-me' }}
         run: |
-          node --experimental-strip-types scripts/simsell.ts "${{ github.event.inputs.mint }}" "${{ github.event.inputs.owner }}" > diag.txt 2>&1 || true
+          if [ "${{ github.event.inputs.script }}" = "create" ]; then
+            (node --experimental-strip-types scripts/simcreate.ts > diag.txt 2>&1; LL_SELL_BPS=${{ github.event.inputs.sell_bps }} LL_RAISE_SOL=${{ github.event.inputs.raise_sol }} node --experimental-strip-types scripts/simcreate.ts >> diag.txt 2>&1) || true
+          else
+            node --experimental-strip-types scripts/simsell.ts "${{ github.event.inputs.mint }}" "${{ github.event.inputs.owner }}" > diag.txt 2>&1 || true
+          fi
           cat diag.txt
           R=https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
           (git clone -q --branch reports-live --single-branch --depth 1 $R /tmp/pub || (mkdir -p /tmp/pub && cd /tmp/pub && git init -q && git checkout -qb reports-live)) && cd /tmp/pub && git config user.name unnamed-ci && git config user.email ci@unnamed.local
