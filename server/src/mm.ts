@@ -16,9 +16,10 @@ export const P = {
   deskToxicDrop: 0.05,                         // a desk fill followed by a −5% move within 90s pauses desk bids
   deskToxicWindowMs: 90_000,
   deskPauseMs: 15 * 60_000,
-  captureDayCap: R.MM_DAY_CAP,
+  captureDayCap: +(process.env.MM_CAPTURE_DAY_CAP ?? R.MM_DAY_CAP), // share of inventory the vault may sell into buys per day (tests: 0.5)
   minBuySol: 0.05,
-  maxBuySol: 25,                               // no single vault buy (dip, desk block, accumulation) above this, whatever the chest holds: a tax-grown chest buying one 5,000 SOL 'dip' at the top of a 755× coin lost 87% of it in the replay. Smaller clips let the drawdown stop speak before the episode budget is gone.
+  maxBuySol: +(process.env.MM_MAX_BUY_SOL ?? 25),
+  maxLegSol: +(process.env.MM_MAX_LEG_SOL ?? 0),            // tests: the most SOL the mm may have out in bought tokens at once (0 = no cap)                               // no single vault buy (dip, desk block, accumulation) above this, whatever the chest holds: a tax-grown chest buying one 5,000 SOL 'dip' at the top of a 755× coin lost 87% of it in the replay. Smaller clips let the drawdown stop speak before the episode budget is gone.
   episodeAnchor: true,
   captureOn: true,
   defendBelowVwap: 1.02,
@@ -63,6 +64,8 @@ export function volSol(s: { supply: number }, m: Market): number {
 /** profit-only cap on a buy: 0 when the hour was too thin to exit at a profit, else the most the flow can carry. Infinity when the mode is off. */
 export function profitRoom(vol: number, p_: Params = P): number { if (!p_.profitOnly) return Infinity; return vol < p_.profitMinVolSol ? 0 : vol / p_.profitVolMult }
 /** profit-only floor for any sell: cost × (1 + margin). 0 when the mode is off or the tokens cost nothing. */
+/** room left under the mm exposure cap: SOL still allowed into bought tokens (Infinity when the cap is off) */
+export const legRoom = (s: { mmCost?: number }, p_: Params = P) => (p_.maxLegSol > 0 ? Math.max(0, p_.maxLegSol - (s.mmCost || 0)) : Infinity)
 export const sellFloor = (cost: number, p_: Params = P) => (p_.profitOnly && cost > 0 ? cost * (1 + p_.profitMargin) : 0)
 
 export const vaultedPct = (s: State) => (s.supply ? (s.tokens / s.supply) * 100 : 0)
@@ -137,7 +140,7 @@ export function defense(s: State, m: Market, p: number, now: number, dd: number,
   if (toxic) budget *= 0.5
   const dayRoom = Math.max(0, Math.max(s.dayChest0 ?? 0, s.chest) * p_.defenseDayFrac - (s.dayDefense || 0))
   const impactRoom = m.liqSol > 0 ? m.liqSol * p_.poolImpactMax : Infinity
-  const spend = Math.floor(Math.min(budget / 3 * (0.85 + rnd * 0.3), s.chest - 0.02, Math.max(0, budget - s.spentEpisode), dayRoom, impactRoom, p_.maxBuySol, profitRoom(volSol(s, m), p_)) * 1e4) / 1e4
+  const spend = Math.floor(Math.min(budget / 3 * (0.85 + rnd * 0.3), s.chest - 0.02, Math.max(0, budget - s.spentEpisode), dayRoom, impactRoom, p_.maxBuySol, profitRoom(volSol(s, m), p_), legRoom(s, p_)) * 1e4) / 1e4
   if (spend < p_.minBuySol) return null
   return { spend, level }
 }
@@ -148,7 +151,7 @@ export function accumulate(s: State, m: Market, p: number, now: number, p_: Para
   const ref = Math.min(R.vwap(s.samples), R.vwap(s.samplesLong || s.samples)); if (!ref || p > ref * p_.defendBelowVwap) return null
   const dayRoom = Math.max(0, Math.max(s.dayChest0 ?? 0, s.chest) * p_.accumulateDayFrac - (s.dayAccum || 0))
   const impactRoom = m.liqSol > 0 ? m.liqSol * p_.poolImpactMax : Infinity
-  const spend = Math.floor(Math.min(s.chest * p_.accumulateFrac * (0.8 + rnd * 0.4), s.chest - 0.02, dayRoom, impactRoom, p_.maxBuySol, profitRoom(volSol(s, m), p_)) * 1e4) / 1e4
+  const spend = Math.floor(Math.min(s.chest * p_.accumulateFrac * (0.8 + rnd * 0.4), s.chest - 0.02, dayRoom, impactRoom, p_.maxBuySol, profitRoom(volSol(s, m), p_), legRoom(s, p_)) * 1e4) / 1e4
   return spend >= p_.minBuySol ? spend : null
 }
 export function onAccumulated(s: State, spend: number, got: number, now: number) { s.avgCost = (s.avgCost * (s.tokens - got) + spend) / Math.max(s.tokens, 1e-9); s.dayAccum = (s.dayAccum || 0) + spend; s.lastBuy = now; s.mmSpent = (s.mmSpent || 0) + spend; s.mmTok = (s.mmTok || 0) + got; s.mmCost = (s.mmCost || 0) + spend }
@@ -192,7 +195,7 @@ export function deskBid(s: State, minBlock: number, now: number, p_: Params = P,
   const halve = stopped(s, p, now, p_) ? 0.5 : 1
   // desk fills count against the same day budget as dip buys: together ≤50% of the chest the day started with
   const dayRoom = Math.max(0, Math.max(s.dayChest0 ?? 0, s.chest) * p_.defenseDayFrac - (s.dayDefense || 0))
-  const want = +Math.min(Math.max(s.chest * p_.deskBidFrac * halve * (0.9 + rnd * 0.2), minBlock), dayRoom, liqSol > 0 ? liqSol * p_.poolImpactMax : Infinity, p_.maxBuySol, room).toFixed(3)
+  const want = +Math.min(Math.max(s.chest * p_.deskBidFrac * halve * (0.9 + rnd * 0.2), minBlock), dayRoom, liqSol > 0 ? liqSol * p_.poolImpactMax : Infinity, p_.maxBuySol, room, legRoom(s, p_)).toFixed(3)
   if (want < 0.2 || s.chest * 0.7 < want) return 0
   return want
 }
