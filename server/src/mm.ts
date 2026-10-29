@@ -12,7 +12,7 @@ export const P = {
   poolImpactMax: 0.10,                         // a single vault buy or sell moves the pool ≤10% (spend ≤10% of pool SOL)
   toxicSellerShare: 0.6,                       // ≥60% of recent sell volume from one wallet → half budget, no third tranche
   toxicWindowMs: 10 * 60_000,
-  deskBidFrac: 0.25,                           // standing desk bid ≤25% of chest
+  deskBidFrac: process.env.DESK_BID === '0' ? 0 : 0.25, // standing desk bid ≤25% of chest (DESK_BID=0: the vault never bids — zero-risk tests)
   deskToxicDrop: 0.05,                         // a desk fill followed by a −5% move within 90s pauses desk bids
   deskToxicWindowMs: 90_000,
   deskPauseMs: 15 * 60_000,
