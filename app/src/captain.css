@@ -299,3 +299,25 @@
   .app.simple.captain .main input:not([type=checkbox]):not([type=range]){border-radius:14px}
 }
 @media(max-width:1000px){.app.simple.captain .modal .box>.row:first-child .sp{display:none}.app.simple.captain .modal .box>.row:first-child{gap:8px}}
+/* --- breathing room: content sits 20px in from the edges (iOS / Robinhood margin), never against the glass --- */
+@media(max-width:1000px){
+  .app.simple.captain .main{padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:max(20px,env(safe-area-inset-right,0px))}
+  .app.simple.captain .top{padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:max(20px,env(safe-area-inset-right,0px))}
+  .app.simple.captain .s-nav{left:20px;right:20px}
+  .app.simple.captain .s-actbar{left:20px;right:20px}
+  .app.simple.captain .s-sheet{padding-left:22px;padding-right:22px}
+  .app.simple.captain .cr{padding-left:18px;padding-right:18px}
+  .app.simple.captain .cr+.cr::before{left:18px;right:18px}
+  .app.simple.captain .grp-hd{padding-left:18px;padding-right:18px}
+  .app.simple.captain .spot{padding:18px}
+  .app.simple.captain .toasts{left:20px!important;right:20px!important}
+}
+/* --- center of the bar: the BANKER mark itself, not a generic house --- */
+.app.simple.captain .s-center-btn{width:56px;height:56px;padding:0;overflow:hidden;background:#000!important;box-shadow:0 0 0 1.5px rgba(255,255,255,.16),0 0 0 6px #000,0 10px 24px rgba(0,0,0,.6)!important}
+.app.simple.captain .s-center.on .s-center-btn{box-shadow:0 0 0 2px var(--k-g),0 0 0 6px #000,0 0 22px rgba(43,212,106,.35)!important}
+.s-mark{width:100%;height:100%;object-fit:cover;border-radius:50%;transform:scale(1.18);display:block}
+/* the list never shows through the bar: solid capsule plus a fade behind it */
+@media(max-width:1000px){
+  .app.simple.captain .s-nav{background:rgba(18,18,20,.97)}
+  .app.simple.captain .s-nav::before{content:"";position:fixed;left:0;right:0;bottom:0;height:calc(120px + env(safe-area-inset-bottom,0));background:linear-gradient(180deg,transparent,#000 55%);z-index:-1;pointer-events:none}
+}

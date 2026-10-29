@@ -221,7 +221,7 @@ export function SimpleNav({ page, onMore, moreOn }: { page: string; onMore: () =
   return <nav className="s-nav">
     {tab('#/trending', 'trending', Ic.trending(22), 'Trending')}
     {tab('#/chests', 'chests', Ic.chest(22), 'Chests')}
-    <a href="#/" className={'s-center' + (page === 'home' ? ' on' : '')} aria-label="Home" onClick={() => haptic(8)}><span className="s-center-btn"><span className="coin-face">{Ic.home(24)}</span></span><span className="s-center-lbl">Home</span></a>
+    <a href="#/" className={'s-center' + (page === 'home' ? ' on' : '')} aria-label="Home" onClick={() => haptic(8)}><span className="s-center-btn"><img className="s-mark" src="icon-192.png" alt="" /></span><span className="s-center-lbl">Home</span></a>
     {tab('#/portfolio', 'portfolio', Ic.wallet(22), 'My coins')}
     <a href="#" className={'s-tab' + (moreOn ? ' on' : '')} onClick={(e) => { e.preventDefault(); haptic(6); onMore() }}>{Ic.grid(22)}<span>More</span></a>
   </nav>
