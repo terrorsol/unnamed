@@ -443,8 +443,23 @@ async function rebind() {
     } catch (e: any) { EV.log('error', `rebind ${id}: ${String(e.message || e).slice(0, 140)}`) }
   }
 }
+/** CREDIT=<vaultId>:<sol>[,…] (operator, once): book SOL that sits in the shared wallet unattributed (fees no chest was credited with) to a
+ *  vault's chest, so its dev can withdraw it. Only up to what is actually unattributed; never twice (marked on the vault). */
+let credited = false
+async function creditUnattributed() {
+  if (credited || !process.env.CREDIT || !SHARED) return; credited = true
+  for (const pair of process.env.CREDIT.split(',')) {
+    const [id, amt] = pair.split(':').map((x) => x.trim()); const v = vaults[id]; const sol = +amt; if (!v || !(sol > 0)) continue
+    const tag = 'credit:' + pair; if (v.activity.some((a) => a.msg === tag)) continue
+    try {
+      const audit = await sharedAudit(); const room = Math.max(0, (audit?.unattributedSol || 0) - 0.01); const add = +Math.min(sol, room).toFixed(6); if (add <= 0) continue
+      v.chest = +(v.chest + add).toFixed(9); v.activity.unshift({ t: Date.now(), kind: 'tax', sol: add, msg: tag }); EV.log('vault', `${v.symbol || id} credited ${add} SOL of unattributed fees to its chest`, { id, add }); save()
+    } catch (e: any) { EV.log('error', `credit ${id}: ${String(e.message || e).slice(0, 120)}`) }
+  }
+}
 export async function tick() {
   await rebind().catch(() => {})
+  await creditUnattributed().catch(() => {})
   await Promise.all(Object.values(vaults).map((v) => tickOne(v)))
   await settleLateBooks().catch(() => {})
   save()
