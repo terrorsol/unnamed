@@ -465,9 +465,10 @@ async function moveChests() {
   for (const pair of process.env.MOVE.split(',')) {
     const [a, b] = pair.split(':').map((x) => x.trim()); const from = vaults[a], to = vaults[b]; if (!from || !to || !from.shared || !to.shared) continue
     const tag = 'move:' + pair; if (to.activity.some((x) => x.msg === tag)) continue
-    if (from.tokens > 0.5) { EV.log('error', `move ${a}→${b}: source still holds tokens, skipped`); continue }
     const sol = +Math.max(0, from.chest).toFixed(9); if (sol <= 0) continue
-    from.chest = 0; from.armed = false; (from as any).closedAt = Date.now(); if (from.deskBid) { try { D.cancelInternal(from.pub, from.mint!) } catch {} from.deskBid = 0 }
+    // the SOL moves; tokens the source still holds stay with it (it keeps selling them into buys above cost, it can no longer buy with an empty chest)
+    from.chest = 0; if (from.deskBid) { try { D.cancelInternal(from.pub, from.mint!) } catch {} from.deskBid = 0 }
+    if (from.tokens <= 0.5) { from.armed = false; (from as any).closedAt = Date.now() }
     to.chest = +(to.chest + sol).toFixed(9)
     from.activity.unshift({ t: Date.now(), kind: 'note', sol, msg: `chest moved to ${to.symbol || b} (same owner's request)` }); to.activity.unshift({ t: Date.now(), kind: 'tax', sol, msg: tag })
     EV.log('vault', `moved ${sol.toFixed(4)} SOL from ${from.symbol || a}'s chest to ${to.symbol || b}'s`, { from: a, to: b, sol }); save()
