@@ -45,3 +45,13 @@ test('initials: until the launch buy is back, each incoming buy gets a slice of 
   assert.ok(t2 * 4e-8 <= 0.1 * 1.03 + 1e-9, 'never more than what is left to recover')
   s.invGot = 4; assert.equal(MM.initialsOn(s, IN), false, 'initials back → normal policy')
 })
+test('take: after the launch buy is back, every buy still gets a slice sold into it — only above cost +margin, capped per sale', () => {
+  const TK = { ...PO, initialsFrac: 0.5, takeFrac: 0.4, takeMaxTokFrac: 0.08, initialsMinBuy: 0.05, profitMargin: 0.04 }
+  const s = mk({ tokens: 1e9, avgCost: 3e-8, launchSpend: 3, invGot: 3.2 })
+  assert.equal(MM.initialsOn(s, TK), false); assert.equal(MM.takeOn(s, TK), true)
+  const t = MM.capture(s, mkt(4e-8, 50), 4e-8, 1.0, 1e6, TK, 0.99, 0.5)
+  assert.ok(Math.abs(t * 4e-8 - 0.4) < 1e-6, `sold ${t * 4e-8} SOL into a 1 SOL buy`)
+  assert.equal(MM.capture(s, mkt(3.1e-8, 50), 3.1e-8, 1.0, 1e6, TK, 0.99, 0.5), 0, 'under cost +4% → nothing')
+  const big = MM.capture(s, mkt(4e-8, 500), 4e-8, 50, 1e6, TK, 0.99, 0.5); assert.ok(big <= 1e9 * 0.08 + 1, 'one sale ≤ 8% of what the vault holds')
+  assert.equal(MM.takeOn(s, { ...TK, takeFrac: 0 }), false, 'off → normal policy')
+})

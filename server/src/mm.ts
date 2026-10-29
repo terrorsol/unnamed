@@ -23,7 +23,11 @@ export const P = {
   // initials (tests): until the launch buy is paid back, every buy that comes in (snipers) gets a slice of the vault sold into it at once —
   // initialsFrac of that buy's size, never more than what is left to recover, never under cost +1%. 0 = off.
   initialsFrac: +(process.env.MM_INITIALS_FRAC ?? 0),
-  initialsMinBuy: +(process.env.MM_INITIALS_MIN_BUY ?? 0.05),            // tests: the most SOL the mm may have out in bought tokens at once (0 = no cap)                               // no single vault buy (dip, desk block, accumulation) above this, whatever the chest holds: a tax-grown chest buying one 5,000 SOL 'dip' at the top of a 755× coin lost 87% of it in the replay. Smaller clips let the drawdown stop speak before the episode budget is gone.
+  initialsMinBuy: +(process.env.MM_INITIALS_MIN_BUY ?? 0.05),           // buys smaller than this are left alone (initials and take)
+  // take (tests, max profit): once the launch buy is back, every incoming buy ≥ initialsMinBuy still gets takeFrac of its size sold into it —
+  // only while the price is ≥ cost × (1 + profitMargin), each sale ≤ takeMaxTokFrac of what the vault holds, one at a time. 0 = the normal capture policy.
+  takeFrac: +(process.env.MM_TAKE_FRAC ?? 0),
+  takeMaxTokFrac: +(process.env.MM_TAKE_MAX_TOK ?? 0.08),
   episodeAnchor: true,
   captureOn: true,
   defendBelowVwap: 1.02,
@@ -169,12 +173,22 @@ export function onDefended(s: State, spend: number, got: number, level: number, 
 /** SOL of the launch buy not yet recovered by selling inventory */
 export const initialsLeft = (s: State) => Math.max(0, (s.launchSpend || 0) - (s.invGot || 0))
 export const initialsOn = (s: State, p_: Params = P) => p_.initialsFrac > 0 && initialsLeft(s) > 0.005
+/** take mode is on once there is no launch buy left to recover (or none was made) */
+export const takeOn = (s: State, p_: Params = P) => p_.takeFrac > 0 && !initialsOn(s, p_)
+/** either per-buy selling mode: sells go out at once, one at a time */
+export const perBuyOn = (s: State, p_: Params = P) => initialsOn(s, p_) || takeOn(s, p_)
 /** Capture decision when a buy of `solIn` lands: tokens to sell into it. 0 = let it run. */
 export function capture(s: State, m: Market, p: number, solIn: number, now: number, p_: Params = P, rnd = Math.random(), rnd2 = Math.random()): number {
   if (p_.captureOn && s.mode === 'mm' && s.tokens > 0 && initialsOn(s, p_)) {
     if (solIn < p_.initialsMinBuy || (s.avgCost > 0 && p < s.avgCost * 1.01)) return 0
     const impact = m.liqSol > 0 ? (m.liqSol * p_.poolImpactMax) / p : Infinity
     const t = Math.min(Math.min(solIn * p_.initialsFrac, initialsLeft(s) * 1.03) / p, impact, s.tokens)
+    return t * p >= 0.005 ? t : 0
+  }
+  if (p_.captureOn && s.mode === 'mm' && s.tokens > 0 && takeOn(s, p_)) {
+    if (solIn < p_.initialsMinBuy || (s.avgCost > 0 && p < s.avgCost * (1 + p_.profitMargin))) return 0
+    const impact = m.liqSol > 0 ? (m.liqSol * p_.poolImpactMax) / p : Infinity
+    const t = Math.min((solIn * p_.takeFrac) / p, impact, s.tokens * p_.takeMaxTokFrac, s.tokens)
     return t * p >= 0.005 ? t : 0
   }
   if (!p_.captureOn || s.mode !== 'mm' || solIn < R.MM_MIN_BUY_SOL || s.tokens <= 0) return 0

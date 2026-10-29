@@ -378,14 +378,14 @@ function liveReadout(v: Vault) {
 export function setMode(id: string, dev: string, mode: 'floor' | 'mm', ceiling?: number) { const v = vaults[id]; if (!v || v.dev !== dev) throw new Error('not yours'); v.mode = mode; if (ceiling != null) v.ceiling = Math.min(R.MM_MAX_CAPTURE, Math.max(0.05, ceiling)); v.activity.unshift({ t: Date.now(), kind: 'note', msg: `mode → ${mode}${mode === 'mm' ? ` · capture ceiling ${Math.round((v.ceiling) * 100)}%` : ''}` }); save(); return pub(v) }
 /** A buy was observed (stream or inferred). MM mode may counter it. */
 export async function onBuy(v: Vault, solIn: number, m: any, p: number, now: number) {
-  const initials = MM.initialsOn(v); if (initials && (v as any)._capBusy) return
+  const initials = MM.initialsOn(v); const perBuy = MM.perBuyOn(v); if (perBuy && (v as any)._capBusy) return
   const tokens = MM.capture(v, m, p, solIn, now); if (tokens <= 0) return
-  if (initials) (v as any)._capBusy = true
+  if (perBuy) (v as any)._capBusy = true
   const frac = R.captureFracV2(p, R.vwap(v.samples), v.avgCost, m.mcapUsd, R.sigma(v.samples), MM.vaultedPct(v), v.pct || 5, v.ceiling ?? R.MM_MAX_CAPTURE, 0.5)
   const sellFrac = tokens / v.tokens; const before = v.chest; MM.onCaptured(v, tokens, now)
   // no fingerprint: random 3–9s cooldown, random 0–2.5s delay before the sell lands, size already ±20% random in captureFracV2
   try {
-    if (!initials) await wait(Math.random() * 2500)
+    if (!perBuy) await wait(Math.random() * 2500)
     const sig = await trade(v, 'sell', `${Math.max(0.01, +(sellFrac * 100).toFixed(2))}%`, false, p)
     await sync(v, sig, tokens * p * 0.97); const got = v.chest - before; MM.bookSell(v, tokens, got)
     v.score.captured += got; v.score.captures++
@@ -393,7 +393,7 @@ export async function onBuy(v: Vault, solIn: number, m: any, p: number, now: num
     const profit = got - v.avgCost * tokens; const cut = v.cut > 0 ? Math.max(0, profit) * (v.cut / 100) : 0
     await payCut(v, cut, now, 'capture profit')
   } catch (e: any) { v.activity.unshift({ t: now, kind: 'note', msg: 'capture failed: ' + String(e.message).slice(0, 80) }); if (e?.sig) deferBook(v, e.sig, tokens * p * 0.97, (vv, cb) => MM.bookSell(vv, tokens, vv.chest - cb)) }
-  finally { if (initials) (v as any)._capBusy = false }
+  finally { if (perBuy) (v as any)._capBusy = false }
 }
 /** the dev cut on realized profit. A copy (declared at launch, or flagged by the vamp detector) streams half of every cut to the original's chest. */
 async function payCut(v: Vault, cut: number, now: number, why: string) {
