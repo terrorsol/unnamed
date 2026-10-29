@@ -3,7 +3,7 @@ import type { Coin } from '../lib/dex'
 import * as K from '../lib/desk'
 import { Pfp, Ch, Mc } from './ui'
 import { S, ago } from '../lib/fmt'
-import { classify, featsFromCoin, labelTone } from '../lib/signal'
+import { classify, featsFromCoin, labelTone, labelText } from '../lib/signal'
 import real from '../backtest-real.json'
 
 type Row = { c: Coin; v?: K.VaultPub; s: ReturnType<typeof classify> }
@@ -24,7 +24,7 @@ export default function Compare({ coins, vaults, solPrice, go }: { coins: Coin[]
       <td><div className="row"><Pfp c={c} /><div className="tk">{c.symbol}{v && <span className="tag live" style={{ marginLeft: 4 }}>{v.mode === 'mm' ? 'MM' : 'FLOOR'}</span>}</div></div></td>
       <td className="r dim num">{c.createdAt ? ago(c.createdAt) : '—'}</td><td className="r"><Mc v={c.mcap} /></td><td className="r"><Ch v={c.ch1h} /></td><td className="r"><Ch v={c.ch24} /></td><td className="r num"><Mc v={c.vol24} /></td>
       <td className="r num">{c.buys24 + c.sells24 ? Math.round((c.buys24 / (c.buys24 + c.sells24)) * 100) + '%' : '—'}</td><td className="r num">{v ? S(v.chest, 1) + ' SOL' : <span className="dim">—</span>}</td>
-      <td className="r"><span className={'tag ' + labelTone(s.label)}>{s.label}</span></td></tr>)}
+      <td className="r"><span className={'tag ' + labelTone(s.label)}>{labelText(s.label)}</span></td></tr>)}
   </tbody></table></div>
   return <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
     <div><h2 style={{ margin: '0 0 4px', fontSize: 18 }}>Vaulted vs not</h2><div className="dim" style={{ fontSize: 12 }}>Same columns, same window, live from the market. Left column is every coin running one of our vaults; right is the most-traded coins on the board without one.</div></div>

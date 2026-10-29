@@ -59,7 +59,7 @@ const v2 = await (await fetch('http://localhost:4192/vault/mint/' + MINT)).json(
 chk('server recorded dev bag (100000 tokens via mock) + pct', v2.tokens === 100000 && v2.depositedTokens === 100000 && v2.pct === 0.01)
 chk('activity shows vaulted %', JSON.stringify(v2.activity).includes('vaulted'))
 await pg.evaluate(() => { location.hash = '#/' }); await pg.waitForTimeout(2500)
-chk('home Vaulted table lists the coin with MM tag', (await pg.locator('tbody').first().innerText()).includes('BONK') && (await pg.locator('tbody').first().innerText()).includes('MM'))
+chk('home chest table lists the coin as PROTECTED', (await pg.locator('tbody').first().innerText()).includes('BONK') && (await pg.locator('tbody').first().innerText()).includes('PROTECTED'))
 await pg.screenshot({ path: SC + '/import-board.png' })
 // ---- community takeover on a second mint: start, chip in 15 SOL, auto-arm with cut 0
 const MINT2 = 'HMzfNUuWz7aXxQJz8tJqmJ5NwQ2Gp1zH4kCqY3n9pump'

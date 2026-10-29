@@ -86,7 +86,7 @@ chk('bidder toast', (await bidder.pg.locator('.toast.ok').innerText().catch(() =
 await seller.pg.waitForTimeout(5500); chk('bid gone from book', !(await seller.pg.locator('tbody').first().innerText()).includes('2.00 SOL'))
 // ---- RFQ: seller shops a block, bidder gets pinged and fills ----
 await seller.pg.locator('.seg button', { hasText: 'Sell' }).first().click(); await seller.pg.waitForTimeout(300)
-await seller.pg.locator('button', { hasText: 'OTC · sell' }).first().click(); await seller.pg.waitForTimeout(400)
+await seller.pg.locator('button', { hasText: 'Sell a big amount' }).first().click(); await seller.pg.waitForTimeout(400)
 chk('rfq modal shows pool impact', (await seller.pg.locator('.modal').innerText()).includes('Dumping this into the pool'))
 await seller.pg.locator('.modal .presets button', { hasText: '50%' }).click()
 await seller.pg.locator('.modal .btn.pri', { hasText: 'Shop block' }).click(); await seller.pg.waitForTimeout(2500)
@@ -117,7 +117,7 @@ chk('family: original is leader', fam.members.length === 1 && fam.members[0].ori
 await seller.pg.evaluate((m) => { location.hash = '#/coin/' + m }, MINT); await seller.pg.waitForTimeout(1500); await seller.pg.locator('.seg button', { hasText: 'Vault' }).click(); await seller.pg.waitForTimeout(9000)
 console.log('VT:', (await seller.pg.locator('.card').nth(1).innerText()).slice(0,600).replace(/\n/g,' / ')); chk('vault tab shows chest (plain words)', /IN THE CHEST[\s\S]*5\.0 SOL/i.test(await seller.pg.locator('.card').nth(1).innerText()))
 const sentBefore = sent.length
-await seller.pg.locator('.btn.big', { hasText: 'Burn & redeem' }).click(); await seller.pg.waitForTimeout(6000)
+await seller.pg.locator('.btn.big', { hasText: 'Cash out now' }).click(); await seller.pg.waitForTimeout(6000)
 chk('redeem tx sent', sent.length === sentBefore + 1)
 if (sent.length > sentBefore) { const tx = Transaction.from(Buffer.from(sent.at(-1), 'base64')); const ks = tx.signatures.map((s) => s.publicKey.toBase58()); console.log('REDEEM TX', JSON.stringify({ ks: ks.map((k) => k.slice(0, 6)), signed: tx.signatures.map((x) => !!x.signature), ixs: tx.instructions.length, seller: seller.addr.slice(0, 6), vault: v.pub.slice(0, 6), sentN: sent.length - sentBefore })); chk('redeem signed by holder AND vault', tx.signatures.every((x) => x.signature) && ks.includes(seller.addr) && ks.includes(v.pub) && tx.instructions.length === 3) }
 chk('redeem toast', (await seller.pg.locator('.toast.ok').last().innerText().catch(() => '')).includes('Redeemed'))
@@ -129,7 +129,7 @@ await seller.pg.locator('.seg button', { hasText: 'Desk' }).click(); await selle
 await seller.pg.locator('.seg button', { hasText: 'Sell' }).first().click(); await seller.pg.waitForTimeout(300); await seller.pg.locator('.presets button', { hasText: '100%' }).first().click()
 const bookNow = await (await fetch('http://localhost:4192/book/' + MINT)).json(); console.log('BOOK before smart sell', JSON.stringify(bookNow.bids.map((b) => ({ sol: b.sol, disc: b.discBps, restable: b.restable, away: b.away, vault: b.vault }))), 'minBlock', bookNow.minBlock)
 const ss0 = sent.length; await seller.pg.locator('.btn.big.sell').click(); await seller.pg.waitForTimeout(8000); console.log('ROUTE', (await seller.pg.locator('.main').innerText()).match(/Routing[^\n]*|No desk bid[^\n]*|Desk filled[^\n]*|entirely[^\n]*/)?.[0])
-chk('smart sell routed via desk first', /via desk|Desk filled|entirely on the desk/.test(await seller.pg.locator('.main').innerText()))
+chk('smart sell routed via desk first', /on the desk|Desk took part|Sold to a desk buyer/.test(await seller.pg.locator('.main').innerText()))
 chk('smart sell sent a desk fill tx', sent.length >= ss0 + 1)
 const sb = sent.length; chk('vault bid consumed by smart sell (vault fill recorded)', (await (await fetch('http://localhost:4192/fills?mint=' + MINT)).json()).some((f) => f.vault)); await seller.pg.waitForTimeout(100)
 chk('vault fill sent (server co-signed)', sent.length === sb)

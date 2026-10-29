@@ -15,27 +15,27 @@ export function classify(f: Feat): Signal {
   const bs1 = f.sells1h ? f.buys1h / f.sells1h : f.buys1h ? 3 : 1; const bs5 = f.sells5m ? f.buys5m / f.sells5m : f.buys5m ? 3 : 1
   const volMc = f.mcap ? f.vol1h / f.mcap : 0; const liqMc = f.mcap ? f.liq / f.mcap : 0
   // ---- structure ----
-  if (f.h1 > 15 && f.h6 >= f.h1 * 0.5 && f.m5 > -12) { run += 15; reasons.push(`higher lows: +${r2(f.h1)}% 1h on +${r2(f.h6)}% 6h`) }
-  if (f.h1 > 40 && f.m5 > 0) { run += 10; reasons.push('still bidding 5m into a 1h move') }
-  if (bs1 > 1.3) { run += 10; reasons.push(`buys outpace sells ${bs1.toFixed(1)}:1 (1h)`) } else if (bs1 < 0.7) { run -= 15; reasons.push(`sellers in control ${bs1.toFixed(1)}:1 (1h)`) }
-  if (bs5 < 0.5 && f.sells5m >= 5) { run -= 15; reasons.push('5m sell cascade') }
-  if (volMc > 0.05 && volMc < 1.5) { run += 10; reasons.push(`real turnover ${(volMc * 100).toFixed(0)}% of mcap/h`) }
-  if (volMc >= 3) { risk += 25; run -= 10; reasons.push(`churn ${(volMc * 100).toFixed(0)}% of mcap/h — wash or bundle rotation`) }
-  if (f.vol1h < 500 && f.ageMin > 60) { run -= 25; reasons.push('no volume') }
+  if (f.h1 > 15 && f.h6 >= f.h1 * 0.5 && f.m5 > -12) { run += 15; reasons.push(`climbing steadily: +${r2(f.h1)}% this hour, +${r2(f.h6)}% in 6 hours`) }
+  if (f.h1 > 40 && f.m5 > 0) { run += 10; reasons.push('people are still buying after a big hour') }
+  if (bs1 > 1.3) { run += 10; reasons.push(`${bs1.toFixed(1)} buys for every sell this hour`) } else if (bs1 < 0.7) { run -= 15; reasons.push(`more selling than buying this hour`) }
+  if (bs5 < 0.5 && f.sells5m >= 5) { run -= 15; reasons.push('heavy selling in the last 5 minutes') }
+  if (volMc > 0.05 && volMc < 1.5) { run += 10; reasons.push(`lots of real trading: ${(volMc * 100).toFixed(0)}% of its value traded per hour`) }
+  if (volMc >= 3) { risk += 25; run -= 10; reasons.push(`suspicious trading: ${(volMc * 100).toFixed(0)}% of its value churned per hour, likely bots`) }
+  if (f.vol1h < 500 && f.ageMin > 60) { run -= 25; reasons.push('almost nobody is trading it') }
   // ---- post-pump / crash ----
-  if (f.h6 > 150 && f.h1 < -35) { risk += 20; run -= 25; reasons.push(`post-pump: +${r2(f.h6)}% 6h, −${r2(-f.h1)}% last hour`) }
-  if (f.m5 < -40) { risk += 30; run -= 30; reasons.push(`−${r2(-f.m5)}% in 5 minutes`) }
-  if (f.h1 < -60) { risk += 25; run -= 20; reasons.push(`−${r2(-f.h1)}% in 1h`) }
+  if (f.h6 > 150 && f.h1 < -35) { risk += 20; run -= 25; reasons.push(`cooling off after a pump: +${r2(f.h6)}% in 6 hours, −${r2(-f.h1)}% this hour`) }
+  if (f.m5 < -40) { risk += 30; run -= 30; reasons.push(`down ${r2(-f.m5)}% in 5 minutes`) }
+  if (f.h1 < -60) { risk += 25; run -= 20; reasons.push(`down ${r2(-f.h1)}% this hour`) }
   // ---- thin / rug mechanics ----
-  if (liqMc > 0 && liqMc < 0.02 && f.mcap > 100_000) { risk += 25; reasons.push(`thin pool: liquidity ${(liqMc * 100).toFixed(1)}% of mcap`) }
-  if (f.mintAuth) { risk += 30; reasons.push('mint authority not revoked') }
-  if (f.freezeAuth) { risk += 20; reasons.push('freeze authority not revoked') }
+  if (liqMc > 0 && liqMc < 0.02 && f.mcap > 100_000) { risk += 25; reasons.push(`small pool: one big sell can move the price a lot`) }
+  if (f.mintAuth) { risk += 30; reasons.push('the creator can still print more coins') }
+  if (f.freezeAuth) { risk += 20; reasons.push('the creator can still freeze coins') }
   // ---- concentration / bundles ----
   if (f.top1 != null && f.top1 > 15) { risk += 25; reasons.push(`one wallet holds ${f.top1.toFixed(0)}%`) }
-  if (f.top10 != null && f.top10 > 55) { risk += 20; reasons.push(`top 10 hold ${f.top10.toFixed(0)}%`) }
+  if (f.top10 != null && f.top10 > 55) { risk += 20; reasons.push(`top 10 wallets hold ${f.top10.toFixed(0)}%`) }
   if (f.ageMin < 15 && f.mcap > 400_000) { risk += 20; reasons.push(`$${(f.mcap / 1000).toFixed(0)}K in ${f.ageMin.toFixed(0)} min — launch bundle likely`) }
-  if (f.ageMin < 30 && f.top10 != null && f.top10 > 40 && volMc > 1) { risk += 20; reasons.push('bundle rotation pattern: fresh, concentrated, churning') }
-  if (f.vault) { risk -= 15; run += 5; reasons.push('vault: floor + desk under it') }
+  if (f.ageMin < 30 && f.top10 != null && f.top10 > 40 && volMc > 1) { risk += 20; reasons.push('looks like insiders: new coin, few wallets, lots of churn') }
+  if (f.vault) { risk -= 15; run += 5; reasons.push('has a chest defending the price') }
   run = Math.max(0, Math.min(100, run)); risk = Math.max(0, Math.min(100, risk))
   let label: Label
   if (f.ageMin > 60 && f.vol1h < 500 && (f.h24 < -50 || f.vol1h < f.vol24 * 0.02)) label = 'DEAD'
@@ -45,9 +45,11 @@ export function classify(f: Feat): Signal {
   else if (run >= 75 && risk < 40) label = 'RUNNER'
   else if (f.h6 > 100 && f.h1 < 0 && f.h1 > -35) label = 'COOLING'
   else label = 'HEALTHY'
-  if (!reasons.length) reasons.push('nothing notable either way')
+  if (!reasons.length) reasons.push('nothing unusual right now')
   return { label, score: run, reasons, risk }
 }
+/** the label as a person would say it (the uppercase key stays for logic) */
+export const labelText = (l: Label | string) => ({ RUNNER: '🔥 running', HEALTHY: 'healthy', COOLING: 'cooling off', CRASHING: 'dropping fast', BUNDLED: 'insider risk', 'RUG RISK': 'rug risk', DEAD: 'dead' } as Record<string, string>)[l] || String(l).toLowerCase()
 export const labelTone = (l: Label) => (l === 'RUNNER' ? 'live' : l === 'HEALTHY' ? '' : l === 'COOLING' ? '' : 'pre')
 /** Build features from a DexScreener Coin (+ optional rug check) */
 export function featsFromCoin(c: any, rug?: { top1Pct: number; top10Pct: number; mintAuthority: boolean; freezeAuthority: boolean } | null, vault = false): Feat {

@@ -3,7 +3,7 @@ import type { Coin } from '../lib/dex'
 import type { NewToken, TradeEvt } from '../lib/pumpportal'
 import { Pfp, Ch, Mc, Status, Addr } from './ui'
 import { F, S, ago, short } from '../lib/fmt'
-import { classify, featsFromCoin, labelTone } from '../lib/signal'
+import { classify, featsFromCoin, labelTone, labelText } from '../lib/signal'
 
 type Props = { coins: Coin[]; fresh: NewToken[]; freshCoins: Record<string, Coin>; trades: TradeEvt[]; live: boolean; solPrice: number; watch: string[]; go: (p: string) => void; quick: (c: Coin) => void; quickSol: number; err: string; vaulted: Set<string> }
 type Seg = 'all' | 'new' | 'graduating' | 'runners' | 'watch'
@@ -39,7 +39,7 @@ export default function Board(p: Props) {
           <thead><tr>{cols.map(([l, cls, k]) => <th key={l} className={cls} onClick={() => k !== 'none' && setSort((s) => ({ k: k as keyof Coin, d: s.k === k ? -s.d : -1 }))}>{l}{sort.k === k ? (sort.d < 0 ? ' ↓' : ' ↑') : ''}</th>)}</tr></thead>
           <tbody>{rows.length === 0 && <tr><td colSpan={9} className="empty">{seg === 'new' ? 'Waiting for new launches…' : seg === 'watch' ? 'Star a coin to track it here' : 'Loading markets…'}</td></tr>}
             {rows.map((c) => <tr key={c.mint} onClick={() => p.go('coin/' + c.mint)}>
-              <td><div className="row"><Pfp c={c} /><div><div className="tk">{c.symbol} {p.vaulted.has(c.mint) && <span className="tag live" style={{ marginLeft: 4 }}>VAULT</span>} {(() => { const sg = classify(featsFromCoin(c, null, p.vaulted.has(c.mint))); return sg.label !== 'HEALTHY' ? <span className={'tag ' + labelTone(sg.label)} style={{ marginLeft: 4 }} title={sg.reasons.join(' · ')}>{sg.label}</span> : null })()} {p.watch.includes(c.mint) && <span className="gold">★</span>}</div><div className="nm">{c.name.slice(0, 22)} · <Addr a={c.mint} /></div></div></div></td>
+              <td><div className="row"><Pfp c={c} /><div><div className="tk">{c.symbol} {p.vaulted.has(c.mint) && <span className="tag live" style={{ marginLeft: 4 }}>VAULT</span>} {(() => { const sg = classify(featsFromCoin(c, null, p.vaulted.has(c.mint))); return sg.label !== 'HEALTHY' ? <span className={'tag ' + labelTone(sg.label)} style={{ marginLeft: 4 }} title={sg.reasons.join(' · ')}>{labelText(sg.label)}</span> : null })()} {p.watch.includes(c.mint) && <span className="gold">★</span>}</div><div className="nm">{c.name.slice(0, 22)} · <Addr a={c.mint} /></div></div></div></td>
               <td className="r"><Mc v={c.mcap} /></td><td className="r"><Mc v={c.liq} /></td><td className="r"><Mc v={c.vol24} /></td>
               <td className="r"><Ch v={c.ch1h} /></td><td className="r"><Ch v={c.ch24} /></td>
               <td className="r num"><span className="up">{c.buys24}</span><span className="dim">/</span><span className="dn">{c.sells24}</span></td>
