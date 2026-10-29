@@ -636,6 +636,7 @@ export async function buildLaunch(b: { dev: string; name: string; symbol: string
     v.venue = 'launchlab'
     const bal = v.shared ? v.chest : await balanceSol(v.pub); if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL${v.shared ? ' — call /vault/fund with the stake tx first' : ''}`)
     vaultSpend = +Math.min(+(b.vaultBuySol ?? v.vaultBuySol ?? v.stakeSol * 0.5), bal - 0.05, MM.P.profitOnly ? +(process.env.PROFIT_LAUNCH_BUY_SOL ?? 0) : Infinity).toFixed(4)   // 0 = tax-funded: no block-zero buy at all. Profit-only tests: none unless PROFIT_LAUNCH_BUY_SOL
+    if (MM.P.profitOnly && +(process.env.PROFIT_LAUNCH_BUY_SOL ?? 0) > 0 && vaultSpend < 0.05) throw new Error('pick “Buy at launch” — this test launch needs the vault to buy its supply in block zero')
     v.mint = built.mint; v.uri = b.uri; v.symbol = b.symbol; v.name = b.name   // bound now even with no vault buy, so the vault can arm itself once the coin is on chain
     v.vaultBuySol = vaultSpend   // the real block-zero spend (after caps): it is the vault's cost basis and the initials to recover
     if (vaultSpend >= 0.05) {

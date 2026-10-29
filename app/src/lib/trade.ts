@@ -124,7 +124,7 @@ export async function launchBlockZero(ctx: Ctx, meta: P.CreateMeta, devBuySol: n
     const sig = await sendAndConfirm(conn, tx, sign, onStatus); return { sig, mint, bundled: false }
   }
 }
-async function confirmByPollingB58(conn: Connection, tx: VersionedTransaction) { const { confirmByPolling } = await import('./rpc'); await confirmByPolling(conn, bs58.encode(tx.signatures[0])) }
+async function confirmByPollingB58(conn: Connection, tx: VersionedTransaction, ms = 60000) { const { confirmByPolling } = await import('./rpc'); await confirmByPolling(conn, bs58.encode(tx.signatures[0]), ms) }
 
 /** Launch on OUR launchpad (Raydium LaunchLab under our platform config): the server builds create(+dev buy) for the dev to sign and, with a vault, the vault's
  *  block-zero buy already keeper-signed. Both go out as one Jito bundle; if the bundle path fails before anything is sent, the create goes out alone and
@@ -152,9 +152,12 @@ async function launchOursOnce(ctx: Ctx, meta: P.CreateMeta, uri: string, devBuyS
     for (let i = 0; i < 3; i++) {
       try { onStatus?.(i ? `Resending bundle (${i + 1}/3)…` : 'Sending bundle…'); await deps.sendBundle(bundle) }
       catch (e: any) { if (i === 2) throw new Error('Jito is not taking the launch bundle right now — nothing launched, your stake is still in the vault. Press Create again in a minute.'); await new Promise((r) => setTimeout(r, 1200)); continue }
-      try { onStatus?.('Confirming…'); await confirmByPollingB58(conn, signed[0]); return { sig, mint: b.mint, bundled: true } }
-      catch (e: any) { if (/blockhash|block height|expired/i.test(String(e?.message || e))) throw e; if (i === 2) throw new Error('the launch bundle did not land — nothing launched, your stake is still in the vault. Press Create again.') }
+      try { onStatus?.('Confirming…'); await confirmByPollingB58(conn, signed[0], 20000); return { sig, mint: b.mint, bundled: true } }
+      catch (e: any) { if (/blockhash|block height|expired/i.test(String(e?.message || e))) throw e }
     }
+    // last look before saying nothing launched: a bundle can land in the final slots of its blockhash
+    try { onStatus?.('Checking if it landed…'); await confirmByPollingB58(conn, signed[0], 35000); return { sig, mint: b.mint, bundled: true } }
+    catch { throw new Error('the launch bundle did not land — nothing launched, your stake is still in the vault. Press Create again.') }
   }
   for (const t of signed) { const s2 = await conn.sendRawTransaction(t.serialize(), { skipPreflight: false, maxRetries: 3 }); await confirmByPollingB58(conn, t); void s2 }
   return { sig, mint: b.mint, bundled: false }

@@ -38,8 +38,8 @@ export function redeem(code: string, wallet: string, msg: string, sig: string, i
   if (Math.abs(now / 60000 - +m![2]) > 10) fail('auth message expired')
   try { if (!nacl.sign.detached.verify(new TextEncoder().encode(msg), bs58.decode(sig), bs58.decode(wallet))) fail('bad signature') } catch { fail('bad signature') }
   const s = load(); const h = hash(code || ''); const k = s.keys[h]; if (!k) fail('that key is not valid')
-  if (k!.wallet && k!.wallet !== wallet) fail('that key is already in use by another wallet')
-  if (!k!.wallet) { k!.wallet = wallet; k!.redeemedAt = now }
+  // one key, any of the holder's wallets: the code itself is the proof, so a second wallet that knows it (and signs) is added to the key (up to 10)
+  if (!k!.wallet) { k!.wallet = wallet; k!.redeemedAt = now } else if (k!.wallet !== wallet) k!.wallets = [...new Set([...(k!.wallets || []), wallet])].slice(-10)
   save(); const exp = now + 30 * 86400_000; return { token: tokenFor(wallet, exp), wallet, exp }
 }
 /** session token = wallet(32) ‖ expiry(6) ‖ hmac(16): stateless, survives restarts, verifiable with VAULT_SECRET alone */
