@@ -53,7 +53,7 @@ const enc = (u: Uint8Array) => { const iv = randomBytes(12); const c = createCip
 const dec = (s: string) => { const b = Buffer.from(s, 'base64'); const d = createDecipheriv('aes-256-gcm', key, b.subarray(0, 12)); d.setAuthTag(b.subarray(12, 28)); return new Uint8Array(Buffer.concat([d.update(b.subarray(28)), d.final()])) }
 
 export type Act = { t: number; kind: 'stake' | 'seed' | 'buy' | 'trim' | 'cut' | 'note' | 'redeem' | 'stream' | 'bid' | 'capture'; sol?: number; tokens?: number; price?: number; sig?: string; msg?: string }
-export type Vault = { armedAt?: number; taxAccrued?: number; nextAutoArmAt?: number; shared?: boolean; ledgerDirty?: boolean; mmSpent?: number; mmGot?: number; mmTok?: number; mmCost?: number; invGot?: number; stoppedAt?: number; stopNoted?: boolean; epHigh?: number; epStart?: number; cooldownUntil?: number; dayKey?: number; dayDefense?: number; dayChest0?: number; deskPauseUntil?: number; lastDeskFill?: { t: number; p: number } | null; vaultBuySol?: number; lastPushed?: number; vampFlag?: boolean; askRefreshAt?: number; uri?: string; image?: string; permTax?: number; nextPermAt?: number; venue?: 'pump' | 'launchlab'; taxClaimed?: number; nextClaimAt?: number; nextHarvestAt?: number; vampChecked?: number; holders?: any; ddPrev?: number; nextCaptureAt?: number; levelJit?: number; bidRefreshAt?: number; nextTickAt?: number; paper?: boolean; crowd?: { goalSol: number; raised: number; contributors: Record<string, number>; expiresAt: number; refunded?: boolean }; id: string; pub: string; sk: string; mint?: string; symbol?: string; name?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; createdAt: number; copyOf?: string; streamed: number; redeemed: number; supply: number; deskBid: number; imported?: boolean; feePaid?: number; trimmedToday: number; trimDay: number; depositedTokens: number; funders: Record<string, number>; mode: 'floor' | 'mm'; ceiling: number; lastLiq: number; lastLiqT: number; buyTimes: number[]; tranchesFired: number[]; score: { captured: number; captures: number; deskBought: number; deskFills: number; dipBought: number; dips: number; redeployed: number; floor0: number }; lastCapture: number
+export type Vault = { armedAt?: number; launchSpend?: number; taxAccrued?: number; nextAutoArmAt?: number; shared?: boolean; ledgerDirty?: boolean; mmSpent?: number; mmGot?: number; mmTok?: number; mmCost?: number; invGot?: number; stoppedAt?: number; stopNoted?: boolean; epHigh?: number; epStart?: number; cooldownUntil?: number; dayKey?: number; dayDefense?: number; dayChest0?: number; deskPauseUntil?: number; lastDeskFill?: { t: number; p: number } | null; vaultBuySol?: number; lastPushed?: number; vampFlag?: boolean; askRefreshAt?: number; uri?: string; image?: string; permTax?: number; nextPermAt?: number; venue?: 'pump' | 'launchlab'; taxClaimed?: number; nextClaimAt?: number; nextHarvestAt?: number; vampChecked?: number; holders?: any; ddPrev?: number; nextCaptureAt?: number; levelJit?: number; bidRefreshAt?: number; nextTickAt?: number; paper?: boolean; crowd?: { goalSol: number; raised: number; contributors: Record<string, number>; expiresAt: number; refunded?: boolean }; id: string; pub: string; sk: string; mint?: string; symbol?: string; name?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; createdAt: number; copyOf?: string; streamed: number; redeemed: number; supply: number; deskBid: number; imported?: boolean; feePaid?: number; trimmedToday: number; trimDay: number; depositedTokens: number; funders: Record<string, number>; mode: 'floor' | 'mm'; ceiling: number; lastLiq: number; lastLiqT: number; buyTimes: number[]; tranchesFired: number[]; score: { captured: number; captures: number; deskBought: number; deskFills: number; dipBought: number; dips: number; redeployed: number; floor0: number }; lastCapture: number
   avgCost: number; tokens: number; chest: number; spentEpisode: number; high15: { t: number; p: number }[]; samples: { t: number; p: number; v: number }[]; ema5: number | null; ema15: number | null; lastBuy: number; lastTrim: number; activity: Act[]; devPaid: number }
 let vaults: Record<string, Vault> = {}
 const watched = new Map<string, () => void>()
@@ -147,10 +147,12 @@ export async function arm(id: string, mint: string, symbol: string, name = '', a
   // seed: the block-zero buy (skipped when the vault already bought in the bundle, or when the launch is tax-funded: no buy, the bot accumulates)
   const seed = +Math.min(buy, bal - 0.05).toFixed(4)
   if (seed < 0.05) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: `tax-funded: no block-zero buy, accumulating toward ${v.pct}% under VWAP` }); save(); return pub(v) }
+  if (!bundled && MM.P.profitOnly) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'test mode: no market buy after launch (the vault only buys in block zero), the fees fill the chest' }); save(); return pub(v) }
   if (bundled) {
     await sync(v)
     // the bundle can be signed and still not land (Jito drops it, tip too low). Tokens on the vault wallet are the only proof.
-    if (v.tokens > 0) { v.avgCost = buy / v.tokens; v.activity.unshift({ t: Date.now(), kind: 'seed', sol: buy, tokens: v.tokens, msg: 'block-zero vault supply (bundled)' }); save(); return pub(v) }
+    if (v.tokens > 0) { v.avgCost = buy / v.tokens; v.launchSpend = buy; v.activity.unshift({ t: Date.now(), kind: 'seed', sol: buy, tokens: v.tokens, msg: 'block-zero vault supply (bundled)' }); save(); return pub(v) }
+    if (MM.P.profitOnly) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'block-zero buy did not land — test mode: no market buy after launch, the fees fill the chest' }); save(); return pub(v) }
     v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'bundle did not land — seeding now' })
   }
   try { const sig = await trade(v, 'buy', seed, true, 0); await sync(v, sig, -seed); v.avgCost = seed / Math.max(v.tokens, 1e-9); v.activity.unshift({ t: Date.now(), kind: 'seed', sol: seed, tokens: v.tokens, sig, msg: 'block-zero vault supply' }) }
@@ -359,19 +361,22 @@ function liveReadout(v: Vault) {
 export function setMode(id: string, dev: string, mode: 'floor' | 'mm', ceiling?: number) { const v = vaults[id]; if (!v || v.dev !== dev) throw new Error('not yours'); v.mode = mode; if (ceiling != null) v.ceiling = Math.min(R.MM_MAX_CAPTURE, Math.max(0.05, ceiling)); v.activity.unshift({ t: Date.now(), kind: 'note', msg: `mode → ${mode}${mode === 'mm' ? ` · capture ceiling ${Math.round((v.ceiling) * 100)}%` : ''}` }); save(); return pub(v) }
 /** A buy was observed (stream or inferred). MM mode may counter it. */
 export async function onBuy(v: Vault, solIn: number, m: any, p: number, now: number) {
+  const initials = MM.initialsOn(v); if (initials && (v as any)._capBusy) return
   const tokens = MM.capture(v, m, p, solIn, now); if (tokens <= 0) return
+  if (initials) (v as any)._capBusy = true
   const frac = R.captureFracV2(p, R.vwap(v.samples), v.avgCost, m.mcapUsd, R.sigma(v.samples), MM.vaultedPct(v), v.pct || 5, v.ceiling ?? R.MM_MAX_CAPTURE, 0.5)
   const sellFrac = tokens / v.tokens; const before = v.chest; MM.onCaptured(v, tokens, now)
   // no fingerprint: random 3–9s cooldown, random 0–2.5s delay before the sell lands, size already ±20% random in captureFracV2
   try {
-    await wait(Math.random() * 2500)
+    if (!initials) await wait(Math.random() * 2500)
     const sig = await trade(v, 'sell', `${Math.max(0.01, +(sellFrac * 100).toFixed(2))}%`, false, p)
     await sync(v, sig, tokens * p * 0.97); const got = v.chest - before; MM.bookSell(v, tokens, got)
     v.score.captured += got; v.score.captures++
-    v.activity.unshift({ t: now, kind: 'capture', sol: got, tokens, price: p, sig, msg: `countered a ${solIn.toFixed(2)} SOL buy · ${Math.round(frac * 100)}% · stretch +${Math.round((p / R.vwap(v.samples) - 1) * 100)}%` }); EV.log('vault', `${v.symbol} capture ${got.toFixed(3)} SOL`, { mint: v.mint, sig })
+    v.activity.unshift({ t: now, kind: 'capture', sol: got, tokens, price: p, sig, msg: initials ? `sold into a ${solIn.toFixed(2)} SOL buy · launch buy ${((v.invGot || 0)).toFixed(2)} / ${(v.launchSpend || 0).toFixed(2)} SOL back` : `countered a ${solIn.toFixed(2)} SOL buy · ${Math.round(frac * 100)}% · stretch +${Math.round((p / R.vwap(v.samples) - 1) * 100)}%` }); EV.log('vault', `${v.symbol} capture ${got.toFixed(3)} SOL`, { mint: v.mint, sig })
     const profit = got - v.avgCost * tokens; const cut = v.cut > 0 ? Math.max(0, profit) * (v.cut / 100) : 0
     await payCut(v, cut, now, 'capture profit')
   } catch (e: any) { v.activity.unshift({ t: now, kind: 'note', msg: 'capture failed: ' + String(e.message).slice(0, 80) }); if (e?.sig) deferBook(v, e.sig, tokens * p * 0.97, (vv, cb) => MM.bookSell(vv, tokens, vv.chest - cb)) }
+  finally { if (initials) (v as any)._capBusy = false }
 }
 /** the dev cut on realized profit. A copy (declared at launch, or flagged by the vamp detector) streams half of every cut to the original's chest. */
 async function payCut(v: Vault, cut: number, now: number, why: string) {
@@ -529,6 +534,7 @@ export async function signBundleTx(id: string, mint: string, txB64: string, maxS
   const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('already armed'); devAuth(v, 'bundle', mint, auth)
   const bal = v.shared ? v.chest : await balanceSol(v.pub); if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL${v.shared ? ' — call /vault/fund with the stake tx first' : ''}`)
   const spend = Math.min(maxSol, v.vaultBuySol ?? bal * 0.5, bal - 0.05, MM.P.profitOnly ? +(process.env.PROFIT_LAUNCH_BUY_SOL ?? 0) : Infinity); if (spend < 0.05) throw new Error(MM.P.profitOnly ? 'profit-only test mode: no block-zero vault buy (set PROFIT_LAUNCH_BUY_SOL to allow one)' : 'nothing to spend')
+  v.vaultBuySol = +spend.toFixed(4)
   const tx = VersionedTransaction.deserialize(Buffer.from(txB64, 'base64'))
   // decode the buy itself: the client chose the numbers PumpPortal built from, so policy is enforced on what the tx really does
   const dec = await decimals(mint).catch(() => 6)
@@ -563,6 +569,7 @@ export async function buildLaunch(b: { dev: string; name: string; symbol: string
     v.venue = 'launchlab'
     const bal = v.shared ? v.chest : await balanceSol(v.pub); if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL${v.shared ? ' — call /vault/fund with the stake tx first' : ''}`)
     vaultSpend = +Math.min(+(b.vaultBuySol ?? v.vaultBuySol ?? v.stakeSol * 0.5), bal - 0.05, MM.P.profitOnly ? +(process.env.PROFIT_LAUNCH_BUY_SOL ?? 0) : Infinity).toFixed(4)   // 0 = tax-funded: no block-zero buy at all. Profit-only tests: none unless PROFIT_LAUNCH_BUY_SOL
+    v.vaultBuySol = vaultSpend   // the real block-zero spend (after caps): it is the vault's cost basis and the initials to recover
     if (vaultSpend >= 0.05) {
       const tx = await LL.buildTrade(kp(v).publicKey, 'buy', built.mint, vaultSpend, { poolState: built.afterDev, fromCreate: true, slippageBps: 3000, tipLamports: Math.floor(+(process.env.TIP_SOL || 0.001) * 1e9), permTaxBps: built.permTax })
       KEEP.sign({ id: v.id, chest: bal, sk: kp(v) }, tx, 'launch', vaultSpend)

@@ -19,7 +19,11 @@ export const P = {
   captureDayCap: +(process.env.MM_CAPTURE_DAY_CAP ?? R.MM_DAY_CAP), // share of inventory the vault may sell into buys per day (tests: 0.5)
   minBuySol: 0.05,
   maxBuySol: +(process.env.MM_MAX_BUY_SOL ?? 25),
-  maxLegSol: +(process.env.MM_MAX_LEG_SOL ?? 0),            // tests: the most SOL the mm may have out in bought tokens at once (0 = no cap)                               // no single vault buy (dip, desk block, accumulation) above this, whatever the chest holds: a tax-grown chest buying one 5,000 SOL 'dip' at the top of a 755× coin lost 87% of it in the replay. Smaller clips let the drawdown stop speak before the episode budget is gone.
+  maxLegSol: +(process.env.MM_MAX_LEG_SOL ?? 0),
+  // initials (tests): until the launch buy is paid back, every buy that comes in (snipers) gets a slice of the vault sold into it at once —
+  // initialsFrac of that buy's size, never more than what is left to recover, never under cost +1%. 0 = off.
+  initialsFrac: +(process.env.MM_INITIALS_FRAC ?? 0),
+  initialsMinBuy: +(process.env.MM_INITIALS_MIN_BUY ?? 0.05),            // tests: the most SOL the mm may have out in bought tokens at once (0 = no cap)                               // no single vault buy (dip, desk block, accumulation) above this, whatever the chest holds: a tax-grown chest buying one 5,000 SOL 'dip' at the top of a 755× coin lost 87% of it in the replay. Smaller clips let the drawdown stop speak before the episode budget is gone.
   episodeAnchor: true,
   captureOn: true,
   defendBelowVwap: 1.02,
@@ -52,7 +56,7 @@ export type State = {
   buyTimes: number[]; nextCaptureAt?: number; lastCapture: number
   deskPauseUntil?: number; lastDeskFill?: { t: number; p: number; seller?: string } | null; toxicEvents?: number[]; denied?: Record<string, number>
   /** mm leg: SOL spent on buys, SOL got back selling *bought* tokens, bought tokens still held (never negative). invGot = SOL from selling the vault's own inventory (block-zero seed / deposits) — pure proceeds, not part of the leg. */
-  mmSpent?: number; mmGot?: number; mmTok?: number; mmCost?: number; invGot?: number; stoppedAt?: number; armedAt?: number
+  mmSpent?: number; mmGot?: number; mmTok?: number; mmCost?: number; invGot?: number; stoppedAt?: number; armedAt?: number; launchSpend?: number
 }
 export type Market = { priceSol: number; mcapUsd: number; liqSol: number; vol1h?: number; volSol?: number }
 /** SOL traded on the coin in the last hour: the explicit figure when the caller has one, else the USD figure converted at the market's own SOL price */
@@ -162,8 +166,17 @@ export function onDefended(s: State, spend: number, got: number, level: number, 
   s.spentEpisode += spend; s.dayDefense = (s.dayDefense || 0) + spend; s.lastBuy = now; (s.tranchesFired ||= []).push(level); s.mmSpent = (s.mmSpent || 0) + spend; s.mmTok = (s.mmTok || 0) + got; s.mmCost = (s.mmCost || 0) + spend
 }
 
+/** SOL of the launch buy not yet recovered by selling inventory */
+export const initialsLeft = (s: State) => Math.max(0, (s.launchSpend || 0) - (s.invGot || 0))
+export const initialsOn = (s: State, p_: Params = P) => p_.initialsFrac > 0 && initialsLeft(s) > 0.005
 /** Capture decision when a buy of `solIn` lands: tokens to sell into it. 0 = let it run. */
 export function capture(s: State, m: Market, p: number, solIn: number, now: number, p_: Params = P, rnd = Math.random(), rnd2 = Math.random()): number {
+  if (p_.captureOn && s.mode === 'mm' && s.tokens > 0 && initialsOn(s, p_)) {
+    if (solIn < p_.initialsMinBuy || (s.avgCost > 0 && p < s.avgCost * 1.01)) return 0
+    const impact = m.liqSol > 0 ? (m.liqSol * p_.poolImpactMax) / p : Infinity
+    const t = Math.min(Math.min(solIn * p_.initialsFrac, initialsLeft(s) * 1.03) / p, impact, s.tokens)
+    return t * p >= 0.005 ? t : 0
+  }
   if (!p_.captureOn || s.mode !== 'mm' || solIn < R.MM_MIN_BUY_SOL || s.tokens <= 0) return 0
   s.buyTimes = (s.buyTimes || []).filter((t) => now - t < 60000); s.buyTimes.push(now)
   if (now < (s.nextCaptureAt || 0)) return 0

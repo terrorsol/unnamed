@@ -34,3 +34,14 @@ test('profit-only: nothing is ever sold under cost × 1.04', () => {
   assert.equal(MM.capture(l, mkt(1.03e-7, 500), 1.03e-7, 5, 1e6, { ...PO, legTakeProfit: 0.01 }, 1, 0.5), 0)
   assert.ok(MM.capture(l, mkt(1.2e-7, 500), 1.2e-7, 5, 2e6, PO, 1, 0.5) > 0, 'well above cost → the leg exits')
 })
+test('initials: until the launch buy is back, each incoming buy gets a slice of the vault sold into it — a share of that buy, not the max', () => {
+  const IN = { ...PO, initialsFrac: 0.5, initialsMinBuy: 0.05 }
+  const s = mk({ tokens: 1.2e8, avgCost: 3.3e-8, launchSpend: 4, invGot: 0, samples: [{ t: 0, p: 4e-8, v: 1 }] })
+  const t = MM.capture(s, mkt(4e-8, 50), 4e-8, 1.0, 1e6, IN, 0.99, 0.5)
+  assert.ok(Math.abs(t * 4e-8 - 0.5) < 1e-6, `sold ${t * 4e-8} SOL into a 1 SOL buy`)
+  assert.equal(MM.capture(s, mkt(3.3e-8, 50), 3.3e-8, 1.0, 1e6, IN, 0.99, 0.5), 0, 'never under cost +1%')
+  assert.equal(MM.capture(s, mkt(4e-8, 50), 4e-8, 0.01, 1e6, IN, 0.99, 0.5), 0, 'dust buys are left alone')
+  s.invGot = 3.9; const t2 = MM.capture(s, mkt(4e-8, 50), 4e-8, 2.0, 1e6, IN, 0.99, 0.5)
+  assert.ok(t2 * 4e-8 <= 0.1 * 1.03 + 1e-9, 'never more than what is left to recover')
+  s.invGot = 4; assert.equal(MM.initialsOn(s, IN), false, 'initials back → normal policy')
+})
