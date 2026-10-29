@@ -93,3 +93,13 @@ test('drawdown stop books the leg correctly: selling block-zero inventory then b
   assert.equal(MM.stopped(s, p * 0.5, 5000), false) // leg: 0.55 got − 1 spent + 0.26 held = −19%, under the 35% stop
   assert.equal(MM.stopped(s, p * 0.1, 6000), true) // −40%: stop
 })
+
+test('desk bid: none during warmup, none above VWAP, capped by pool liquidity and the per-buy cap', () => {
+  const s = mk(1000, 3e8); const p = 1e-7; const now = 100 * 60_000
+  for (let i = 0; i < 40; i++) MM.observe(s, p, now - (40 - i) * 30_000)
+  s.armedAt = now - 60_000; assert.equal(MM.deskBid(s, 0.2, now, MM.P, 0.5, p, 500), 0, 'warmup')
+  s.armedAt = now - 3600_000
+  assert.equal(MM.deskBid(s, 0.2, now, MM.P, 0.5, p * 1.2, 500), 0, 'above vwap')
+  assert.ok(MM.deskBid(s, 0.2, now, MM.P, 0.5, p, 50) <= 5 + 1e-9, 'pool cap 10% of 50 SOL')
+  assert.ok(MM.deskBid(s, 0.2, now, MM.P, 0.5, p, 0) <= MM.P.maxBuySol + 1e-9, 'per-buy cap')
+})

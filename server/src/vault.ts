@@ -81,13 +81,13 @@ async function book(v: Vault, sig: string | undefined, fallback = 0) {
   try { const d = await txDelta(sig, v.pub); v.chest = Math.max(0, +(v.chest + d).toFixed(9)) } catch (e: any) { v.chest = Math.max(0, v.chest + fallback); v.ledgerDirty = true; EV.log('error', `${v.symbol || v.id} ledger: ${String(e.message).slice(0, 80)} (fallback ${fallback})`, { mint: v.mint, sig }) }
 }
 /** trades whose confirmation timed out: the tx may still land. Retried every tick for ~10 min, booked by exact delta when it does. */
-const lateBooks: { id: string; sig: string; fallback: number; until: number }[] = []
-export function deferBook(v: Vault, sig: string | undefined, fallback: number) { if (!sig || PAPER) return; lateBooks.push({ id: v.id, sig, fallback, until: Date.now() + 10 * 60_000 }); EV.log('vault', `${v.symbol || v.id} tx ${sig.slice(0, 8)}… not confirmed in time — will book it if it lands`, { sig }) }
+const lateBooks: { id: string; sig: string; fallback: number; until: number; after?: (v: Vault, chestBefore: number) => void }[] = []
+export function deferBook(v: Vault, sig: string | undefined, fallback: number, after?: (v: Vault, chestBefore: number) => void) { if (!sig || PAPER) return; lateBooks.push({ id: v.id, sig, fallback, until: Date.now() + 10 * 60_000, after }); EV.log('vault', `${v.symbol || v.id} tx ${sig.slice(0, 8)}… not confirmed in time — will book it if it lands`, { sig }) }
 export async function settleLateBooks() {
   for (const lb of lateBooks.slice()) {
     const v = vaults[lb.id]; if (!v) { lateBooks.splice(lateBooks.indexOf(lb), 1); continue }
     const st = (await conn.getSignatureStatuses([lb.sig]).catch(() => null))?.value?.[0]
-    if (st && !st.err && (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized')) { await sync(v, lb.sig, lb.fallback).catch(() => {}); v.activity.unshift({ t: Date.now(), kind: 'note', sig: lb.sig, msg: 'late-landing tx booked' }); lateBooks.splice(lateBooks.indexOf(lb), 1); save() }
+    if (st && !st.err && (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized')) { const cb = v.chest; await sync(v, lb.sig, lb.fallback).catch(() => {}); try { lb.after?.(v, cb) } catch {} v.activity.unshift({ t: Date.now(), kind: 'note', sig: lb.sig, msg: 'late-landing tx booked' }); lateBooks.splice(lateBooks.indexOf(lb), 1); save() }
     else if (st?.err || Date.now() > lb.until) lateBooks.splice(lateBooks.indexOf(lb), 1)
   }
 }
@@ -345,7 +345,7 @@ export async function onBuy(v: Vault, solIn: number, m: any, p: number, now: num
     v.activity.unshift({ t: now, kind: 'capture', sol: got, tokens, price: p, sig, msg: `countered a ${solIn.toFixed(2)} SOL buy · ${Math.round(frac * 100)}% · stretch +${Math.round((p / R.vwap(v.samples) - 1) * 100)}%` }); EV.log('vault', `${v.symbol} capture ${got.toFixed(3)} SOL`, { mint: v.mint, sig })
     const profit = got - v.avgCost * tokens; const cut = v.cut > 0 ? Math.max(0, profit) * (v.cut / 100) : 0
     await payCut(v, cut, now, 'capture profit')
-  } catch (e: any) { v.activity.unshift({ t: now, kind: 'note', msg: 'capture failed: ' + String(e.message).slice(0, 80) }); if (e?.sig) deferBook(v, e.sig, tokens * p * 0.97) }
+  } catch (e: any) { v.activity.unshift({ t: now, kind: 'note', msg: 'capture failed: ' + String(e.message).slice(0, 80) }); if (e?.sig) deferBook(v, e.sig, tokens * p * 0.97, (vv, cb) => MM.bookSell(vv, tokens, vv.chest - cb)) }
 }
 /** the dev cut on realized profit. A copy (declared at launch, or flagged by the vamp detector) streams half of every cut to the original's chest. */
 async function payCut(v: Vault, cut: number, now: number, why: string) {
@@ -464,9 +464,11 @@ async function tickOne(v: Vault) {
 /** Vault answers an RFQ: fills at −4% when the seller allows it, otherwise counters at −4%. Sized to what the chest can carry. */
 export async function respondRfq(mint: string, sizeSol: number, maxBps: number, rfqId: string) {
   const v = Object.values(vaults).find((x) => x.mint === mint && x.armed); if (!v) return null
-  if (Date.now() < (v.deskPauseUntil || 0)) return null
-  const sol = +Math.min(sizeSol, v.chest * MM.P.deskBidFrac - 0.02).toFixed(3); if (sol < 0.2) return null
-  const m = await market(mint); if (!m || sol < R.minBlockSol(m)) return null
+  if (Date.now() < (v.deskPauseUntil || 0) || PAPER) return null
+  // same guards as the standing bid (MM.deskBid): VWAP gate, warmup, drawdown halving, day budget, pool-liquidity cap, 25 SOL cap. An RFQ is just a desk bid someone asked for.
+  const m = await market(mint); if (!m || !m.priceSol) return null
+  const room = MM.deskBid(v, R.minBlockSol(m), Date.now(), MM.P, Math.random(), m.priceSol, m.liqSol || 0); const bidMax = +(process.env.DESK_BID_MAX_SOL || 0)
+  const sol = +Math.min(sizeSol, room, v.chest - 0.02, bidMax > 0 ? bidMax : Infinity).toFixed(3); if (sol < 0.2 || sol < R.minBlockSol(m)) return null
   const b = await D.placeInternalRaw(kp(v), 'VAULT', mint, sol, 400, () => v.chest - 0.02, true, (tx, solOut) => { KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'desk_fill', solOut) }, (seller) => MM.deskDenied(v, seller, Date.now())); b.rfq = rfqId
   v.activity.unshift({ t: Date.now(), kind: 'bid', sol, msg: `answered block request at −4%` })
   return b

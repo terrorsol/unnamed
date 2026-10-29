@@ -17,6 +17,8 @@ Setup used: vault holds 5% of supply + 2 SOL chest, 2% tax to the chest (launchl
 - **leg take-profit** `legTakeProfit: 0.10`, `legExitFrac: 0.8` — tokens the mm bought go back out into buys once price ≥ +10% over their cost, using ≤80% of the incoming buy. Not random, not capped by the inventory day trim. This is the market-making round trip.
 - **desk bid**: only rests at/under the 30-min / 2-h VWAP ×1.02 (`deskBelowVwap`), respects the 10-min warmup (`deskWarmup`), capped at 10% of pool SOL (`deskBid(..., liqSol)`).
 - **`maxBuySol: 25`** — no single dip / desk / accumulation buy above 25 SOL whatever the chest holds.
+- **OTC block requests** (`respondRfq`) now go through the same `MM.deskBid` guards — before, an RFQ was sized from chest × 25% with none of the above, so the 755× failure was still reachable through the desk. Not exercised by the replay (it models the standing bid only); covered by a unit test + desk e2e.
+- a capture whose confirmation times out and lands later is now booked into the mm leg too (`deferBook(..., after)`), so the drawdown stop never runs on stale numbers.
 - `warmupMs` is env-tunable (`MM_WARMUP_MS`, e2e sets 0).
 
 ## Results (chest 2 SOL, 5% supply, tax 2%)
