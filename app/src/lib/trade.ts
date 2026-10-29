@@ -151,7 +151,7 @@ async function launchOursOnce(ctx: Ctx, meta: P.CreateMeta, uri: string, devBuyS
     const bundle = [...signed.map((t) => Buffer.from(t.serialize()).toString('base64')), b.vaultTx]
     for (let i = 0; i < 3; i++) {
       try { onStatus?.(i ? `Resending bundle (${i + 1}/3)…` : 'Sending bundle…'); await deps.sendBundle(bundle) }
-      catch (e: any) { if (i === 2) throw new Error('Jito is not taking the launch bundle right now — nothing launched, your stake is still in the vault. Press Create again in a minute.'); await new Promise((r) => setTimeout(r, 1200)); continue }
+      catch (e: any) { if (/blockhash|expired/i.test(String(e?.message || e))) throw new Error('blockhash expired — rebuilding'); if (i === 2) throw new Error('Jito is not taking the launch bundle right now — nothing launched, your stake is still in the vault. Press Create again in a minute.'); await new Promise((r) => setTimeout(r, 1200)); continue }
       try { onStatus?.('Confirming…'); await confirmByPollingB58(conn, signed[0], 20000); return { sig, mint: b.mint, bundled: true } }
       catch (e: any) { if (/blockhash|block height|expired/i.test(String(e?.message || e))) throw e }
     }

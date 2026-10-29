@@ -107,6 +107,9 @@ export async function buildLaunch(dev: PublicKey, meta: { name: string; symbol: 
     computeBudgetConfig: { units: 600_000, microLamports: 100_000 }, ...launchOpts(permTax), ...curveOpts(),
   })) } catch (e) { if (branded) MP.unuse(mintKp); throw e }
   const txs: VersionedTransaction[] = r.transactions
+  // a fresh blockhash on every launch tx: Jito refused bundles as 'expired blockhash' when the SDK's own was already old (Oct 29)
+  // only when the dev and the mint are the sole signers (both sign after this): any other pre-signed key would be invalidated
+  { const bh = (await conn.getLatestBlockhash('confirmed')).blockhash; for (const t of txs) if (t.message.header.numRequiredSignatures <= 2) t.message.recentBlockhash = bh }
   for (const t of txs) { const keys = t.message.staticAccountKeys.map((k) => k.toBase58()); if (keys.includes(mintKp.publicKey.toBase58()) && t.message.header.numRequiredSignatures > 1) t.sign([mintKp]) }
   const z = quoteFresh(devBuySol)
   return { mint: mintKp.publicKey.toBase58(), poolId: poolIdOf(mintKp.publicKey.toBase58()).toBase58(), txs: txs.map((t) => Buffer.from(t.serialize()).toString('base64')), devTokens: z.tokens, devCostSol: z.cost, afterDev: z.after, permTax: permTax ? PERM_TAX_BPS : 0 }
@@ -160,14 +163,14 @@ export async function buildTrade(owner: PublicKey, action: 'buy' | 'sell', mint:
   const r: any = await withOwner(owner, (r) => action === 'buy'
     ? r.launchpad.buyToken({ ...base, buyAmount: new BN(Math.floor(+amount * 1e9)), poolInfo, fromCreate: !!opts.fromCreate, skipCheckMintA: !!opts.poolState })
     : r.launchpad.sellToken({ ...base, sellAmount: new BN(typeof amount === 'string' && amount.endsWith('%') ? 0 : Math.floor(+amount * 1e6)), poolInfo }))
-  return r.transaction as VersionedTransaction
+  { const t = r.transaction as VersionedTransaction; if (t.message.header.numRequiredSignatures === 1) t.message.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash; return t }   // fresh blockhash; only the owner signs, after this
 }
 /** sell a percentage of the owner's balance (vault sells are expressed as 'NN%') */
 export async function sellPct(owner: PublicKey, mint: string, pct: number, slippageBps = 1000, feePayer?: PublicKey): Promise<VersionedTransaction> {
   const { tokenBalance } = await import('./chain.ts'); const bal = await tokenBalance(owner.toBase58(), mint)
   const raw = bal.raw * BigInt(Math.round(pct * 100)) / 10000n; if (raw <= 0n) throw new Error('nothing to sell')
   const r: any = await withOwner(owner, (r) => r.launchpad.sellToken({ programId: PROGRAM, mintA: new PublicKey(mint), mintB: WSOL, sellAmount: new BN(raw.toString()), slippage: new BN(slippageBps), feePayer, txVersion: TxVersion.V0, computeBudgetConfig: { units: 300_000, microLamports: 100_000 } }))
-  return r.transaction as VersionedTransaction
+  { const t = r.transaction as VersionedTransaction; if (t.message.header.numRequiredSignatures === 1) t.message.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash; return t }   // fresh blockhash; only the owner signs, after this
 }
 
 /** claim this pool's accrued platform fee (the tax) to the platform wallet; returns the tx to sign with the platform key */
