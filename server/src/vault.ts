@@ -16,7 +16,7 @@ import * as MM from './mm.ts'
 import * as EV from './events.ts'
 import { taxWeights } from './tax.ts'
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
-import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
+import { PublicKey, SystemProgram, Transaction, ComputeBudgetProgram } from '@solana/web3.js'
 
 const DIR = process.env.DATA_DIR || './data'; const FILE = DIR + '/vaults.json'
 /** Live tape: every swap seen on a vaulted coin, one JSON line {t,side,sol,trader,sig} → DATA_DIR/tape/<mint>.jsonl. Replay with `npm run replay -- <file>` in app/. Capped at ~20MB per coin. */
@@ -217,9 +217,21 @@ export async function paperArm(mint: string, chestSol = 20, mode: 'floor' | 'mm'
 }
 /** SOL transfer signed by the vault key, confirmed by polling (no websocket dependency). */
 async function payFrom(v: Vault, to: string, lamports: number, purpose: KEEP.Purpose = 'payout') {
-  const k = kp(v); const tx = new Transaction().add(SystemProgram.transfer({ fromPubkey: k.publicKey, toPubkey: new PublicKey(to), lamports }))
-  tx.feePayer = k.publicKey; tx.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash; KEEP.sign({ id: v.id, chest: v.chest, sk: k }, tx, purpose, lamports / 1e9)
-  const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 }); await confirm(sig); await book(v, sig, -(lamports / 1e9 + 0.000005)); return sig
+  // priority fee + rebroadcast: a plain transfer with no priority fee gets dropped when the network is busy (refunds timed out on Oct 29)
+  const k = kp(v); const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 5000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: +(process.env.PAYOUT_CU_PRICE || 400000) }), SystemProgram.transfer({ fromPubkey: k.publicKey, toPubkey: new PublicKey(to), lamports }))
+  const lb = await conn.getLatestBlockhash('confirmed'); tx.feePayer = k.publicKey; tx.recentBlockhash = lb.blockhash; KEEP.sign({ id: v.id, chest: v.chest, sk: k }, tx, purpose, lamports / 1e9)
+  const raw = tx.serialize(); const sig = await conn.sendRawTransaction(raw, { skipPreflight: false, maxRetries: 0 })
+  // resend the same signed tx every 2s until it confirms or its blockhash expires: it can only ever land once (same signature)
+  const t0 = Date.now(); let landed = false
+  while (Date.now() - t0 < 75_000) {
+    const st = (await conn.getSignatureStatuses([sig]).catch(() => null))?.value?.[0]
+    if (st?.err) throw new Error('payout failed: ' + JSON.stringify(st.err))
+    if (st && (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized')) { landed = true; break }
+    const h = await conn.getBlockHeight('confirmed').catch(() => 0); if (h && h > lb.lastValidBlockHeight) break
+    conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}); await wait(2000)
+  }
+  if (!landed) { (v as any)._payPending = { sig, t: Date.now() }; const e: any = new Error('payout not confirmed yet — nothing was double-paid; if it lands it is booked, otherwise press again in a minute'); e.sig = sig; deferBook(v, sig, -(lamports / 1e9 + 0.000005)); throw e }
+  await book(v, sig, -(lamports / 1e9 + 0.000005)); return sig
 }
 /** Community takeover import: nobody pays 15 SOL alone. The vault wallet itself is the escrow — anyone sends ≥0.05 SOL to it; when
  *  the goal is reached the server pays the treasury share from the vault and arms it (cut 0, renounced). Not funded in 7 days → refunds pro-rata. */
@@ -285,6 +297,10 @@ export async function refund(id: string, auth?: { msg?: string; sig?: string }) 
   const reclaim = process.env.TEST_RECLAIM === '1'
   if (v.armed && !untouched && !reclaim) throw new Error(v.tokens > 0 && process.env.TEST_RECLAIM === '1' ? 'the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed' : 'an armed vault that has traded never pays out its chest — that is the point of it')
   devAuth(v, 'refund', v.mint || 'none', auth)
+  // a payout that did not confirm in time must never be paid twice: wait until its blockhash can no longer land, or until it is found landed
+  { const pp = (v as any)._payPending; if (pp) { const st = (await conn.getSignatureStatuses([pp.sig]).catch(() => null))?.value?.[0]
+    if (st && !st.err) throw new Error('the last payout landed — refresh, it is in your wallet')
+    if (Date.now() - pp.t < 90_000) throw new Error('the last payout is still confirming — try again in a minute'); (v as any)._payPending = undefined } }
   if (reclaim && v.mint && v.tokens > 0 && !PAPER) {
     // close-out: sell everything back to SOL in slices. Each slice is sized so it moves the pool price ≤ ~15%, is quoted fresh
     // (min-out from the pool read at build time, 1% for other flow), and a few seconds apart so buyers can step in between.
