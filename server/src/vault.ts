@@ -165,7 +165,7 @@ export async function autoArm() {
   if (armingNow || PAPER) return; armingNow = true
   try {
     for (const v of Object.values(vaults)) {
-      if (v.armed || v.imported || v.paper || v.createdAt < AUTOARM_SINCE) continue
+      if (v.armed || v.imported || v.paper || v.createdAt < AUTOARM_SINCE || (v as any).closedAt) continue
       const funded = v.activity.filter((a) => a.kind === 'stake').reduce((a, x) => a + (x.sol || 0), 0)
       if (!v.mint) { if (Date.now() - v.createdAt > 2 * 3600_000 && funded === 0 && v.chest === 0) { delete vaults[v.id]; save() } continue }
       if (v.shared ? funded < v.stakeSol * 0.95 - 0.001 : false) continue
@@ -284,16 +284,32 @@ export async function refund(id: string, auth?: { msg?: string; sig?: string }) 
   if (v.armed && !untouched && !reclaim) throw new Error(v.tokens > 0 && process.env.TEST_RECLAIM === '1' ? 'the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed' : 'an armed vault that has traded never pays out its chest — that is the point of it')
   devAuth(v, 'refund', v.mint || 'none', auth)
   if (reclaim && v.mint && v.tokens > 0 && !PAPER) {
-    const m = await market(v.mint); const sold = v.tokens
-    const ssig = await trade(v, 'sell', '100%', false, m?.priceSol || 0); await sync(v, ssig, sold * (m?.priceSol || 0) * 0.97)
-    v.activity.unshift({ t: Date.now(), kind: 'note', sig: ssig, msg: `test reclaim: sold the vault's ${(sold / 1e6).toFixed(2)}M tokens back to SOL` }); save()
+    // close-out: sell everything back to SOL in slices. Each slice is sized so it moves the pool price ≤ ~15%, is quoted fresh
+    // (min-out from the pool read at build time, 1% for other flow), and a few seconds apart so buyers can step in between.
+    // A slice that misses its min-out fails for the fee only and is retried at half size.
+    ;(v as any).closing = true
+    try {
+      const start = v.tokens; let fails = 0
+      for (let i = 0; i < 40 && v.tokens > 0.5; i++) {
+        while (inflight.has(v.id)) await wait(500)
+        const m = await market(v.mint); const p = m?.priceSol || 0
+        const poolTok = p > 0 && m?.liqSol ? m.liqSol / p : 0
+        let slice = poolTok > 0 ? Math.min(v.tokens, poolTok * 0.085 / 2 ** fails) : v.tokens
+        if (slice >= v.tokens * 0.98) slice = v.tokens
+        const pctStr = `${Math.min(100, Math.max(0.01, +(slice / v.tokens * 100).toFixed(2)))}%`
+        try { const ssig = await trade(v, 'sell', pctStr, false, p); await sync(v, ssig, slice * p * 0.97); fails = 0 }
+        catch (e: any) { fails++; if (e?.sig) deferBook(v, e.sig, slice * p * 0.97); if (fails >= 4) throw new Error('close-out: sells keep missing their min-out (' + String(e.message || e).slice(0, 80) + ') — nothing paid yet, try again in a minute') }
+        if (v.tokens > 0.5) await wait(2500 + Math.random() * 2000)
+      }
+      v.activity.unshift({ t: Date.now(), kind: 'note', msg: `close-out: sold ${((start - v.tokens) / 1e6).toFixed(2)}M tokens back to SOL in slices` }); save()
+    } finally { (v as any).closing = false }
   }
   // only the stake goes back; tax the chest collected meanwhile belongs to the holders and stays
   const staked = v.activity.filter((a) => a.kind === 'stake').reduce((a, x) => a + (x.sol || 0), 0) || v.stakeSol
   const avail = (v.shared ? v.chest : await balanceSol(v.pub)) - 0.001
   const sol = +Math.max(0, reclaim ? avail : Math.min(staked, avail)).toFixed(6); if (sol < 0.001) throw new Error('nothing to refund')
   const sig = await payFrom(v, v.dev, Math.floor(sol * 1e9), 'refund')
-  v.activity.unshift({ t: Date.now(), kind: 'note', sol, sig, msg: `stake refunded to ${v.dev.slice(0, 4)}… (vault never traded)` }); if (v.shared) v.chest = Math.max(0, +(v.chest - sol).toFixed(9)); if (v.armed && v.chest < 0.05) { v.armed = false; if (v.deskBid) { try { D.cancelInternal(v.pub, v.mint!) } catch {} v.deskBid = 0 } }
+  v.activity.unshift({ t: Date.now(), kind: 'note', sol, sig, msg: `stake refunded to ${v.dev.slice(0, 4)}… (vault never traded)` }); if (v.shared) v.chest = Math.max(0, +(v.chest - sol).toFixed(9)); if (reclaim) (v as any).closedAt = Date.now(); if (v.armed && v.chest < 0.05) { v.armed = false; if (v.deskBid) { try { D.cancelInternal(v.pub, v.mint!) } catch {} v.deskBid = 0 } }
   EV.log('vault', `${v.symbol || id} refunded ${sol} SOL to the dev (${reclaim ? 'test reclaim: whole chest' : 'stake back, vault never traded'})`, { id, sig }); save(); return { sig, sol }
 }
 /** admin: drop a vault that never armed (its stake was returned by hand from the shared wallet); refuses armed vaults */
@@ -395,7 +411,7 @@ export async function tick() {
   save()
 }
 async function tickOne(v: Vault) {
-  if (!v.armed || !v.mint || inflight.has(v.id)) return
+  if (!v.armed || !v.mint || inflight.has(v.id) || (v as any).closing) return
   if (Date.now() < (v.nextTickAt || 0)) return; v.nextTickAt = Date.now() + 3500 + Math.random() * 3000
   inflight.add(v.id)
   {
