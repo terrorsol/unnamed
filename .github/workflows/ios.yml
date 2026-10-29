@@ -23,7 +23,7 @@ on:
 jobs:
   build:
     runs-on: macos-15
-    defaults: { run: { working-directory: app } }
+    defaults: { run: { working-directory: app, shell: bash } }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
