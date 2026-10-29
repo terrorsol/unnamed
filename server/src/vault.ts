@@ -129,7 +129,8 @@ export async function fund(id: string, sig: string) {
 /** Step 2 (after the coin exists + dev sent the stake): bind mint, seed the position */
 export async function arm(id: string, mint: string, symbol: string, name = '', auth?: { msg?: string; sig?: string }, fundSig?: string) {
   const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) return pub(v)
-  if (!v.imported) devAuth(v, 'arm', mint, auth)
+  // arming needs the dev: a session/message signature, OR the coin itself — a LaunchLab pool whose on-chain creator is the vault's dev (only that wallet could have created it)
+  if (!v.imported) { try { devAuth(v, 'arm', mint, auth) } catch (e) { const pl = await LL.pool(mint).catch(() => null); if (!pl || pl.creator !== v.dev) throw e } }
   // after a block-zero bundle half the stake is already in tokens, so the SOL check is against the other half
   const bundled = v.activity.some((a) => (a.msg || '').startsWith('signed block-zero'))
   const buy = v.vaultBuySol ?? v.stakeSol * 0.5
