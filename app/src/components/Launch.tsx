@@ -5,6 +5,8 @@ import type { CreateMeta } from '../lib/pumpportal'
 import * as D from '../lib/dex'
 import { ModePicker } from './Desk'
 
+/** '@handle', 'x.com/handle', 'site.com' or a full link → a full https link */
+const link = (v: string, base: string) => { v = v.trim(); if (!v) return ''; if (/^https?:\/\//i.test(v)) return v; if (v.startsWith('@')) return base + v.slice(1); if (/\./.test(v)) return 'https://' + v.replace(/^\/+/, ''); return base + v }
 export type Venue = 'launchlab' | 'pump'
 type Props = { wallet?: string; walletKind?: 'in-app' | 'phantom' | 'wallet'; onClose: () => void; onLaunch: (m: CreateMeta, devBuy: number, stake: number, copyOf?: string, mode?: 'floor' | 'mm', ceiling?: number, venue?: Venue, permTax?: boolean, vaultBuy?: number, targetPct?: number) => void; taxBps?: number; permTaxBps?: number; platformReady?: boolean; busy: string; connected: boolean; sol: number | null; needWallet: () => void }
 export default function Launch(p: Props) {
@@ -30,14 +32,14 @@ export default function Launch(p: Props) {
       <div className="fld"><div className="lbl">Ticker</div><input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} placeholder="GLASS" maxLength={10} /></div>
     </div>
     <div className="fld"><div className="lbl">Image</div><input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0])} /></div>
-    <button className="btn ghost" style={{ alignSelf: 'flex-start', height: 28, padding: 0 }} onClick={() => setAdv(!adv)}>{adv ? '− Hide advanced' : '+ Advanced · socials, dev buy, copy-of'}</button>
+    <div className="two">
+      <div className="fld"><div className="lbl">X / Twitter</div><input value={tw} onChange={(e) => setTw(e.target.value)} placeholder="@handle or x.com link" /></div>
+      <div className="fld"><div className="lbl">Website</div><input value={web} onChange={(e) => setWeb(e.target.value)} placeholder="yoursite.com" /></div>
+    </div>
+    <button className="btn ghost" style={{ alignSelf: 'flex-start', height: 28, padding: 0 }} onClick={() => setAdv(!adv)}>{adv ? '− Hide advanced' : '+ Advanced · telegram, dev buy, copy-of'}</button>
     {adv && <>
     <div className="fld"><div className="lbl">Description</div><textarea value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="What is it" maxLength={500} /></div>
-    <div className="two" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
-      <div className="fld"><div className="lbl">X / Twitter</div><input value={tw} onChange={(e) => setTw(e.target.value)} placeholder="https://x.com/…" /></div>
-      <div className="fld"><div className="lbl">Telegram</div><input value={tg} onChange={(e) => setTg(e.target.value)} placeholder="https://t.me/…" /></div>
-      <div className="fld"><div className="lbl">Website</div><input value={web} onChange={(e) => setWeb(e.target.value)} placeholder="https://" /></div>
-    </div>
+    <div className="fld"><div className="lbl">Telegram</div><input value={tg} onChange={(e) => setTg(e.target.value)} placeholder="t.me/… or @group" /></div>
     <div className="fld"><div className="lbl">Is this a copy of another coin? (optional) — half of what you earn goes to the original</div>
       {copyOf ? <div className="row"><span className="tag">COPY OF</span><b>{copyOf.symbol}</b><span className="nm">{copyOf.name}</span><span className="sp" /><button className="btn sm" onClick={() => { setCopyOf(null); setCq('') }}>Clear</button></div>
         : <><input value={cq} onChange={(e) => setCq(e.target.value)} placeholder="search ticker or mint of the original" />{cres.length > 0 && <div className="card" style={{ marginTop: 4 }}>{cres.map((c) => <div key={c.mint} className="it row" style={{ padding: '7px 10px', cursor: 'pointer', borderBottom: '1px solid var(--line)' }} onClick={() => { setCopyOf(c); setCres([]) }}><b>{c.symbol}</b><span className="nm">{c.name.slice(0, 24)}</span><span className="sp" /><span className="dim num">{c.mcap ? '$' + Math.round(c.mcap / 1000) + 'K' : ''}</span></div>)}</div>}</>}
@@ -57,6 +59,6 @@ export default function Launch(p: Props) {
     <div className="kv"><span>Paying from</span><b className="num">{p.wallet ? p.wallet.slice(0, 4) + '…' + p.wallet.slice(-4) + (p.walletKind ? ' · ' + p.walletKind : '') : '—'} · {p.sol == null ? '—' : S(p.sol) + ' SOL'}</b></div>
     <div className="nm">{chest > 0 ? 'Your wallet asks you to approve twice: once to fund the chest, once to create the coin. Then the chest switches itself on. ' : 'Your wallet asks you to approve once. '}Phantom may warn that this site is new. That's about the site's age, not this transaction.</div>
     <div className="row"><button className="btn" onClick={p.onClose}>Cancel</button><span className="sp" />
-      <button className="btn pri" disabled={!!p.busy || (p.connected && (!ok || (p.sol != null && total > p.sol)))} onClick={() => !p.connected ? p.needWallet() : p.onLaunch({ name: name.trim(), symbol: symbol.trim(), description: desc.trim(), file, twitter: tw || undefined, telegram: tg || undefined, website: web || undefined }, dev, stake, copyOf?.mint, mode, ceiling, venue, venue === 'launchlab' && permTax, vaultBuy, pct)}>{p.busy || (!p.connected ? 'Connect wallet' : 'Create coin')}</button></div>
+      <button className="btn pri" disabled={!!p.busy || (p.connected && (!ok || (p.sol != null && total > p.sol)))} onClick={() => !p.connected ? p.needWallet() : p.onLaunch({ name: name.trim(), symbol: symbol.trim(), description: desc.trim(), file, twitter: link(tw, 'https://x.com/') || undefined, telegram: link(tg, 'https://t.me/') || undefined, website: link(web, 'https://') || undefined }, dev, stake, copyOf?.mint, mode, ceiling, venue, venue === 'launchlab' && permTax, vaultBuy, pct)}>{p.busy || (!p.connected ? 'Connect wallet' : 'Create coin')}</button></div>
   </div></div>
 }
