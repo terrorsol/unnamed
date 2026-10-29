@@ -132,6 +132,14 @@ async function confirmByPollingB58(conn: Connection, tx: VersionedTransaction) {
 export async function launchOurs(ctx: Ctx, meta: P.CreateMeta, devBuySol: number, vault: { id: string } | null, vaultBuySol: number, deps: { sendBundle: (txs: string[]) => Promise<{ bundleId: string }>; signMsg?: (m: Uint8Array) => Promise<Uint8Array>; permTax?: boolean }): Promise<{ sig: string; mint: string; bundled: boolean }> {
   const { conn, owner, sign, onStatus } = ctx
   onStatus?.('Uploading metadata…'); const uri = await P.uploadMetadata(meta, SERVER)
+  // the launch txs carry the server's blockhash (they are pre-signed by the mint and the vault), so slow wallet signing can outlive it: rebuild once and sign again
+  for (let attempt = 0; ; attempt++) {
+    try { return await launchOursOnce(ctx, meta, uri, devBuySol, vault, vaultBuySol, deps) }
+    catch (e: any) { if (attempt >= 1 || !/blockhash|block height exceeded|expired/i.test(String(e?.message || e))) throw e; onStatus?.('That took too long — rebuilding, sign again…') }
+  }
+}
+async function launchOursOnce(ctx: Ctx, meta: P.CreateMeta, uri: string, devBuySol: number, vault: { id: string } | null, vaultBuySol: number, deps: { sendBundle: (txs: string[]) => Promise<{ bundleId: string }>; signMsg?: (m: Uint8Array) => Promise<Uint8Array>; permTax?: boolean }): Promise<{ sig: string; mint: string; bundled: boolean }> {
+  const { conn, owner, sign, onStatus } = ctx
   onStatus?.('Building launch…')
   const b = await K.withDevAuth(vault ? deps.signMsg : undefined, 'launch', vault?.id || '', owner.toBase58(), (auth) => K.llLaunchBuild({ dev: owner.toBase58(), name: meta.name, symbol: meta.symbol, uri, devBuySol, vaultId: vault?.id, vaultBuySol, auth, permTax: !!deps.permTax }))
   const txs = b.txs.map((x) => VersionedTransaction.deserialize(Buffer.from(x, 'base64')))
