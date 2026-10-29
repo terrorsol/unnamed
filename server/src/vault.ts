@@ -457,9 +457,26 @@ async function creditUnattributed() {
     } catch (e: any) { EV.log('error', `credit ${id}: ${String(e.message || e).slice(0, 120)}`) }
   }
 }
+/** MOVE=<fromVaultId>:<toVaultId>[,…] (operator, once, same dev's own money in the shared wallet): the whole chest of one vault is booked to another,
+ *  so it is withdrawn by the other vault's dev. The source is closed (no more trading). A ledger move — no transaction. */
+let moved = false
+async function moveChests() {
+  if (moved || !process.env.MOVE || !SHARED) return; moved = true
+  for (const pair of process.env.MOVE.split(',')) {
+    const [a, b] = pair.split(':').map((x) => x.trim()); const from = vaults[a], to = vaults[b]; if (!from || !to || !from.shared || !to.shared) continue
+    const tag = 'move:' + pair; if (to.activity.some((x) => x.msg === tag)) continue
+    if (from.tokens > 0.5) { EV.log('error', `move ${a}→${b}: source still holds tokens, skipped`); continue }
+    const sol = +Math.max(0, from.chest).toFixed(9); if (sol <= 0) continue
+    from.chest = 0; from.armed = false; (from as any).closedAt = Date.now(); if (from.deskBid) { try { D.cancelInternal(from.pub, from.mint!) } catch {} from.deskBid = 0 }
+    to.chest = +(to.chest + sol).toFixed(9)
+    from.activity.unshift({ t: Date.now(), kind: 'note', sol, msg: `chest moved to ${to.symbol || b} (same owner's request)` }); to.activity.unshift({ t: Date.now(), kind: 'tax', sol, msg: tag })
+    EV.log('vault', `moved ${sol.toFixed(4)} SOL from ${from.symbol || a}'s chest to ${to.symbol || b}'s`, { from: a, to: b, sol }); save()
+  }
+}
 export async function tick() {
   await rebind().catch(() => {})
   await creditUnattributed().catch(() => {})
+  await moveChests().catch(() => {})
   await Promise.all(Object.values(vaults).map((v) => tickOne(v)))
   await settleLateBooks().catch(() => {})
   save()
