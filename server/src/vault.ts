@@ -278,15 +278,18 @@ export async function refund(id: string, auth?: { msg?: string; sig?: string }) 
   const v = vaults[id]; if (!v) throw new Error('no such vault')
   // an armed vault never pays out its chest — unless it never did anything: no tokens, no fills, no tax. Then the dev can still take the stake back and the vault is dropped.
   const untouched = v.tokens <= 0 && !(v.score && (v.score.captures || v.score.dips || v.score.deskFills)) && !v.activity.some((a) => a.kind === 'buy' || a.kind === 'capture' || a.kind === 'redeem')
-  if (v.armed && !untouched) throw new Error('an armed vault that has traded never pays out its chest — that is the point of it')
+  // TEST_RECLAIM=1 (private-beta test launches only): the dev can take the WHOLE chest back — stake and the tax it collected — once the vault
+  // holds no tokens (nothing left to unwind). Off by default; with it off the chest never pays out, as designed.
+  const reclaim = process.env.TEST_RECLAIM === '1' && v.tokens <= 0
+  if (v.armed && !untouched && !reclaim) throw new Error(v.tokens > 0 && process.env.TEST_RECLAIM === '1' ? 'the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed' : 'an armed vault that has traded never pays out its chest — that is the point of it')
   devAuth(v, 'refund', v.mint || 'none', auth)
   // only the stake goes back; tax the chest collected meanwhile belongs to the holders and stays
   const staked = v.activity.filter((a) => a.kind === 'stake').reduce((a, x) => a + (x.sol || 0), 0) || v.stakeSol
   const avail = (v.shared ? v.chest : await balanceSol(v.pub)) - 0.001
-  const sol = +Math.max(0, Math.min(staked, avail)).toFixed(6); if (sol < 0.001) throw new Error('nothing to refund')
+  const sol = +Math.max(0, reclaim ? avail : Math.min(staked, avail)).toFixed(6); if (sol < 0.001) throw new Error('nothing to refund')
   const sig = await payFrom(v, v.dev, Math.floor(sol * 1e9), 'refund')
   v.activity.unshift({ t: Date.now(), kind: 'note', sol, sig, msg: `stake refunded to ${v.dev.slice(0, 4)}… (vault never traded)` }); if (v.shared) v.chest = Math.max(0, +(v.chest - sol).toFixed(9)); if (v.armed && v.chest < 0.05) { v.armed = false; if (v.deskBid) { try { D.cancelInternal(v.pub, v.mint!) } catch {} v.deskBid = 0 } }
-  EV.log('vault', `${v.symbol || id} refunded ${sol} SOL to the dev (never armed)`, { id, sig }); save(); return { sig, sol }
+  EV.log('vault', `${v.symbol || id} refunded ${sol} SOL to the dev (${reclaim ? 'test reclaim: whole chest' : 'stake back, vault never traded'})`, { id, sig }); save(); return { sig, sol }
 }
 /** admin: drop a vault that never armed (its stake was returned by hand from the shared wallet); refuses armed vaults */
 export function retire(id: string) { const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('armed vaults cannot be retired'); const out = { id, chest: v.chest, mint: v.mint }; delete vaults[id]; save(); EV.log('vault', `retired unarmed vault ${id} (ledger ${out.chest} SOL)`, out); return out }
@@ -437,7 +440,7 @@ async function tickOne(v: Vault) {
         v.activity.unshift({ t: now, kind: 'buy', sol: spend, tokens: got, price: p, sig, msg: `accumulating · ${MM.vaultedPct(v).toFixed(1)}% of ${v.pct}% target` })
       }
       // trim
-      else if (v.mode !== 'mm' && v.tokens > 0 && R.mayTrim(p, v.avgCost, R.vwap(v.samples), v.ema5!, v.ema15!) && now - v.lastTrim > R.VAULT_TRIM_COOLDOWN_MS && trimAllowed(v, m, p, now) > 0) {
+      else if (v.mode !== 'mm' && v.tokens > 0 && p >= MM.sellFloor(v.avgCost) && R.mayTrim(p, v.avgCost, R.vwap(v.samples), v.ema5!, v.ema15!) && now - v.lastTrim > R.VAULT_TRIM_COOLDOWN_MS && trimAllowed(v, m, p, now) > 0) {
         const frac = trimAllowed(v, m, p, now) / v.tokens; const before = v.chest
         const sig = await trade(v, 'sell', `${Math.round(frac * 100)}%`, false, p)
         const sold = v.tokens * frac; await sync(v, sig, v.tokens * frac * p * 0.97); const got = v.chest - before; v.lastTrim = now; v.trimmedToday += sold
@@ -448,12 +451,12 @@ async function tickOne(v: Vault) {
       } catch (e: any) { v.activity.unshift({ t: now, kind: 'note', msg: 'trade failed: ' + String(e.message || e).slice(0, 100) }); EV.log('error', `${v.symbol} vault trade failed: ${String(e.message || e).slice(0, 120)}`, { mint: v.mint }); if (e?.sig) deferBook(v, e.sig, -((v as any)._lastSpend || 0)) }
       // standing switch offer: a slice of the vault's tokens at spot, fee 0 — the off-chart way INTO this coin for anyone leaving a vamp. Only when the desk is open.
       try {
-        if (v.mode === 'mm' && v.tokens > 0 && R.deskOpen(m) && !PAPER) { const mb = R.minBlockSol(m); const want = +Math.max(Math.min(v.tokens * 0.1 * p, v.chest * 2), mb).toFixed(3)
+        if (v.mode === 'mm' && v.tokens > 0 && R.deskOpen(m) && !PAPER && p >= MM.sellFloor(v.avgCost)) { const mb = R.minBlockSol(m); const want = +Math.max(Math.min(v.tokens * 0.1 * p, v.chest * 2), mb).toFixed(3)
           if (v.tokens * p >= want && want >= 0.1 && (!v.askRefreshAt || now > v.askRefreshAt)) { v.askRefreshAt = now + 60000 + Math.random() * 60000; await D.placeInternalAsk(kp(v), 'VAULT', v.mint, want, 0, (tx) => { KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'trade', 0) }) } }
       } catch {}
       // standing vault bid on the desk: −4%, ≤25% of chest, pulled for 15 min after toxic flow, only when the desk is open for this coin
       try {
-        const mb = R.minBlockSol(m); let want = MM.deskBid(v, mb, now, MM.P, Math.random(), p, m.liqSol || 0); const bidMax = +(process.env.DESK_BID_MAX_SOL || 0); if (bidMax > 0 && want > bidMax) want = +Math.min(want, bidMax).toFixed(3)
+        const mb = R.minBlockSol(m); let want = MM.deskBid(v, mb, now, MM.P, Math.random(), p, m.liqSol || 0, MM.volSol(v, m)); const bidMax = +(process.env.DESK_BID_MAX_SOL || 0); if (bidMax > 0 && want > bidMax) want = +Math.min(want, bidMax).toFixed(3)
         if (!v.bidRefreshAt || now > v.bidRefreshAt) v.bidRefreshAt = now + 45000 + Math.random() * 60000 // re-quote at random 45–105s, not on the minute
         if (R.deskOpen(m) && want > 0 && !PAPER) { if (Math.abs(want - v.deskBid) > v.chest * 0.05 || now > v.bidRefreshAt - 1000) { const stop = MM.stopped(v, p, now); const disc = Math.round(Math.max(stop ? 1500 : 0, R.deskDiscountBps(R.sigma(v.samples))) + (Math.random() * 100 - 50)); await D.placeInternal(kp(v), 'VAULT', v.mint, want, disc, () => v.chest - 0.02, (tx, solOut) => { KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'desk_fill', solOut) }, (seller) => MM.deskDenied(v, seller, Date.now())); if (!v.deskBid) v.activity.unshift({ t: now, kind: 'bid', sol: want, msg: `vault bid resting on desk at −${(disc / 100).toFixed(1)}%` }); v.deskBid = want } }
         else if (v.deskBid) { D.cancelInternal(v.pub, v.mint); v.deskBid = 0 }
@@ -471,7 +474,7 @@ export async function respondRfq(mint: string, sizeSol: number, maxBps: number, 
   if (Date.now() < (v.deskPauseUntil || 0) || PAPER) return null
   // same guards as the standing bid (MM.deskBid): VWAP gate, warmup, drawdown halving, day budget, pool-liquidity cap, 25 SOL cap. An RFQ is just a desk bid someone asked for.
   const m = await market(mint); if (!m || !m.priceSol) return null
-  const room = MM.deskBid(v, R.minBlockSol(m), Date.now(), MM.P, Math.random(), m.priceSol, m.liqSol || 0); const bidMax = +(process.env.DESK_BID_MAX_SOL || 0)
+  const room = MM.deskBid(v, R.minBlockSol(m), Date.now(), MM.P, Math.random(), m.priceSol, m.liqSol || 0, MM.volSol(v, m)); const bidMax = +(process.env.DESK_BID_MAX_SOL || 0)
   const sol = +Math.min(sizeSol, room, v.chest - 0.02, bidMax > 0 ? bidMax : Infinity).toFixed(3); if (sol < 0.2 || sol < R.minBlockSol(m)) return null
   const b = await D.placeInternalRaw(kp(v), 'VAULT', mint, sol, 400, () => v.chest - 0.02, true, (tx, solOut) => { KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'desk_fill', solOut) }, (seller) => MM.deskDenied(v, seller, Date.now())); b.rfq = rfqId
   v.activity.unshift({ t: Date.now(), kind: 'bid', sol, msg: `answered block request at −4%` })
@@ -504,7 +507,7 @@ import { PublicKey as PK, SystemProgram as SP, Transaction as TX } from '@solana
 export async function signBundleTx(id: string, mint: string, txB64: string, maxSol: number, createB64?: string, auth?: { msg?: string; sig?: string }) {
   const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('already armed'); devAuth(v, 'bundle', mint, auth)
   const bal = v.shared ? v.chest : await balanceSol(v.pub); if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL${v.shared ? ' — call /vault/fund with the stake tx first' : ''}`)
-  const spend = Math.min(maxSol, v.vaultBuySol ?? bal * 0.5, bal - 0.05); if (spend < 0.05) throw new Error('nothing to spend')
+  const spend = Math.min(maxSol, v.vaultBuySol ?? bal * 0.5, bal - 0.05, MM.P.profitOnly ? +(process.env.PROFIT_LAUNCH_BUY_SOL ?? 0) : Infinity); if (spend < 0.05) throw new Error(MM.P.profitOnly ? 'profit-only test mode: no block-zero vault buy (set PROFIT_LAUNCH_BUY_SOL to allow one)' : 'nothing to spend')
   const tx = VersionedTransaction.deserialize(Buffer.from(txB64, 'base64'))
   // decode the buy itself: the client chose the numbers PumpPortal built from, so policy is enforced on what the tx really does
   const dec = await decimals(mint).catch(() => 6)
@@ -538,7 +541,7 @@ export async function buildLaunch(b: { dev: string; name: string; symbol: string
     const v = vaults[b.vaultId]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('already armed')
     v.venue = 'launchlab'
     const bal = v.shared ? v.chest : await balanceSol(v.pub); if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL${v.shared ? ' — call /vault/fund with the stake tx first' : ''}`)
-    vaultSpend = +Math.min(+(b.vaultBuySol ?? v.vaultBuySol ?? v.stakeSol * 0.5), bal - 0.05).toFixed(4)   // 0 = tax-funded: no block-zero buy at all
+    vaultSpend = +Math.min(+(b.vaultBuySol ?? v.vaultBuySol ?? v.stakeSol * 0.5), bal - 0.05, MM.P.profitOnly ? +(process.env.PROFIT_LAUNCH_BUY_SOL ?? 0) : Infinity).toFixed(4)   // 0 = tax-funded: no block-zero buy at all. Profit-only tests: none unless PROFIT_LAUNCH_BUY_SOL
     if (vaultSpend >= 0.05) {
       const tx = await LL.buildTrade(kp(v).publicKey, 'buy', built.mint, vaultSpend, { poolState: built.afterDev, fromCreate: true, slippageBps: 3000, tipLamports: Math.floor(+(process.env.TIP_SOL || 0.001) * 1e9), permTaxBps: built.permTax })
       KEEP.sign({ id: v.id, chest: bal, sk: kp(v) }, tx, 'launch', vaultSpend)
