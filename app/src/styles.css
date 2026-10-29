@@ -137,3 +137,326 @@ tbody tr{transition:background .12s,transform .12s}tbody tr:hover{transform:tran
 @media(max-width:600px){.actions2{grid-template-columns:1fr}}
 
 .gate{max-width:360px;margin:12vh auto 0;display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center}.gatemark{width:96px;height:96px;color:#e6e6e6}.gatettl{font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--fg2)}.gate input{width:100%;text-align:center;font-size:16px;letter-spacing:.08em;height:46px}
+/* progress card: milestone ladder + chest meter (the one visual a normal holder needs) */
+.prog{padding:14px;display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.prog-hd{display:flex;align-items:center;gap:8px}
+.prog-bar,.prog-fill{height:10px;background:var(--s3);border-radius:999px;overflow:hidden;position:relative}
+.prog-fill{height:6px;margin:6px 0 4px}
+.prog-bar i,.prog-fill i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--up),#7cf0a8);transition:width .9s cubic-bezier(.2,.8,.2,1);position:relative;overflow:hidden}
+.prog-bar i::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.35),transparent);transform:translateX(-100%);animation:shine 2.4s ease-in-out infinite}
+@keyframes shine{0%{transform:translateX(-100%)}60%,100%{transform:translateX(100%)}}
+.prog-steps{display:flex;justify-content:space-between;font-size:11px;color:var(--fg3);font-variant-numeric:tabular-nums}.prog-steps .hit{color:var(--up);font-weight:600}
+.prog-chest{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:4px;transition:border-color .3s,box-shadow .3s}
+.prog-chest.bump{border-color:rgba(43,212,106,.6);animation:pulse 1.2s ease-out}
+.prog-chest.bump .prog-ico{animation:pop .6s ease-out}
+.prog-ico{width:40px;height:40px;display:grid;place-items:center;border-radius:10px;background:rgba(227,182,79,.12);color:var(--gold);flex:none}
+.prog-mv{display:grid;place-items:center;width:24px;height:24px;border-radius:6px;background:rgba(43,212,106,.12);color:var(--up);flex:none}
+.prog-steps .hit::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--up);margin-right:4px;vertical-align:middle}
+.prog-last{display:flex;align-items:center;gap:8px;font-size:12.5px;border-top:1px solid var(--line);padding-top:8px;animation:slideIn .4s ease-out}
+.simple-toggle{width:100%;justify-content:center;font-size:12px}
+@media (prefers-reduced-motion: reduce){.prog-bar i,.prog-fill i{transition:none}.prog-bar i::after{animation:none}.prog-chest.bump,.prog-chest.bump .prog-ico,.prog-last{animation:none}}
+/* ===== simple mode: the calm phone app (scoped to .app.simple; the pro terminal is untouched) ===== */
+.app.simple{--sr:14px;--card:#111215;--card2:#17181c}
+.app.simple .card,.app.simple .tile{border-radius:var(--sr)}
+.app.simple .btn{border-radius:10px}
+.app.simple .btn.big{height:48px;font-size:15px;font-weight:600}
+.app.simple .presets button{border-radius:10px;height:40px;font-weight:600;font-size:14px}
+.s-home{display:flex;flex-direction:column;gap:8px}
+.s-hero{padding:16px;border-radius:var(--sr);background:var(--card);border:1px solid var(--line);display:flex;flex-direction:column;gap:4px}
+.s-hero-k{font-size:12px;color:var(--fg3);font-weight:500}
+.s-hero-v{font-size:30px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.15}.s-hero-v span{font-size:14px;color:var(--fg3);font-weight:500;letter-spacing:0;margin-left:4px}
+.s-hero-s{font-size:13px;color:var(--fg2);line-height:1.45}
+.s-trust{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg3);padding:2px 4px}.s-trust svg{color:var(--up);flex:none}
+.s-note{font-size:12.5px;color:var(--fg3);padding:0 2px 4px}
+.s-title{font-size:22px;font-weight:700;letter-spacing:-.01em;margin:2px 2px 0}
+.s-sec{font-size:12px;font-weight:600;color:var(--fg3);text-transform:uppercase;letter-spacing:.08em;margin:12px 2px 2px}
+.s-coin{display:flex;align-items:center;gap:12px;padding:12px;border-radius:var(--sr);background:var(--card);border:1px solid var(--line);cursor:pointer;transition:background .15s,transform .1s}
+.s-coin:active{transform:scale(.99);background:var(--card2)}.s-coin .pfp.lg{width:40px;height:40px;border-radius:12px}
+.s-coin-mid{flex:1;min-width:0}.s-coin-name{font-size:15px;font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.s-coin-sub{font-size:12px;color:var(--fg3);margin-top:3px;display:flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
+.s-mini-bar{display:inline-block;width:40px;height:4px;border-radius:999px;background:var(--s3);overflow:hidden}.s-mini-bar i{display:block;height:100%;background:#86efac;border-radius:inherit}
+.s-coin-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.s-chg{font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums}.s-chg.up{color:var(--up)}.s-chg.dn{color:var(--dn)}
+.s-buy-sm{font-size:12.5px;font-weight:700;color:#052e16;background:#86efac;border-radius:16px;padding:7px 13px;box-shadow:0 4px 12px rgba(134,239,172,.18)}.s-buy-sm:active{transform:scale(.96)}.s-buy-sm:disabled{opacity:.5}
+.s-badge{display:inline-flex;align-items:center;gap:3px;font-size:10.5px;font-weight:600;padding:2px 6px;border-radius:5px}
+.s-badge.chest{background:rgba(227,182,79,.12);color:var(--gold)}.s-badge.warn{background:rgba(240,85,107,.12);color:var(--dn)}.s-badge.gold{background:rgba(159,183,255,.12);color:#b9c9ff}.s-badge.up{background:rgba(43,212,106,.12);color:var(--up)}
+.s-badge:not(.chest):not(.gold):not(.up):not(.warn){background:var(--s3);color:var(--fg2)}
+.s-badges{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.s-val{font-size:14.5px;font-weight:600;font-variant-numeric:tabular-nums}
+.s-empty{padding:22px;text-align:center;color:var(--fg3);font-size:13px}
+.s-how{display:flex;align-items:center;justify-content:center;gap:6px;padding:14px;color:var(--fg2);font-size:13px;font-weight:500}
+.s-card{border-radius:var(--sr);background:var(--card);border:1px solid var(--line);padding:14px;margin-top:10px}
+.s-h{font-weight:600;font-size:14px;margin-bottom:6px}
+.s-check{display:flex;align-items:center;gap:10px;font-size:13.5px;padding:6px 0;color:var(--fg)}
+.s-dot{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;flex:none}
+.s-check.ok .s-dot{background:rgba(43,212,106,.12);color:var(--up)}.s-check.warn .s-dot{background:rgba(227,182,79,.14);color:var(--gold)}
+.s-usd{font-size:12px;color:var(--fg3);text-align:center}
+.s-usd-in{width:60px;margin-left:6px;background:var(--s2);border:1px solid var(--line2);border-radius:8px;padding:3px 8px;color:var(--fg);font:inherit;text-align:center}
+.s-lv{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;font-weight:700;font-size:17px;color:var(--gold);background:rgba(227,182,79,.1);border:1px solid rgba(227,182,79,.3);margin-right:4px;font-variant-numeric:tabular-nums}
+.s-meter{height:6px;border-radius:999px;background:var(--s3);overflow:hidden}.s-meter i{display:block;height:100%;background:var(--gold);border-radius:inherit;transition:width .9s cubic-bezier(.2,.8,.2,1)}
+/* chest mark */
+.s-chest{position:relative;display:grid;place-items:center;flex:none;border-radius:12px;background:rgba(227,182,79,.08);border:1px solid rgba(227,182,79,.22);color:var(--gold);overflow:hidden}
+.s-chest svg{position:relative;z-index:1}.s-chest i{position:absolute;left:0;right:0;bottom:0;background:rgba(227,182,79,.14);transition:height .9s cubic-bezier(.2,.8,.2,1)}
+.s-chest.bump{animation:pulse 1.2s ease-out}
+.app.simple .prog{border-radius:var(--sr);background:var(--card)}
+.app.simple .prog-ico{background:none;width:auto;height:auto}
+.app.simple .panel .tiles{grid-template-columns:repeat(2,1fr)!important}
+.app.simple .tile .v{word-break:break-word}
+/* bottom bar: a floating capsule, center is king */
+.s-nav{display:none}
+@media(max-width:1000px){
+  .app.simple .mnav{display:none}
+  .app.simple .s-nav{display:grid;grid-template-columns:1fr 1fr 72px 1fr 1fr;align-items:center;position:fixed;left:14px;right:14px;bottom:calc(12px + env(safe-area-inset-bottom,0));height:62px;padding:0 6px;background:rgba(22,23,27,.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.08);border-radius:31px;box-shadow:0 10px 30px rgba(0,0,0,.5);z-index:30}
+  .app.simple .main{padding-bottom:104px}
+}
+.s-tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;height:52px;font-size:10px;font-weight:500;color:var(--fg3);border-radius:22px;transition:color .15s,background .2s}
+.s-tab svg{transition:transform .25s cubic-bezier(.3,1.6,.5,1)}.s-tab.on{color:var(--fg)}.s-tab.on svg{color:#86efac;transform:translateY(-1px) scale(1.08)}
+.s-tab:active svg{transform:scale(.86)}
+.s-center{display:grid;place-items:center}
+.s-center-btn{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;color:#052e16;background:#86efac;box-shadow:0 6px 18px rgba(134,239,172,.28);transition:transform .25s cubic-bezier(.3,1.6,.5,1),box-shadow .2s}
+.s-center.on .s-center-btn{box-shadow:0 0 0 4px rgba(134,239,172,.16),0 8px 22px rgba(134,239,172,.36)}.s-center:active .s-center-btn{transform:scale(.9)}
+.s-center-lbl{display:none}
+/* More sheet */
+.s-sheet-bg{align-items:flex-end!important;padding:0!important}
+.s-sheet{width:100%;max-width:520px;background:#101114;border:1px solid var(--line);border-bottom:0;border-radius:18px 18px 0 0;padding:8px 14px calc(16px + env(safe-area-inset-bottom,0));display:flex;flex-direction:column;gap:8px;animation:sheetUp .24s cubic-bezier(.2,.9,.3,1)}
+@keyframes sheetUp{0%{transform:translateY(30px);opacity:0}100%{transform:none;opacity:1}}
+.s-grab{width:36px;height:4px;border-radius:999px;background:var(--s4);margin:2px auto 6px}
+.s-sheet-big{display:flex;align-items:center;gap:12px;text-align:left;padding:14px;border-radius:12px;background:var(--up);color:#04140a}
+.s-sheet-big b{display:block;font-weight:700;font-size:15px}.s-sheet-big small{display:block;font-size:12px;opacity:.75}
+.s-sheet-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.s-sheet-grid a{display:flex;align-items:center;gap:10px;padding:13px 12px;border-radius:12px;background:var(--card2);border:1px solid var(--line);color:var(--fg2)}
+.s-sheet-grid a span{font-weight:500;font-size:13.5px;color:var(--fg)}
+.s-sheet-grid a:active,.s-sheet-big:active{transform:scale(.98)}
+.s-sheet-pro{font-size:12px;color:var(--fg3);padding:10px}
+@media (prefers-reduced-motion: reduce){.s-chest.bump,.s-sheet{animation:none}}
+.s-price{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:2px 2px 12px}
+.s-price-v{font-size:28px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.1}
+.s-price-s{font-size:12.5px;color:var(--fg3);margin-top:4px}
+.s-price-own{text-align:right}.s-price-own b{font-size:15px}
+.app.simple .coinhd{flex-wrap:wrap}.app.simple .coinhd .btn.sm{height:30px}
+/* creator rewards */
+.cr-list{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
+.cr-card{padding:14px;display:flex;flex-direction:column;gap:10px}
+.cr-nums{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.cr-nums .l{font-size:10px;color:var(--fg3);text-transform:uppercase;letter-spacing:.08em;font-weight:600;margin-bottom:2px}.cr-nums b{font-size:15px}
+.cr-ladder{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.cr-step{position:relative;border-radius:8px;background:var(--s2);border:1px solid var(--line);padding:8px;overflow:hidden;display:flex;flex-direction:column;gap:1px}
+.cr-step i{position:absolute;left:0;top:0;bottom:0;background:rgba(43,212,106,.12);transition:width .9s cubic-bezier(.2,.8,.2,1)}
+.cr-step span{position:relative;font-weight:600;font-size:13px;font-variant-numeric:tabular-nums}.cr-step small{position:relative;font-size:10.5px;color:var(--fg3)}
+.cr-step.hit{border-color:rgba(43,212,106,.45);background:rgba(43,212,106,.1)}.cr-step.hit small{color:var(--up)}
+.cr-step.next{border-color:var(--line2)}
+@media(max-width:600px){.cr-nums{grid-template-columns:repeat(2,1fr)}}
+
+/* tactile buttons in simple mode: press in, spring back */
+.app.simple button,.app.simple .btn,.app.simple .s-coin,.app.simple .presets button{transition:transform .22s cubic-bezier(.3,1.6,.5,1),background .15s,box-shadow .2s,border-color .15s}
+.app.simple button:active:not(:disabled),.app.simple .btn:active:not(:disabled){transform:scale(.95)}
+.app.simple .btn.pri{background:#86efac;color:#052e16;box-shadow:0 6px 18px rgba(134,239,172,.22)}
+/* area chart */
+.ac{display:flex;flex-direction:column;gap:10px}
+.ac-box{position:relative;touch-action:pan-y;border-radius:var(--sr,14px);overflow:hidden}
+.ac-empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--fg3);font-size:13px;text-align:center;padding:0 24px}
+.ac-chips{display:flex;gap:6px}.ac-chips button{flex:1;height:34px;border-radius:17px;color:var(--fg3);font-size:13px;font-weight:600}.ac-chips button.on{background:var(--s2);color:var(--fg)}
+/* pinned action bar on a coin */
+.s-actbar{display:none}
+@media(max-width:1000px){.app.simple .s-actbar{display:flex;gap:8px;position:fixed;left:14px;right:14px;bottom:calc(12px + env(safe-area-inset-bottom,0));z-index:31}}
+.app.simple .s-actbar{display:flex;gap:8px}
+.act{height:58px;border-radius:29px;font-size:17px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px}
+.act.buy{flex:1;background:#86efac;color:#052e16;box-shadow:0 10px 28px rgba(134,239,172,.3)}
+.act.sell{width:96px;background:#1c1d22;color:var(--fg);border:1px solid rgba(255,255,255,.08)}
+.act.quick{width:76px;background:#1c1d22;color:#86efac;border:1px solid rgba(255,255,255,.08);font-size:14px}
+.act:active{transform:scale(.94)}
+/* trade sheet */
+.s-sheet.trade{gap:12px;padding-bottom:calc(20px + env(safe-area-inset-bottom,0))}
+.ts-hd{display:flex;align-items:center;gap:8px}.ts-hd b{font-size:16px}
+.ts-side{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:6px}.ts-side.buy{background:rgba(134,239,172,.14);color:#86efac}.ts-side.sell{background:rgba(251,113,133,.14);color:#fb7185}
+.ts-amt{font-size:52px;font-weight:700;letter-spacing:-.03em;text-align:center;line-height:1.05;margin-top:6px;animation:amtPop .32s cubic-bezier(.3,1.6,.5,1)}
+@keyframes amtPop{0%{transform:scale(.94)}100%{transform:scale(1)}}
+.ts-sub{text-align:center;color:var(--fg3);font-size:13.5px;margin-top:-4px}
+.ts-chips{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:4px}
+.ts-chips button{height:46px;border-radius:23px;background:var(--s2);border:1px solid var(--line);font-size:15px;font-weight:600;color:var(--fg)}
+.ts-chips button.on{background:rgba(134,239,172,.12);border-color:rgba(134,239,172,.5);color:#86efac;animation:amtPop .28s cubic-bezier(.3,1.6,.5,1)}
+.ts-custom{display:flex;align-items:center;justify-content:center;gap:8px;font-size:12.5px;color:var(--fg3)}
+.ts-custom input{width:84px;height:32px;border-radius:16px;background:var(--s2);border:1px solid var(--line2);color:var(--fg);text-align:center;font:inherit;font-weight:600}
+.ts-warn{font-size:12.5px;color:#fbbf24;text-align:center}
+.ts-foot{font-size:11.5px;color:var(--fg4,rgba(255,255,255,.34));text-align:center}
+.ts-done{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;padding:12px 4px 4px}
+.ts-check{color:#86efac;animation:checkIn .5s cubic-bezier(.3,1.6,.5,1)}.ts-check path{stroke-dasharray:40;stroke-dashoffset:40;animation:draw .45s .15s ease-out forwards}
+@keyframes checkIn{0%{transform:scale(.6);opacity:0}100%{transform:scale(1);opacity:1}}@keyframes draw{to{stroke-dashoffset:0}}
+.ts-done-t{font-size:20px;font-weight:700}
+.ts-done .btn{width:100%}
+/* slide to confirm */
+.slide{position:relative;height:58px;border-radius:29px;background:#1c1d22;border:1px solid rgba(255,255,255,.08);overflow:hidden;user-select:none;touch-action:none}
+.slide-fill{position:absolute;left:0;top:0;bottom:0;border-radius:29px;background:rgba(134,239,172,.18)}
+.slide.sell .slide-fill{background:rgba(251,113,133,.18)}
+.slide-lbl{position:absolute;inset:0;display:grid;place-items:center;font-weight:600;font-size:15px;color:var(--fg2);pointer-events:none;padding-left:40px}
+.slide-knob{position:absolute;left:3px;top:3px;width:50px;height:50px;border-radius:50%;display:grid;place-items:center;background:#86efac;color:#052e16;box-shadow:0 4px 14px rgba(134,239,172,.35);cursor:grab;transition:transform .35s cubic-bezier(.3,1.6,.5,1)}
+.slide.sell .slide-knob{background:#fb7185;color:#2a0a10;box-shadow:0 4px 14px rgba(251,113,133,.35)}
+.slide-knob.drag{transition:none;cursor:grabbing}
+.slide.off{opacity:.45}.slide.off .slide-knob{cursor:not-allowed}
+.slide.sending{display:grid;place-items:center}.slide.sending .slide-lbl{padding-left:0}
+.slide-spin{position:absolute;right:20px;top:19px;width:18px;height:18px;border-radius:50%;border:2px solid rgba(134,239,172,.25);border-top-color:#86efac;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){.ts-amt,.ts-chips button.on,.ts-check,.ts-check path,.slide-knob{animation:none!important;transition:none!important}.ts-check path{stroke-dashoffset:0}}
+.s-back{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;color:var(--fg);background:var(--s2);margin-right:2px;flex:none}
+/* ===== BANKER vault identity for simple mode: gold is the hero, green means up ===== */
+.app.simple{--gold1:#ffe08a;--gold2:#f5c451;--gold3:#c9952b;--ink:#1a1204}
+/* gold CTA with a light sweep */
+.app.simple .btn.pri,.act.buy,.s-buy-sm,.slide-knob,.s-sheet-big{background:linear-gradient(180deg,var(--gold1),var(--gold2) 55%,var(--gold3))!important;color:var(--ink)!important;box-shadow:0 1px 0 rgba(255,255,255,.55) inset,0 -2px 0 rgba(0,0,0,.18) inset,0 10px 26px rgba(245,196,81,.28)!important}
+.act.buy,.app.simple .btn.pri{position:relative;overflow:hidden}
+.act-shine,.app.simple .btn.pri::after{content:"";position:absolute;top:0;bottom:0;width:40%;left:-60%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.55),transparent);transform:skewX(-18deg);animation:sweep 3.2s ease-in-out infinite;pointer-events:none}
+@keyframes sweep{0%,55%{left:-60%}85%,100%{left:130%}}
+.act.quick{color:var(--gold2)!important}
+.act.buy:active,.app.simple .btn.pri:active{transform:scale(.93) translateY(1px)!important;box-shadow:0 1px 0 rgba(255,255,255,.4) inset,0 4px 12px rgba(245,196,81,.25)!important}
+/* center nav: a gold coin that flips when you tap it */
+.app.simple .s-center-btn{background:radial-gradient(circle at 35% 30%,var(--gold1),var(--gold2) 50%,var(--gold3))!important;color:var(--ink)!important;box-shadow:0 0 0 3px rgba(245,196,81,.18),0 8px 22px rgba(245,196,81,.35)!important;perspective:400px}
+.coin-face{display:grid;place-items:center;transition:transform .6s cubic-bezier(.3,1.4,.5,1)}
+.s-center:active .coin-face,.s-center.on .coin-face{transform:rotateY(360deg)}
+.s-center.on .s-center-btn{animation:coinGlow 2.8s ease-in-out infinite}
+@keyframes coinGlow{0%,100%{box-shadow:0 0 0 3px rgba(245,196,81,.18),0 8px 22px rgba(245,196,81,.35)}50%{box-shadow:0 0 0 7px rgba(245,196,81,.1),0 10px 30px rgba(245,196,81,.55)}}
+.app.simple .s-tab.on svg{color:var(--gold2)}
+/* lists cascade in */
+.app.simple .s-coin{animation:rise .5s cubic-bezier(.2,.9,.3,1.2) both}
+.app.simple .s-coin:nth-child(2){animation-delay:.04s}.app.simple .s-coin:nth-child(3){animation-delay:.08s}.app.simple .s-coin:nth-child(4){animation-delay:.12s}.app.simple .s-coin:nth-child(5){animation-delay:.16s}.app.simple .s-coin:nth-child(6){animation-delay:.2s}.app.simple .s-coin:nth-child(n+7){animation-delay:.24s}
+@keyframes rise{0%{opacity:0;transform:translateY(14px) scale(.98)}100%{opacity:1;transform:none}}
+.app.simple .s-hero,.app.simple .prog,.app.simple .s-card{animation:rise .55s cubic-bezier(.2,.9,.3,1.2) both}
+/* hero: slow gold aura */
+.app.simple .s-hero{position:relative;overflow:hidden;background:radial-gradient(120% 140% at 100% 0%,rgba(245,196,81,.16),transparent 55%),var(--card)}
+.app.simple .s-hero::before{content:"";position:absolute;inset:-40%;background:conic-gradient(from 0deg,transparent,rgba(245,196,81,.08),transparent 30%);animation:aura 9s linear infinite;pointer-events:none}
+@keyframes aura{to{transform:rotate(360deg)}}
+.app.simple .s-hero-v{background:linear-gradient(180deg,#fff,#ffe9b0);-webkit-background-clip:text;background-clip:text;color:transparent}
+/* progress: gold, striped, glowing */
+.app.simple .prog-bar i,.app.simple .s-meter i,.app.simple .s-mini-bar i,.app.simple .prog-fill i{background:linear-gradient(90deg,var(--gold3),var(--gold2),var(--gold1))!important;box-shadow:0 0 12px rgba(245,196,81,.45)}
+.app.simple .prog-bar i{background-image:repeating-linear-gradient(-45deg,rgba(255,255,255,.18) 0 8px,transparent 8px 16px),linear-gradient(90deg,var(--gold3),var(--gold2),var(--gold1))!important;background-size:22px 22px,100% 100%;animation:stripes 1s linear infinite}
+@keyframes stripes{to{background-position:22px 0,0 0}}
+.app.simple .prog-steps .hit{color:var(--gold2)}.app.simple .prog-steps .hit::before{background:var(--gold2);box-shadow:0 0 6px var(--gold2)}
+/* chest mark breathes; bumps hard when it grows */
+.app.simple .s-chest{animation:breathe 3.4s ease-in-out infinite}
+@keyframes breathe{0%,100%{box-shadow:0 0 0 0 rgba(245,196,81,0)}50%{box-shadow:0 0 18px 0 rgba(245,196,81,.25)}}
+.app.simple .s-chest.bump{animation:chestBump .9s cubic-bezier(.3,1.7,.5,1)}
+@keyframes chestBump{0%{transform:scale(1)}30%{transform:scale(1.18) rotate(-6deg)}60%{transform:scale(.96) rotate(3deg)}100%{transform:scale(1)}}
+/* sheet: amount slams in, chips bounce */
+.app.simple .ts-amt{background:linear-gradient(180deg,#fff,#ffe9b0);-webkit-background-clip:text;background-clip:text;color:transparent;animation:slam .42s cubic-bezier(.3,1.8,.5,1)}
+@keyframes slam{0%{transform:scale(.8) translateY(6px);filter:blur(2px)}100%{transform:none;filter:none}}
+.app.simple .ts-chips button.on{background:rgba(245,196,81,.14);border-color:rgba(245,196,81,.6);color:var(--gold1);box-shadow:0 0 16px rgba(245,196,81,.2)}
+.app.simple .ts-side.buy{background:rgba(245,196,81,.14);color:var(--gold2)}
+/* slide to buy: arrows chase toward the end, the track fills gold */
+.app.simple .slide-fill{background:linear-gradient(90deg,rgba(245,196,81,.08),rgba(245,196,81,.32))}
+.app.simple .slide-lbl{color:var(--fg)}
+.app.simple .slide:not(.off):not(.sending) .slide-lbl::after{content:"›››";margin-left:10px;letter-spacing:2px;color:var(--gold2);animation:chase 1.2s ease-in-out infinite}
+@keyframes chase{0%{opacity:.2;transform:translateX(-4px)}50%{opacity:1}100%{opacity:.2;transform:translateX(6px)}}
+.app.simple .slide-knob{box-shadow:0 0 0 4px rgba(245,196,81,.14),0 6px 18px rgba(245,196,81,.45)!important}
+/* success: rings pulse out of the check */
+.ts-vault{position:relative;display:grid;place-items:center;width:120px;height:120px}
+.ts-vault .ts-check{color:var(--gold2);position:relative;z-index:1}
+.ts-ring{position:absolute;inset:20px;border-radius:50%;border:2px solid rgba(245,196,81,.6);animation:ring 1.4s ease-out infinite}.ts-ring.r2{animation-delay:.45s}
+@keyframes ring{0%{transform:scale(.6);opacity:1}100%{transform:scale(1.6);opacity:0}}
+.app.simple .ts-done-t{font-size:22px;background:linear-gradient(180deg,#fff,#ffe9b0);-webkit-background-clip:text;background-clip:text;color:transparent}
+/* coin particles */
+.fx-layer{position:fixed;inset:0;pointer-events:none;z-index:999;overflow:hidden}
+.fx-coin,.fx-rain{position:absolute;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff6cf,#f5c451 45%,#b98320);box-shadow:inset 0 0 0 2px rgba(122,85,18,.55),0 2px 6px rgba(0,0,0,.35)}
+.fx-coin{animation:pop 1.1s cubic-bezier(.2,.7,.3,1) forwards;transform:scale(var(--s))}
+@keyframes pop{0%{transform:translate(0,0) scale(var(--s)) rotate(0);opacity:1}45%{transform:translate(var(--dx),var(--dy)) scale(var(--s)) rotate(calc(var(--r) * .5));opacity:1}100%{transform:translate(var(--dx),calc(var(--dy) + var(--fall))) scale(var(--s)) rotate(var(--r));opacity:0}}
+.fx-rain{top:-20px;animation-name:rain;animation-timing-function:cubic-bezier(.4,.1,.8,.7);animation-fill-mode:forwards}
+@keyframes rain{0%{transform:translate(0,0) scale(var(--s)) rotate(0);opacity:1}85%{opacity:1}100%{transform:translate(var(--x),calc(100vh + 40px)) scale(var(--s)) rotate(var(--r));opacity:0}}
+@media (prefers-reduced-motion: reduce){.app.simple *{animation:none!important}.fx-layer{display:none}}
+.ac-empty{pointer-events:none}
+@media(max-width:1000px){.app.simple .s-actbar{z-index:45}}
+/* ===== ARENA skin (simple mode default): chunky, beveled, game-like — sized like a real app, not a toy ===== */
+.app.simple.arena{--g1:#5cf08a;--g2:#22b14c;--gL:#0f6b2e;--gO:#0d3d1f;--y1:#ffe27a;--y2:#f2a91d;--yL:#a8650b;--yO:#5c3805;--b1:#6cb4ff;--b2:#2f6fe0;--bL:#1d4aa8;--bO:#0e2a5c;--d1:#2a3142;--d2:#1d2230;--dL:#10131b;--panel:#141823;--edge:#262d3c}
+.app.simple.arena .main{font-family:Geist,system-ui,sans-serif}
+.app.simple.arena .s-title,.app.simple.arena .s-hero-v,.app.simple.arena .s-big,.app.simple.arena .ts-amt,.app.simple.arena .s-price-v,.app.simple.arena .s-lv,.app.simple.arena .act,.app.simple.arena .ts-done-t,.app.simple.arena .s-buy-sm,.app.simple.arena .s-coin-name,.app.simple.arena .btn.big,.app.simple.arena .ts-chips button,.app.simple.arena .s-sec{font-family:'Lilita One',Geist,system-ui,sans-serif;font-weight:400;letter-spacing:.01em}
+/* bevel recipe: gradient face, dark outline, light inner top edge, a solid lip underneath; pressing sinks into the lip */
+.app.simple.arena .bev,.app.simple.arena .act,.app.simple.arena .s-buy-sm,.app.simple.arena .btn.pri,.app.simple.arena .ts-chips button,.app.simple.arena .s-sheet-big,.app.simple.arena .slide-knob,.app.simple.arena .s-center-btn{border:2px solid var(--o)!important;background:linear-gradient(180deg,var(--c1),var(--c2))!important;box-shadow:inset 0 2px 0 rgba(255,255,255,.42),inset 0 -3px 0 rgba(0,0,0,.18),0 4px 0 var(--l),0 8px 16px rgba(0,0,0,.35)!important;color:#fff!important;text-shadow:0 2px 0 var(--o);transition:transform .12s ease-out,box-shadow .12s ease-out!important}
+.app.simple.arena .act:active,.app.simple.arena .s-buy-sm:active,.app.simple.arena .btn.pri:active,.app.simple.arena .ts-chips button:active,.app.simple.arena .s-sheet-big:active{transform:translateY(4px)!important;box-shadow:inset 0 2px 0 rgba(255,255,255,.35),inset 0 -2px 0 rgba(0,0,0,.18),0 0 0 var(--l),0 3px 8px rgba(0,0,0,.3)!important}
+.app.simple.arena .act.buy,.app.simple.arena .s-buy-sm,.app.simple.arena .btn.pri,.app.simple.arena .slide-knob{--c1:var(--g1);--c2:var(--g2);--l:var(--gL);--o:var(--gO)}
+.app.simple.arena .act.sell{--c1:#ff7a8a;--c2:#e0344d;--l:#9c1f33;--o:#4d0b16}
+.app.simple.arena .act.quick,.app.simple.arena .s-sheet-big{--c1:var(--y1);--c2:var(--y2);--l:var(--yL);--o:var(--yO)}
+.app.simple.arena .ts-chips button{--c1:var(--d1);--c2:var(--d2);--l:var(--dL);--o:#07090d}
+.app.simple.arena .ts-chips button.on{--c1:var(--b1);--c2:var(--b2);--l:var(--bL);--o:var(--bO);animation:none}
+.app.simple.arena .s-center-btn{--c1:var(--y1);--c2:var(--y2);--l:var(--yL);--o:var(--yO);color:var(--yO)!important;text-shadow:none}
+.app.simple.arena .act{height:54px;border-radius:16px;font-size:20px}
+.app.simple.arena .act.quick{font-size:16px;color:#fff!important}
+.app.simple.arena .act-shine{display:none}
+.app.simple.arena .s-buy-sm{border-radius:12px;padding:6px 14px;font-size:15px}
+.app.simple.arena .btn.pri{border-radius:14px}.app.simple.arena .btn.pri::after{display:none}
+.app.simple.arena .btn.big{height:52px;font-size:18px}
+.app.simple.arena .ts-chips button{height:46px;border-radius:14px;font-size:18px}
+.app.simple.arena .s-sheet-big{border-radius:16px;color:#fff!important}.app.simple.arena .s-sheet-big b{font-family:'Lilita One',Geist,sans-serif;font-weight:400;font-size:18px}.app.simple.arena .s-sheet-big small{color:#fff;opacity:.9;text-shadow:none}
+/* card frames */
+.app.simple.arena .s-coin,.app.simple.arena .s-card,.app.simple.arena .prog,.app.simple.arena .s-hero{background:linear-gradient(180deg,#1b2130,#141823)!important;border:2px solid var(--edge)!important;border-radius:18px!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 3px 0 #0b0e14}
+.app.simple.arena .s-coin:active{transform:translateY(2px)}
+.app.simple.arena .s-coin .pfp.lg{border:2px solid #07090d;box-shadow:0 2px 0 #07090d}
+.app.simple.arena .s-coin-name{font-size:17px}
+.app.simple.arena .s-hero::before{display:none}
+.app.simple.arena .s-hero{background:radial-gradient(130% 120% at 100% 0%,rgba(242,169,29,.18),transparent 55%),linear-gradient(180deg,#1b2130,#141823)!important}
+.app.simple.arena .s-hero-v{font-size:34px;background:none;color:#fff;-webkit-text-fill-color:#fff;text-shadow:0 3px 0 #07090d}
+.app.simple.arena .s-hero-v span{font-family:Geist,sans-serif;text-shadow:none;-webkit-text-fill-color:var(--fg3)}
+.app.simple.arena .s-sec{font-size:16px;text-transform:none;letter-spacing:.01em;color:#fff;text-shadow:0 2px 0 #07090d}
+.app.simple.arena .s-title{font-size:26px;text-shadow:0 3px 0 #07090d}
+/* badges: outlined pills */
+.app.simple.arena .s-badge{border:1.5px solid currentColor;border-radius:8px;padding:1px 6px;font-weight:700}
+.app.simple.arena .s-badge.chest{color:var(--y1);background:rgba(242,169,29,.14)}
+/* change pills */
+.app.simple.arena .s-chg{font-weight:800;padding:2px 8px;border-radius:8px;border:1.5px solid currentColor}
+.app.simple.arena .s-chg.up{color:#6ff59a;background:rgba(34,177,76,.14)}.app.simple.arena .s-chg.dn{color:#ff8a98;background:rgba(224,52,77,.14)}
+/* progress: an elixir-style bar — outlined trough, glossy gold fill, segment ticks */
+.app.simple.arena .prog-bar,.app.simple.arena .s-meter{height:16px;background:#0b0d12;border:2px solid #07090d;box-shadow:inset 0 2px 0 rgba(0,0,0,.5),0 1px 0 rgba(255,255,255,.06);border-radius:10px;position:relative}
+.app.simple.arena .prog-bar i,.app.simple.arena .s-meter i{background:linear-gradient(180deg,#fff3b0 0,var(--y1) 40%,var(--y2) 41%,#d98b10)!important;box-shadow:none!important;border-radius:7px;animation:none}
+.app.simple.arena .prog-bar::after,.app.simple.arena .s-meter::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 calc(10% - 2px),rgba(7,9,13,.55) calc(10% - 2px) 10%);border-radius:8px;pointer-events:none}
+.app.simple.arena .prog-bar i::after{display:none}
+.app.simple.arena .s-mini-bar{height:7px;border:1.5px solid #07090d;background:#0b0d12}
+/* chest tile: chunky gold frame */
+.app.simple.arena .s-chest{background:linear-gradient(180deg,#3a2b12,#22190b);border:2px solid var(--yO);box-shadow:inset 0 2px 0 rgba(255,226,122,.25),0 3px 0 #120c03;color:var(--y1)}
+.app.simple.arena .s-chest i{background:linear-gradient(180deg,rgba(255,226,122,.35),rgba(242,169,29,.25))}
+/* level badge: a gold shield */
+.app.simple.arena .s-lv{--c1:var(--y1);--c2:var(--y2);--l:var(--yL);--o:var(--yO);border:2px solid var(--o);background:linear-gradient(180deg,var(--c1),var(--c2));box-shadow:inset 0 2px 0 rgba(255,255,255,.45),0 3px 0 var(--l);color:#fff;text-shadow:0 2px 0 var(--o);font-size:22px;border-radius:12px}
+/* nav: chunky capsule, raised gold coin in the middle */
+@media(max-width:1000px){.app.simple.arena .s-nav{background:linear-gradient(180deg,#1d2230,#141823);border:2px solid #07090d;box-shadow:inset 0 2px 0 rgba(255,255,255,.07),0 4px 0 #07090d,0 12px 28px rgba(0,0,0,.55);height:64px;border-radius:22px}}
+.app.simple.arena .s-tab{border-radius:14px;margin:0 2px}
+.app.simple.arena .s-tab.on{background:linear-gradient(180deg,#2c3447,#222838);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 2px 0 #0b0e14}
+.app.simple.arena .s-tab.on svg{color:var(--y1)}
+.app.simple.arena .s-center{transform:translateY(-14px)}
+.app.simple.arena .s-center-btn{width:60px;height:60px;border-radius:50%}
+.app.simple.arena .s-center.on .s-center-btn{animation:none}
+/* sheet */
+.app.simple.arena .s-sheet{background:linear-gradient(180deg,#1a1f2b,#11141c);border:2px solid #07090d;border-bottom:0}
+.app.simple.arena .ts-amt{font-size:56px;background:none;color:#fff;-webkit-text-fill-color:#fff;text-shadow:0 4px 0 #07090d}
+.app.simple.arena .ts-side.buy{background:var(--g2);color:#fff;text-shadow:0 1px 0 var(--gO);border:1.5px solid var(--gO)}
+.app.simple.arena .slide{height:58px;border-radius:18px;background:#0b0d12;border:2px solid #07090d;box-shadow:inset 0 3px 0 rgba(0,0,0,.5)}
+.app.simple.arena .slide-fill{border-radius:16px;background:linear-gradient(90deg,rgba(34,177,76,.15),rgba(92,240,138,.4))}
+.app.simple.arena .slide-knob{border-radius:14px;width:52px;height:48px;top:3px;left:3px}
+.app.simple.arena .slide-lbl{font-family:'Lilita One',Geist,sans-serif;font-size:18px;color:#fff;text-shadow:0 2px 0 #07090d}
+.app.simple.arena .slide:not(.off):not(.sending) .slide-lbl::after{color:var(--g1)}
+.app.simple.arena .ts-vault .ts-check{color:var(--g1)}.app.simple.arena .ts-ring{border-color:rgba(92,240,138,.6)}
+.app.simple.arena .ts-done-t{background:none;color:#fff;-webkit-text-fill-color:#fff;text-shadow:0 3px 0 #07090d;font-size:24px}
+.app.simple.arena .s-trust{background:rgba(34,177,76,.08);border:1.5px solid rgba(34,177,76,.35);border-radius:12px;padding:8px 12px;color:#cfe9d6}
+.app.simple.arena .s-check .s-dot{border:1.5px solid currentColor;border-radius:7px}
+.app.simple.arena .s-price-v{font-size:32px;text-shadow:0 3px 0 #07090d}
+.s-sheet-bg{z-index:50!important}
+.app.simple .coinhd{flex-wrap:nowrap}
+.s-star{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;font-size:20px;color:var(--fg3);background:var(--s2);flex:none;margin-left:auto}
+.s-star.on{color:var(--y1,#ffe27a)}
+.app.simple.arena .s-star,.app.simple.arena .s-back{border:2px solid #07090d;background:linear-gradient(180deg,#2a3142,#1d2230);box-shadow:inset 0 2px 0 rgba(255,255,255,.1),0 3px 0 #07090d}
+.app.simple.arena .top .btn:not(.pri){border:2px solid #07090d;background:linear-gradient(180deg,#2a3142,#1d2230);box-shadow:inset 0 2px 0 rgba(255,255,255,.1),0 3px 0 #07090d;border-radius:12px;font-weight:700}
+.app.simple.arena .top .btn.pri{--c1:#5cf08a;--c2:#22b14c;--l:#0f6b2e;--o:#0d3d1f;font-family:'Lilita One',Geist,sans-serif;font-weight:400;font-size:16px}
+.s-lvup{position:fixed;left:16px;right:16px;top:calc(64px + env(safe-area-inset-top,0));z-index:60;display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:16px;background:linear-gradient(180deg,#2b2412,#1a150a);border:2px solid #5c3805;box-shadow:0 4px 0 #120c03,0 16px 40px rgba(0,0,0,.5);animation:lvIn .6s cubic-bezier(.3,1.7,.5,1)}
+.s-lvup b{font-family:'Lilita One',Geist,sans-serif;font-weight:400;font-size:18px;color:#ffe27a;text-shadow:0 2px 0 #07090d}
+@keyframes lvIn{0%{transform:translateY(-30px) scale(.9);opacity:0}100%{transform:none;opacity:1}}
+.app.simple .main{overflow-x:hidden}
+.app.simple .coinhd>div{min-width:0;flex:1}
+.app.simple .coinhd h1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.app.simple .coinhd h1 .nm{display:none}
+.app.simple .coinhd .meta{flex-wrap:wrap;gap:6px}
+.app.simple .slide-lbl{white-space:nowrap}
+.app.simple .s-price{min-width:0}.app.simple .s-price>div:first-child{min-width:0}
+/* phones zoom into any input under 16px (iOS Safari, Chrome Android): keep every field at 16px on small screens */
+@media(max-width:1000px){input,select,textarea{font-size:16px!important}}
+.app.simple .coinhd .meta>*{white-space:nowrap}
+/* phones: the top bar must never be wider than the screen (a connected wallet made it 441px on a 390px phone) */
+@media(max-width:1000px){
+  html,body{overflow-x:hidden;max-width:100%}
+  .top{min-width:0;overflow:hidden}
+  .top .btn{min-width:0;flex-shrink:1;white-space:nowrap}
+  .top .btn .dim,.top .btn .tag{display:none}
+  .toasts{left:8px!important;right:8px!important;max-width:calc(100vw - 16px)}
+  .toasts>*{max-width:100%;overflow:hidden}
+}

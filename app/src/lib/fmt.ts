@@ -12,3 +12,9 @@ export const ago = (ms: number) => {
 }
 export const LAMPORTS = 1e9
 export const SOL_MINT = 'So11111111111111111111111111111111111111112'
+
+/** a dollar price people can read: $0.0016, $0.00000080 — never 8.0e-7 */
+export const px = (n: number) => { if (!n || !isFinite(n)) return '—'; if (n >= 1) return '$' + n.toFixed(2); const z = Math.max(0, -Math.floor(Math.log10(n)) - 1); return '$' + n.toFixed(Math.min(12, z + 2)) }
+
+/** dollars with thousands separators: money(1600) → "1,600.00"; d = decimals */
+export const money = (n: number, d = 2) => (n == null || !isFinite(n) ? '—' : (+n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }))

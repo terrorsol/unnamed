@@ -49,7 +49,7 @@ export function classify(f: Feat): Signal {
   return { label, score: run, reasons, risk }
 }
 /** the label as a person would say it (the uppercase key stays for logic) */
-export const labelText = (l: Label | string) => ({ RUNNER: '🔥 running', HEALTHY: 'healthy', COOLING: 'cooling off', CRASHING: 'dropping fast', BUNDLED: 'insider risk', 'RUG RISK': 'rug risk', DEAD: 'dead' } as Record<string, string>)[l] || String(l).toLowerCase()
+export const labelText = (l: Label | string) => ({ RUNNER: 'running', HEALTHY: 'healthy', COOLING: 'cooling off', CRASHING: 'dropping fast', BUNDLED: 'insider risk', 'RUG RISK': 'rug risk', DEAD: 'dead' } as Record<string, string>)[l] || String(l).toLowerCase()
 export const labelTone = (l: Label) => (l === 'RUNNER' ? 'live' : l === 'HEALTHY' ? '' : l === 'COOLING' ? '' : 'pre')
 /** Build features from a DexScreener Coin (+ optional rug check) */
 export function featsFromCoin(c: any, rug?: { top1Pct: number; top10Pct: number; mintAuthority: boolean; freezeAuthority: boolean } | null, vault = false): Feat {

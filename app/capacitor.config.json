@@ -1,0 +1,17 @@
+{
+  "appId": "cash.banker.app",
+  "appName": "BANKER",
+  "webDir": "dist",
+  "backgroundColor": "#000000",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#000000",
+    "scheme": "BANKER",
+    "limitsNavigationsToAppBoundDomains": false
+  },
+  "android": { "backgroundColor": "#000000" },
+  "plugins": {
+    "SplashScreen": { "launchShowDuration": 1200, "launchAutoHide": false, "backgroundColor": "#000000", "showSpinner": false },
+    "StatusBar": { "style": "DARK", "overlaysWebView": true, "backgroundColor": "#00000000" }
+  }
+}

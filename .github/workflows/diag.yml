@@ -5,8 +5,7 @@ on:
       mint: { description: 'mint', required: true, default: '7aAZbX5PsauTJmbsxm7Ab2j9UTP5K5mTYm8qcd7BANK' }
       owner: { description: 'holder wallet', required: true, default: 'HuZGx4k41dCPuXR4PnBNdHNXJ4WzbUnDxo9wvU3VpXAY' }
       script: { description: 'sell | create', required: false, default: 'sell' }
-      sell_bps: { description: 'create: share of supply on the curve, bps', required: false, default: '7250' }
-      raise_sol: { description: 'create: SOL raised before graduation', required: false, default: '265' }
+      raise_sol: { description: 'create: SOL raised before graduation', required: false, default: '200' }
 permissions:
   contents: write
 jobs:
@@ -27,7 +26,7 @@ jobs:
           VAULT_SECRET: ${{ secrets.VAULT_SECRET || 'dev-only-secret-change-me' }}
         run: |
           if [ "${{ github.event.inputs.script }}" = "create" ]; then
-            (node --experimental-strip-types scripts/simcreate.ts > diag.txt 2>&1; LL_SELL_BPS=${{ github.event.inputs.sell_bps }} LL_RAISE_SOL=${{ github.event.inputs.raise_sol }} node --experimental-strip-types scripts/simcreate.ts >> diag.txt 2>&1) || true
+            (node --experimental-strip-types scripts/simcreate.ts > diag.txt 2>&1; LL_RAISE_SOL=${{ github.event.inputs.raise_sol }} node --experimental-strip-types scripts/simcreate.ts >> diag.txt 2>&1) || true
           else
             node --experimental-strip-types scripts/simsell.ts "${{ github.event.inputs.mint }}" "${{ github.event.inputs.owner }}" > diag.txt 2>&1 || true
           fi

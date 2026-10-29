@@ -2,11 +2,13 @@ import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { Keypair, PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
 import * as K from './lib/desk'
+import { setLaunchCurve } from './lib/protocol'
 import { DeskPage, VaultPage, MinePage, LeaderboardPage, ImportPage, RfqPing } from './components/Desk'
 import { due, removeOrder, loadOrders } from './lib/orders'
 import { confirmByPolling } from './lib/rpc'
 import WalletPanel from './components/WalletPanel'
 import * as B from './lib/burner'
+import { STORE_SAFE } from './lib/native'
 import { confetti, useRoute, useSettings, useSolPrice, useTrending, useNewTokens, useWalletState, useCoins } from './hooks'
 import Home from './components/Home'
 import CoinPage from './components/CoinPage'
@@ -15,6 +17,7 @@ import Gate from './components/Gate'
 import { Portfolio, SettingsPage, About } from './components/Pages'
 const Simulate = React.lazy(() => import('./components/Simulate'))
 const Compare = React.lazy(() => import('./components/Compare'))
+import { SimpleHome, SimplePortfolio, SimpleNav, SimpleTrending, SimpleChests, Ic } from './components/Simple'
 import { Toasts } from './components/ui'
 import { toast } from './lib/store'
 import * as T from './lib/trade'
@@ -42,6 +45,12 @@ function Tabs({ tabs, sel, go }: { tabs: [string, React.ReactNode][]; sel: strin
 export default function App() {
   const { page, arg, arg2, go } = useRoute()
   const [settings, setSettings] = useSettings()
+  // simple mode: on by default on phones, off on desktop; either can switch it
+  const [phone, setPhone] = useState(() => { try { return matchMedia('(max-width: 1000px)').matches } catch { return false } })
+  useEffect(() => { try { const m = matchMedia('(max-width: 1000px)'); const f = () => setPhone(m.matches); m.addEventListener('change', f); return () => m.removeEventListener('change', f) } catch { return } }, [])
+  const simple = settings.simple ?? phone
+  const nav = simple ? NAV.filter(([k]) => k !== 'desk') : NAV
+  const toggleSimple = () => setSettings({ simple: !simple })
   const { connection } = useConnection(); const wallet = useWallet()
   const solPrice = useSolPrice()
   const { coins, err } = useTrending()
@@ -55,7 +64,7 @@ export default function App() {
   const activeKey = useMemo(() => (activeB58 ? new PublicKey(activeB58) : null), [activeB58])
   const ws = useWalletState(activeKey, rk)
   const pendingVault = useRef<{ v: K.VaultPub; dev: string; stake: number; venue: string } | null>(null)
-  const [busy, setBusy] = useState(''); const [launch, setLaunch] = useState(false); const [llp, setLlp] = useState<K.LLPlatform | null>(null); useEffect(() => { K.llPlatform().then(setLlp).catch(() => {}) }, [launch]); const [more, setMore] = useState(false); const [q, setQ] = useState(''); const [results, setResults] = useState<Coin[]>([])
+  const [busy, setBusy] = useState(''); const [launch, setLaunch] = useState(false); const openLaunch = () => { if (STORE_SAFE) { toast({ kind: 'info', title: 'Launch coins on app.banker.cash', rows: [['In the app', 'buy, sell and track coins']] }); return } setLaunch(true) }; const [llp, setLlp] = useState<K.LLPlatform | null>(null); useEffect(() => { K.llPlatform().then(setLlp).catch(() => {}) }, [launch]); const [more, setMore] = useState(false); const [q, setQ] = useState(''); const [results, setResults] = useState<Coin[]>([])
   const [ledgerV, setLedgerV] = useState(0)
   const ledger = useMemo(() => loadLedger(ws.owner), [ws.owner, ledgerV])
   const freshMints = useMemo(() => fresh.list.slice(0, 30).map((t) => t.mint), [fresh.list])
@@ -90,7 +99,7 @@ export default function App() {
   useEffect(() => { if (!deskUp) return; return K.openSwapFeed((sw) => setSwaps((l) => [{ mint: sw.mint, txType: sw.side, sol: sw.sol, tokens: 0, trader: sw.trader, mcapSol: 0, ts: sw.t, sig: sw.sig }, ...l].slice(0, 200))) }, [deskUp])
   // private beta gate: health says whether the server is gated; a stored session is re-checked once, and any 401 from a write re-opens the gate
   const [gated, setGated] = useState<boolean | null>(null)
-  useEffect(() => { const chk = async () => { try { const h = await K.health(); setDeskUp(true); if (!h.gate) { setGated(false); return } const t = K.sessionToken(); if (!t) { setGated(true); return } const r = await K.inviteSession(t).catch(() => ({ ok: false })); if (!r.ok) K.setSessionToken(''); setGated(!r.ok) } catch { setDeskUp(false) } }; chk(); const i = setInterval(() => K.health().then(() => setDeskUp(true)).catch(() => setDeskUp(false)), 30000); const onGate = () => { K.setSessionToken(''); setGated(true) }; K.gateBus.addEventListener('gate', onGate); return () => { clearInterval(i); K.gateBus.removeEventListener('gate', onGate) } }, [])
+  useEffect(() => { const chk = async () => { try { const h = await K.health(); setDeskUp(true); setLaunchCurve((h as any).curve); if (!h.gate) { setGated(false); return } const t = K.sessionToken(); if (!t) { setGated(true); return } const r = await K.inviteSession(t).catch(() => ({ ok: false })); if (!r.ok) K.setSessionToken(''); setGated(!r.ok) } catch { setDeskUp(false) } }; chk(); const i = setInterval(() => K.health().then(() => setDeskUp(true)).catch(() => setDeskUp(false)), 30000); const onGate = () => { K.setSessionToken(''); setGated(true) }; K.gateBus.addEventListener('gate', onGate); return () => { clearInterval(i); K.gateBus.removeEventListener('gate', onGate) } }, [])
   useEffect(() => {
     if (!activeB58 || !deskUp) { setBidder(null); return }
     const sess = K.openBidder(connection, activeB58, signMsg, signLegacy, async (m) => { const c = await D.tokenPairs(m); return c?.raw?.priceNative ? +c.raw.priceNative : 0 }, (e) => {
@@ -251,42 +260,60 @@ export default function App() {
   const onRefund = async (v: K.VaultPub) => { try { setBusy('Refunding stake…'); const r = await K.vaultRefund(v.id, await K.devAuth(signMsg, 'refund', v.id, v.mint || 'none')); setVaultV((n) => n + 1); toast({ kind: 'ok', title: `Stake refunded · ${S(r.sol)} SOL`, rows: [['To', short(ws.owner, 6)], ['Tx', short(r.sig, 6)]], href: solscan(r.sig) }); setTimeout(() => setRk((k) => k + 1), 1500) } catch (e: any) { toast({ kind: 'err', title: 'Refund failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') } }
   sellRef.current = onSell
   const quick = (c: Coin) => { if (!connected) return needWallet(); onBuy(c, settings.quickBuy) }
+  const buyUsd = (c: Coin, usd: number) => { if (!connected) return needWallet(); if (!solPrice) return; onBuy(c, +(usd / solPrice).toFixed(4)) }
   const toggleWatch = (m: string) => setSettings({ watch: settings.watch.includes(m) ? settings.watch.filter((x) => x !== m) : [...settings.watch, m] })
 
   const content = () => {
-    if (page === 'coin' && arg) { const h = ws.tokens.find((t) => t.mint === arg); return <CoinPage mint={arg} coin={byMint[arg]} solPrice={solPrice} holding={h} lot={ledger.lots[arg]} sol={ws.sol} connected={connected} busy={busy} onBuy={onBuy} onSell={onSell} needWallet={needWallet} quickSol={settings.quickBuy} watch={settings.watch} toggleWatch={toggleWatch} trades={allTrades} subscribe={fresh.subscribe} desk={{ owner: ws.owner, connected, bidder, deskUp, busy, takeBid, takeAsk, holdingUi: h?.amount || 0, solPrice }} deskTick={deskTick} vaultV={vaultV} onRenounce={renounce} onRedeem={onRedeem} onDeposit={onDeposit} onMode={onMode} onSwitch={onSwitch} go={go} ordersV={ordersV} bumpOrders={() => setOrdersV((v) => v + 1)} fills={ledger.fills} /> }
+    if (page === 'coin' && arg) { const h = ws.tokens.find((t) => t.mint === arg); return <CoinPage simple={simple} mint={arg} coin={byMint[arg]} solPrice={solPrice} holding={h} lot={ledger.lots[arg]} sol={ws.sol} connected={connected} busy={busy} onBuy={onBuy} onSell={onSell} needWallet={needWallet} quickSol={settings.quickBuy} watch={settings.watch} toggleWatch={toggleWatch} trades={allTrades} subscribe={fresh.subscribe} desk={{ owner: ws.owner, connected, bidder, deskUp, busy, takeBid, takeAsk, holdingUi: h?.amount || 0, solPrice }} deskTick={deskTick} vaultV={vaultV} onRenounce={renounce} onRedeem={onRedeem} onDeposit={onDeposit} onMode={onMode} onSwitch={onSwitch} go={go} ordersV={ordersV} bumpOrders={() => setOrdersV((v) => v + 1)} fills={ledger.fills} /> }
+    if (page === 'trending') return <SimpleTrending coins={coins} vaults={vaultList} solPrice={solPrice} go={go} usd={10} buyUsd={buyUsd} />
+    if (page === 'chests') return <SimpleChests byMint={byMint} vaults={vaultList} solPrice={solPrice} go={go} onLaunch={() => openLaunch()} />
+    if (page === 'portfolio' && simple) return <SimplePortfolio owner={ws.owner || undefined} onConnect={needWallet} sol={ws.sol} tokens={ws.tokens} coins={byMint} lots={ledger.lots} vaults={vaultList} solPrice={solPrice} go={go} />
     if (page === 'portfolio') return <Portfolio onConnect={needWallet} sol={ws.sol} tokens={ws.tokens} coins={byMint} lots={ledger.lots} fills={ledger.fills} solPrice={solPrice} go={go} owner={ws.owner} />
     if (page === 'settings') return <SettingsPage s={settings} set={setSettings} owner={ws.owner || undefined} signTx={ctx()?.sign} conn={connection} />
     if (page === 'about') return <About />
     if (page === 'compare') return <Compare coins={coins} vaults={vaultList} solPrice={solPrice} go={go} />
     if (page === 'docs') return <Tabs tabs={[['How it works', <About />], ['Simulate', <Simulate />], ['Vaulted vs not', <Compare coins={coins} vaults={vaultList} solPrice={solPrice} go={go} />], ['Leaderboard', <LeaderboardPage owner={ws.owner} />]]} sel={arg} go={(t) => go('docs/' + t)} />
     if (page === 'simulate') return <Simulate />
-    if (page === 'vault') return <Tabs tabs={[['Vaults', <VaultPage go={go} solPrice={solPrice} onLaunch={() => setLaunch(true)} />], ['Import', <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={arg2 || ''} needWallet={needWallet} sol={ws.sol} />]]} sel={arg} go={(t) => go('vault/' + t)} />
+    if (page === 'vault') return <Tabs tabs={[['Vaults', <VaultPage go={go} solPrice={solPrice} onLaunch={() => openLaunch()} />], ['Import', <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={arg2 || ''} needWallet={needWallet} sol={ws.sol} />]]} sel={arg} go={(t) => go('vault/' + t)} />
     if (page === 'desk') return <DeskPage go={go} coins={coins} owner={ws.owner} bidder={bidder} />
     if (page === 'import') return <ImportPage owner={ws.owner} connected={connected} busy={busy} onPay={onImport} onCrowd={onCrowd} onContribute={onContribute} go={go} initialMint={arg || ''} needWallet={needWallet} sol={ws.sol} />
-    if (page === 'dev' || page === 'mine') return <MinePage owner={ws.owner} go={go} solPrice={solPrice} onRenounce={renounce} onClaim={onClaim} onArm={onArm} onRefund={onRefund} busy={busy} onConnect={needWallet} onLaunch={() => setLaunch(true)} />
+    if (page === 'dev' || page === 'mine') return <MinePage owner={ws.owner} go={go} solPrice={solPrice} onRenounce={renounce} onClaim={onClaim} onArm={onArm} onRefund={onRefund} busy={busy} onConnect={needWallet} onLaunch={() => openLaunch()} />
     if (page === 'leaderboard') return <LeaderboardPage owner={ws.owner} />
-    return <Home coins={q.trim() ? results : coins} byMint={byMint} vaults={vaultList} solPrice={solPrice} go={go} quick={quick} quickSol={settings.quickBuy} deskUp={deskUp} onLaunch={() => setLaunch(true)} fresh={fresh.list} freshCoins={freshCoins} trades={fresh.trades} live={fresh.live} err={err} watch={settings.watch} />
+    if (simple && !q.trim()) return <SimpleHome coins={coins} byMint={byMint} vaults={vaultList} solPrice={solPrice} go={go} usd={10} buyUsd={buyUsd} />
+    return <Home simple={simple} coins={q.trim() ? results : coins} byMint={byMint} vaults={vaultList} solPrice={solPrice} go={go} quick={quick} quickSol={settings.quickBuy} deskUp={deskUp} onLaunch={() => openLaunch()} fresh={fresh.list} freshCoins={freshCoins} trades={fresh.trades} live={fresh.live} err={err} watch={settings.watch} />
   }
-  return <div className="app">
+  return <div className={'app' + (simple ? ' simple ' + (settings.skin || 'captain') + ' pg-' + (page || 'home') : '')}>
     <div className="top">
       <a className="logo" href="#/"><img src="banker.png" alt="" />BANKER<span>the bank that never closes</span></a>
       <div className="search"><span className="dim">⌕</span><input placeholder="CA or ticker" value={q} onChange={(e) => { setQ(e.target.value); if (page !== 'home') go('') }} /><kbd>/</kbd></div>
       <div className="qb"><span>⚡ Quick buy</span>{[0.1, 0.5, 1, 2].map((v) => <button key={v} className={settings.quickBuy === v ? 'on' : ''} onClick={() => setSettings({ quickBuy: v })}>{v}</button>)}</div>
       <span className="sp" />
-      <button className="btn" onClick={() => setWp(true)}>{connected ? <><span className="num">{ws.sol == null ? '…' : S(ws.sol) + ' SOL'}</span><span className="dim num">{short(activeKey!.toBase58(), 3)}</span>{mode === 'burner' && <span className="tag live">1-CLICK</span>}</> : (mode === 'burner' && B.hasBurner() ? 'Unlock wallet' : 'Connect wallet')}</button>
-      <button className="btn pri" onClick={() => setLaunch(true)}>Launch</button>
+      <button className={'btn wbtn' + (connected ? ' on' : '')} onClick={() => setWp(true)}>{connected ? <><span className="num">{ws.sol == null ? '…' : S(ws.sol) + ' SOL'}</span><span className="dim num">{short(activeKey!.toBase58(), 3)}</span>{mode === 'burner' && <span className="tag live">1-CLICK</span>}</> : (mode === 'burner' && B.hasBurner() ? 'Unlock wallet' : 'Connect wallet')}</button>
+      <button className="btn pri" onClick={() => openLaunch()}>Launch</button>
     </div>
     <div className="body">
-      <nav className="side">{NAV.map(([k, l, d, i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={'nav' + (page === k ? ' on' : '')}><span className="ico">{i}</span><span className="lab"><b>{l}</b><small>{d}</small></span></a>)}
+      <nav className="side">{nav.map(([k, l, d, i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={'nav' + (page === k ? ' on' : '')}><span className="ico">{i}</span><span className="lab"><b>{l}</b><small>{d}</small></span></a>)}
         <div className="cap">More</div>{MORE.map(([k, l]) => <a key={k} href={'#/' + k} className={'nav sub' + ((page + '/' + arg === k || page === k) ? ' on' : '')}><span className="lab"><b>{l}</b></span></a>)}
-        <div className="foot">{deskUp ? 'beta' : <span className="dn">server offline</span>}</div></nav>
+        <button className="btn sm simple-toggle" onClick={toggleSimple} title="Simple hides the pro tools; Pro shows everything">{simple ? 'Simple mode · switch to Pro' : 'Pro mode · switch to Simple'}</button><div className="foot">{deskUp ? 'beta' : <span className="dn">server offline</span>}</div></nav>
       <main className="main">{gated ? <Gate wallet={activeB58} connected={connected} signMsg={signMsg} needWallet={needWallet} onOpen={() => { setGated(false); setVaultV((n) => n + 1) }} /> : <React.Suspense fallback={<div className="empty">…</div>}>{content()}</React.Suspense>}</main>
     </div>
-    <nav className="mnav">{NAV.map(([k, l, , i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={page === k ? 'on' : ''}><b>{i}</b>{l}</a>)}<a href="#" onClick={(e) => { e.preventDefault(); setMore(true) }} className={more ? 'on' : ''}><b>≡</b>More</a></nav>
-    {more && <div className="modal" onClick={() => setMore(false)}><div className="box" onClick={(e) => e.stopPropagation()} style={{ width: 360 }}><h2>More</h2><div className="panel" style={{ gap: 4 }}>
-      <button className="btn pri big" onClick={() => { setMore(false); setLaunch(true) }}>Launch a coin</button>
-      {MORE.map(([k, l]) => <a key={k} href={'#/' + k} className="btn" onClick={() => setMore(false)}>{l}</a>)}</div></div></div>}
+    {simple && page !== 'coin' && <SimpleNav page={page} onMore={() => setMore(true)} moreOn={more} />}
+    <nav className="mnav" style={{ gridTemplateColumns: `repeat(${nav.length + 1},1fr)` }}>{nav.map(([k, l, , i]) => <a key={k} href={'#/' + (k === 'home' ? '' : k)} className={page === k ? 'on' : ''}><b>{i}</b>{l}</a>)}<a href="#" onClick={(e) => { e.preventDefault(); setMore(true) }} className={more ? 'on' : ''}><b>≡</b>More</a></nav>
+    {more && simple && <div className="modal s-sheet-bg" onClick={() => setMore(false)}><div className="s-sheet" onClick={(e) => e.stopPropagation()}>
+      <div className="s-grab" />
+      <button className="s-sheet-big" onClick={() => { setMore(false); openLaunch() }}>{Ic.rocket(22)}<span><b>Launch a coin</b><small>it comes with its own chest</small></span></button>
+      <div className="s-sheet-grid">
+        <a href="#/dev" onClick={() => setMore(false)}>{Ic.user(18)}<span>My launches</span></a>
+        <a href="#/docs" onClick={() => setMore(false)}>{Ic.book(18)}<span>How it works</span></a>
+        <a href="#/settings" onClick={() => setMore(false)}>{Ic.gear(18)}<span>Settings</span></a>
+        <a href="#/leaderboard" onClick={() => setMore(false)}>{Ic.trophy(18)}<span>Leaderboard</span></a>
+      </div>
+      <button className="s-sheet-pro" onClick={() => { toggleSimple(); setMore(false) }}>Switch to Pro mode · charts, desk, all the tools</button>
+    </div></div>}
+    {more && !simple && <div className="modal" onClick={() => setMore(false)}><div className="box" onClick={(e) => e.stopPropagation()} style={{ width: 360 }}><h2>More</h2><div className="panel" style={{ gap: 4 }}>
+      <button className="btn pri big" onClick={() => { setMore(false); openLaunch() }}>Launch a coin</button>
+      {MORE.map(([k, l]) => <a key={k} href={'#/' + k} className="btn" onClick={() => setMore(false)}>{l}</a>)}
+      <button className="btn" onClick={() => { toggleSimple(); setMore(false) }}>{simple ? 'Switch to Pro mode (all the tools)' : 'Switch to Simple mode'}</button></div></div></div>}
     {gateQ && <div className="modal" onClick={() => gateQ.ok(false)}><div className="box" onClick={(e) => e.stopPropagation()} style={{ width: 420 }}>
       <h2>Price moved since you posted</h2>
       <div className="kv"><span>You posted at</span><b className="num">{Number(gateQ.q.anchorPrice).toPrecision(4)} SOL</b></div>

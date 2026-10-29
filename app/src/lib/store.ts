@@ -1,5 +1,5 @@
 // Tiny persisted settings + event bus. No framework state lib needed.
-export type Settings = { rpc: string; slippageBps: number; priorityFeeSol: number; quickBuy: number; watch: string[]; autoFee: boolean; mev: boolean; jitoTipSol: number }
+export type Settings = { rpc: string; slippageBps: number; priorityFeeSol: number; quickBuy: number; watch: string[]; autoFee: boolean; mev: boolean; jitoTipSol: number; simple?: boolean; skin?: 'vault' | 'arena' | 'captain' }
 const KEY = 'unnamed_settings_v2'
 const DEF: Settings = { rpc: 'https://mainnet.helius-rpc.com/?api-key=1372a143-458e-4428-a1f2-aacb1e44bd1a', slippageBps: 1000, priorityFeeSol: 0.0005, quickBuy: 0.1, watch: [], autoFee: true, mev: true, jitoTipSol: 0.001 }
 export function loadSettings(): Settings { try { return { ...DEF, ...(JSON.parse(localStorage.getItem(KEY) || '{}')) } } catch { return { ...DEF } } }

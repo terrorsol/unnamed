@@ -1,5 +1,5 @@
 // Simulate a LaunchLab create (+ small dev buy) on mainnet with the curve from LL_SELL_BPS / LL_RAISE_SOL. Nothing is signed or sent.
-//   LL_SELL_BPS=7250 LL_RAISE_SOL=265 node --experimental-strip-types scripts/simcreate.ts <payer-with-sol>
+//   LL_RAISE_SOL=200 node --experimental-strip-types scripts/simcreate.ts <payer-with-sol>
 import { PublicKey, VersionedTransaction } from '@solana/web3.js'
 import { conn } from '../src/chain.ts'
 import * as L from '../src/launchlab.ts'

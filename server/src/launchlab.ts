@@ -113,12 +113,13 @@ export async function buildLaunch(dev: PublicKey, meta: { name: string; symbol: 
 }
 // default config curve (SDK LaunchpadPoolInitParam): virtual 30.00085 SOL × 1,073,025,605.6 tokens, 793.1M on the curve, 85 SOL raise
 const CURVE_DEFAULT = { virtualA: 1_073_025_605_596_382n, virtualB: 30_000_852_951n, totalSellA: 793_100_000_000_000n, totalFundRaisingB: 85_000_000_000n, supply: 1_000_000_000_000_000n }
-/** Higher-liquidity launches (Float-style: bundling a $20K start costs ~5× a $4K one). LL_SELL_BPS = share of supply on the curve (7250 = 72.5%),
- * LL_RAISE_SOL = SOL raised before graduation (265). Both unset = Raydium's default curve ($4K start, ~$62K graduation at $150 SOL). */
-export const CURVE_CUSTOM = +(process.env.LL_SELL_BPS || 0) > 0 && +(process.env.LL_RAISE_SOL || 0) > 0
+/** Higher-liquidity launches: same coin (1B supply, 79.31% on the curve, same fees, same chest), deeper pool. LL_RAISE_SOL = SOL raised before
+ * graduation (200 → starts ~$10K and graduates ~$145K at $150 SOL, vs ~$4K / ~$62K; buying a given share of supply costs ~2.4× more, so bundling does too).
+ * Unset = Raydium's default curve, exactly as before. LL_SELL_BPS only if the curve share should change too (not recommended: the vault targets assume 79.31%). */
+export const CURVE_CUSTOM = +(process.env.LL_RAISE_SOL || 0) > 0
 function curve() {
   if (!CURVE_CUSTOM) return CURVE_DEFAULT
-  const supply = new BN(CURVE_DEFAULT.supply.toString()), totalSell = supply.muln(Math.round(+process.env.LL_SELL_BPS!)).divn(10000), totalFundRaising = new BN(Math.round(+process.env.LL_RAISE_SOL! * 1e9))
+  const supply = new BN(CURVE_DEFAULT.supply.toString()), totalSell = process.env.LL_SELL_BPS ? supply.muln(Math.round(+process.env.LL_SELL_BPS)).divn(10000) : new BN(CURVE_DEFAULT.totalSellA.toString()), totalFundRaising = new BN(Math.round(+process.env.LL_RAISE_SOL! * 1e9))
   const r: any = (Curve as any).getCurve(0).getInitParam({ supply, totalFundRaising, totalSell, totalLockedAmount: new BN(0), migrateFee: new BN(0) })
   return { virtualA: BigInt(r.a.toString()), virtualB: BigInt(r.b.toString()), totalSellA: BigInt(totalSell.toString()), totalFundRaisingB: BigInt(totalFundRaising.toString()), supply: CURVE_DEFAULT.supply }
 }

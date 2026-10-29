@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import * as K from '../lib/desk'
 import { Live, DeskState } from './ui'
 import { deskEligible } from '../lib/dex'
-import { F, S, ago, short } from '../lib/fmt'
+import { F, S, ago, short, px } from '../lib/fmt'
 import { solscan } from '../lib/rpc'
 
 export type DeskCtx = { owner: string; connected: boolean; bidder: K.BidderSession | null; deskUp: boolean; busy: string; takeBid: (id: string, sol?: number) => Promise<void>; takeAsk?: (id: string, sol?: number) => Promise<void>; holdingUi: number; solPrice: number; onShop?: () => void; needWallet?: () => void }
@@ -203,7 +203,7 @@ export function CoinVault({ mint, v, isDev, onRenounce, solPrice, onMode }: { mi
       <div style={{ fontSize: 15, fontWeight: 600 }}>This coin has a chest{!traded && <span className="tag live" style={{ marginLeft: 8 }}>ON · waiting for trades</span>}</div>
       <div className="nm" style={{ marginTop: 4, fontSize: 12.5, lineHeight: 1.5 }}>A pile of SOL that belongs to everyone holding {v.symbol}. Every trade adds to it. It buys when the price dips, takes profit when it pumps, and nobody can withdraw it.</div>
       <div className="tiles" style={{ marginTop: 10, gridTemplateColumns: v.venue === 'launchlab' ? 'repeat(4,1fr)' : 'repeat(3,1fr)' }}>
-        <div className="tile" title="you can always trade your coins in for your share of the chest"><div className="l">Floor price</div><div className="v num"><Live v={floorUsd}>{floorUsd ? '$' + floorUsd.toPrecision(2) : '—'}</Live></div><div className="s">what the chest pays per {v.symbol} if you cash out</div></div>
+        <div className="tile" title="you can always trade your coins in for your share of the chest"><div className="l">Floor price</div><div className="v num"><Live v={floorUsd}>{floorUsd ? px(floorUsd) : '—'}</Live></div><div className="s">what the chest pays per {v.symbol} if you cash out</div></div>
         <div className="tile"><div className="l">In the chest</div><div className="v num"><Live v={v.chest}>{S(v.chest, 1)} SOL</Live></div><div className="s">${S(v.chest * solPrice, 0)} · nobody can withdraw it</div></div>
         {v.venue === 'launchlab' && <div className="tile"><div className="l">Fees added</div><div className="v num"><Live v={v.taxClaimed || 0}>{S(v.taxClaimed || 0, 3)} SOL</Live></div><div className="s">2% of every trade goes into the chest</div></div>}
         <div className="tile"><div className="l">Last move</div><div className="v" style={{ fontSize: 14 }}>{last ? (last.kind === 'buy' ? 'bought the dip' : last.kind === 'capture' ? 'took profit on a pump' : last.kind === 'bid' ? 'offering to buy big sells' : last.kind === 'redeem' ? 'paid someone cashing out' : 'took profit') : 'watching the price'}</div><div className="s">{last ? ago(last.t) + ' ago' : v.mode === 'mm' ? 'buys dips · takes profit' : 'only defends the floor'}</div></div>
@@ -243,19 +243,19 @@ export function VaultPage({ go, solPrice, onLaunch }: { go: (p: string) => void;
     </div>
     <div className="card"><table><thead><tr><th>Coin</th><th className="r">Mode</th><th className="r">Chest</th><th className="r">Profit taken</th><th className="r">Dips bought</th><th className="r">Floor price</th><th className="r">Last move</th></tr></thead><tbody>
       {(!list || !list.length) && <tr><td colSpan={7} className="empty">{err ? 'Reconnecting…' : 'No chests yet.'}</td></tr>}
-      {list?.map((v) => <tr key={v.id} onClick={() => v.mint && go('coin/' + v.mint)}><td className="tk">{v.symbol || '—'} <span className="nm">{v.mint ? short(v.mint, 4) : ''}</span></td><td className="r"><span className={'tag ' + (v.mode === 'mm' ? 'live' : '')}>{v.mode === 'mm' ? 'PROTECTED' : 'FLOOR ONLY'}</span></td><td className="r num"><Live v={v.chest}>{S(v.chest, 2)} SOL</Live></td><td className="r num">{S(v.score?.captured || 0, 2)}</td><td className="r num">{S((v.score?.deskBought || 0) + (v.score?.dipBought || 0), 2)}</td><td className="r num">{v.floor && solPrice ? '$' + (v.floor * solPrice).toPrecision(2) : '—'}</td><td className="r dim">{v.activity?.[0] ? ago(v.activity[0].t) : '—'}</td></tr>)}
+      {list?.map((v) => <tr key={v.id} onClick={() => v.mint && go('coin/' + v.mint)}><td className="tk">{v.symbol || '—'} <span className="nm">{v.mint ? short(v.mint, 4) : ''}</span></td><td className="r"><span className={'tag ' + (v.mode === 'mm' ? 'live' : '')}>{v.mode === 'mm' ? 'PROTECTED' : 'FLOOR ONLY'}</span></td><td className="r num"><Live v={v.chest}>{S(v.chest, 2)} SOL</Live></td><td className="r num">{S(v.score?.captured || 0, 2)}</td><td className="r num">{S((v.score?.deskBought || 0) + (v.score?.dipBought || 0), 2)}</td><td className="r num">{v.floor && solPrice ? px(v.floor * solPrice) : '—'}</td><td className="r dim">{v.activity?.[0] ? ago(v.activity[0].t) : '—'}</td></tr>)}
     </tbody></table></div>
   </>
 }
 
 /** Burn-to-redeem + family (copies) — rendered inside the Vault tab */
-export function VaultExtras({ mint, v, holdingUi, decimals, connected, busy, onRedeem, go, solPrice, needWallet }: { mint: string; v: K.VaultPub; holdingUi: number; decimals: number; connected: boolean; busy: string; onRedeem: (tokens: number) => void; go: (p: string) => void; solPrice: number; needWallet: () => void }) {
+export function VaultExtras({ mint, v, holdingUi, decimals, connected, busy, onRedeem, go, solPrice, needWallet, simple = false }: { mint: string; v: K.VaultPub; holdingUi: number; decimals: number; connected: boolean; busy: string; onRedeem: (tokens: number) => void; go: (p: string) => void; solPrice: number; needWallet: () => void; simple?: boolean }) {
   const [frac, setFrac] = useState(1); const [fam, setFam] = useState<K.Family | null>(null)
   useEffect(() => { K.family(mint).then(setFam).catch(() => setFam(null)) }, [mint])
   const tokens = holdingUi * frac; const share = tokens / (v.supply || 1e9); const sol = share * v.chest * 0.93
   return <>
     <div className="lbl" style={{ marginTop: 6 }}>Cash out at the floor</div>
-    <div className="lay" style={{ gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+    <div className="lay" style={{ gridTemplateColumns: simple ? '1fr' : '1fr 1fr', gap: 12 }}>
       <div>
         <div className="presets">{[0.25, 0.5, 0.75, 1].map((f) => <button key={f} className={frac === f ? 'on' : ''} onClick={() => setFrac(f)}>{f * 100}%</button>)}</div>
         <div className="kv" style={{ marginTop: 8 }}><span>Trade in</span><b className="num">{tokens.toLocaleString(undefined, { maximumFractionDigits: 0 })} {v.symbol}</b></div>
@@ -265,14 +265,35 @@ export function VaultExtras({ mint, v, holdingUi, decimals, connected, busy, onR
       </div>
       <div className="nm">Works even if nobody is buying: your coins go back to the chest and you get your share of its SOL, minus a 7% fee. One tap.</div>
     </div>
+    {!simple && <>
     <div className="lbl" style={{ marginTop: 10 }}>Copycats {v.copyOf ? <span className="tag">THIS IS A COPY</span> : <span className="tag live">ORIGINAL</span>}</div>
     {fam && Array.isArray(fam.members) && fam.members.length > 1 ? <div className="card"><table><thead><tr><th>Coin</th><th className="r">Value</th><th className="r">Traded 1h</th><th className="r">Score</th><th className="r"></th></tr></thead><tbody>
       {fam.members.map((m) => <tr key={m.mint} onClick={() => go('coin/' + m.mint)}><td className="tk">{m.symbol} {m.original && <span className="tag">ORIGINAL</span>} {m.leader && <span className="tag live">LEADER</span>}</td><td className="r num">{F(m.mcapUsd)}</td><td className="r num">{F(m.vol1h)}</td><td className="r num dim">{m.score ? m.score.toExponential(2) : '0'}</td><td className="r dim">{m.vault ? 'vault' : ''}</td></tr>)}
     </tbody></table></div> : <div className="nm">{v.copyOf ? `This is a copy of ${short(v.copyOf, 4)}. Half of what it earns goes to the original's chest.` : 'No copycats. If someone copies this coin, half of what the copy earns flows into this chest.'}</div>}
     {v.copyOf && <div className="kv" style={{ marginTop: 6 }}><span>Sent to the original</span><b className="num">{S(v.streamed || 0, 4)} SOL</b></div>}
+    </>}
   </>
 }
 
+
+/** creator rewards for one launch: share, earned / unlocked / paid, the four-step ladder, next payout */
+export function CreatorCard({ v, solPrice }: { v: K.VaultPub; solPrice: number }) {
+  const c = v.creator!; const now = Date.now()
+  const holdLeft = c.holdingSince ? Math.max(0, c.holdMs - (now - c.holdingSince)) : null
+  const payIn = c.nextPayAt ? Math.max(0, c.nextPayAt - now) : 0
+  return <div className="card cr-card">
+    <div className="row"><b>{v.symbol}</b><span className="tag live">{c.sharePct}% of fees</span><span className="sp" /><span className="nm">{c.payable > 0 ? `next payout in ${Math.ceil(payIn / 60000)} min` : c.hits ? 'paid hourly' : 'unlocks at $50K'}</span></div>
+    <div className="cr-nums">
+      <div><div className="l">Earned</div><b className="num">{S(c.earned, 4)}</b></div>
+      <div><div className="l">Unlocked</div><b className="num up">{S(c.unlocked, 4)}</b></div>
+      <div><div className="l">Paid to you</div><b className="num gold">{S(c.paid, 4)}</b></div>
+      <div><div className="l">Locked</div><b className="num dim">{S(c.locked, 4)}</b></div>
+    </div>
+    <div className="cr-ladder">{c.milestones.map((m, i) => <div key={m} className={'cr-step' + (i < c.hits ? ' hit' : i === c.hits ? ' next' : '')}><i style={i === c.hits ? { width: `${Math.round(c.nextFrac * 100)}%` } : undefined} /><span>{F(m)}</span><small>{i < c.hits ? 'unlocked' : '25%'}</small></div>)}</div>
+    <div className="nm">{c.next ? (holdLeft != null ? `Above ${F(c.next)} · ${Math.ceil(holdLeft / 60000)} min of holding left to unlock the next 25%` : `${Math.round(c.nextFrac * 100)}% of the way to ${F(c.next)} · each step unlocks 25% of what you've earned`) : 'Everything unlocked · paid out every hour'}{c.forfeited > 0 ? ` · ${S(c.forfeited, 4)} SOL went to the chest` : ''}</div>
+    <div className="nm">In SOL · ≈ ${S(c.earned * solPrice, 2)} earned so far. Anything still locked 30 days after launch goes to the chest.</div>
+  </div>
+}
 export function MinePage({ owner, go, solPrice, onRenounce, onClaim, busy, onConnect, onLaunch, onArm, onRefund }: { onRefund?: (v: K.VaultPub) => void; onArm?: (v: K.VaultPub) => void; onConnect?: () => void; onLaunch?: () => void; owner: string; go: (p: string) => void; solPrice: number; onRenounce: (v: K.VaultPub) => void; onClaim: (mint: string, toVault?: K.VaultPub) => void; busy: string }) {
   const [list, setList] = useState<K.VaultPub[] | null>(null); const [err, setErr] = useState('')
   useEffect(() => { if (!owner) return; const f = () => K.devVaults(owner).then((l) => { setList(l); setErr('') }).catch((e) => setErr(String(e.message || e))); f(); const i = setInterval(f, 10000); return () => clearInterval(i) }, [owner])
@@ -285,6 +306,7 @@ export function MinePage({ owner, go, solPrice, onRenounce, onClaim, busy, onCon
       <div className="tile"><div className="l">Cut paid to you</div><div className="v num gold">{S(armed.reduce((a, v) => a + v.devPaid, 0), 4)} SOL</div><div className="s">${S(armed.reduce((a, v) => a + v.devPaid, 0) * solPrice, 2)}</div></div>
       <div className="tile"><div className="l">Received from copies</div><div className="v num">{S(armed.reduce((a, v) => a + v.activity.filter((x) => x.kind === 'stream' && (x.msg || '').startsWith('from')).reduce((s2, x) => s2 + (x.sol || 0), 0), 0), 4)} SOL</div></div>
     </div>
+    {armed.some((v) => v.creator?.enabled) && <><div className="lbl">Creator rewards</div><div className="cr-list">{armed.filter((v) => v.creator?.enabled).map((v) => <CreatorCard key={v.id} v={v} solPrice={solPrice} />)}</div></>}
     <div className="card"><h3>Your coins</h3><table><thead><tr><th>Coin</th><th className="r">Chest</th><th className="r">Vault supply</th><th className="r">Your cut</th><th className="r">Paid</th><th className="r">Desk bid</th><th className="r"></th></tr></thead><tbody>
       {(!list || !list.length) && <tr><td colSpan={7} className="empty">{err ? 'Server unreachable: ' + err : 'No launches from this wallet yet. Hit Launch — set a stake and the vault is yours.'}</td></tr>}
       {list?.map((v) => <tr key={v.id}><td className="tk" style={{ cursor: v.mint ? 'pointer' : 'default' }} onClick={() => v.mint && go('coin/' + v.mint)}>{v.symbol || '(unfunded)'} {v.copyOf && <span className="tag">COPY</span>} {!v.armed && <span className="tag pre">{v.mint ? 'NOT ARMED' : 'AWAITING STAKE'}</span>}<div className="nm">{v.mint ? short(v.mint, 4) : 'send ' + v.stakeSol + ' SOL to ' + short(v.pub, 4)}</div></td>
@@ -451,7 +473,7 @@ export function VaultScore({ v, solPrice }: { v: K.VaultPub; solPrice: number })
       <div className="tile"><div className="l">Profit taken</div><div className="v num">{S(sc.captured, 2)} SOL</div><div className="s">{sc.captures} times</div></div>
       <div className="tile"><div className="l">Spent buying</div><div className="v num">{S(sc.redeployed, 2)} SOL</div><div className="s">{sc.dips} dips · {sc.deskFills} big sells</div></div>
       <div className="tile"><div className="l">Big sells caught</div><div className="v num">{S(sc.deskBought, 2)} SOL</div><div className="s">bought off the chart, price didn't drop</div></div>
-      <div className="tile"><div className="l">Floor price</div><div className="v num" style={{ fontSize: 13 }}>${floorUsd ? floorUsd.toPrecision(2) : '—'}</div><div className="s">{sc.floor0 && v.floor ? ((v.floor / sc.floor0 - 1) * 100).toFixed(0) + '% since start' : 'chest ÷ all coins'}</div></div>
+      <div className="tile"><div className="l">Floor price</div><div className="v num" style={{ fontSize: 13 }}>{floorUsd ? px(floorUsd) : '—'}</div><div className="s">{sc.floor0 && v.floor ? ((v.floor / sc.floor0 - 1) * 100).toFixed(0) + '% since start' : 'chest ÷ all coins'}</div></div>
       <div className="tile"><div className="l">Creator paid</div><div className="v num gold">{S(v.devPaid, 3)}</div><div className="s">{v.renounced ? 'gave it up' : v.cut + '% of profit'}</div></div>
     </div>
   </>

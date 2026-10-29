@@ -1,0 +1,301 @@
+/* ===== CAPTAIN skin — the default phone look =====
+   Black, white and green like a bank app; gold only for what you earn (the chest, your level).
+   References: Cash App (big numbers, black/white/green, savings ring), Robinhood (calm black, one accent, giant price),
+   Phantom (grouped rounded lists), Moonshot / pump.fun (keypad buy, swipe to confirm, tinted change cells),
+   DraftKings / FanDuel (the bet slip: what you pay, what you get, before you commit), Kalshi (a goal framed as a question),
+   Clash Royale (a reward road you climb, a level badge you earn). Motion is quick and springy, never noisy. */
+.app.simple.captain{
+  --k-bg:#000;--k-card:#0e0e10;--k-card2:#18181b;--k-card3:#222226;--k-line:rgba(255,255,255,.07);--k-line2:rgba(255,255,255,.12);
+  --k-fg:#fff;--k-fg2:rgba(255,255,255,.64);--k-fg3:rgba(255,255,255,.42);
+  --k-g:#2bd46a;--k-g2:#22c55e;--k-gink:#03140a;--k-gdim:rgba(43,212,106,.13);
+  --k-r:#ff5a66;--k-rdim:rgba(255,90,102,.13);--k-amber:#f5b94a;--k-adim:rgba(245,185,74,.13);
+  --k-gold:#f2c14e;--k-gold2:#e2a93a;--k-golddim:rgba(242,193,78,.13);--k-goldink:#2a1d03;
+  --spring:cubic-bezier(.3,1.5,.5,1);--ease:cubic-bezier(.2,.8,.2,1)}
+.app.simple.captain .main{font-family:Geist,-apple-system,system-ui,sans-serif;letter-spacing:-.005em}
+.app.simple.captain .up{color:var(--k-g)}.app.simple.captain .dn{color:var(--k-r)}.app.simple.captain .gold{color:var(--k-gold)}.app.simple.captain .dim{color:var(--k-fg3)}
+.app.simple.captain .s-home{gap:14px}
+
+/* --- top bar --- */
+@media(max-width:1000px){
+  .app.simple.captain .top{height:56px;border-bottom:0;background:rgba(0,0,0,.86);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);padding:0 16px}
+  .app.simple.captain .top .btn.pri{display:none}
+}
+.app.simple.captain .top .logo{font-size:14px;letter-spacing:.16em;font-weight:700}
+.app.simple.captain .top .wbtn{height:36px;border-radius:18px;padding:0 14px;font-size:13px;font-weight:600;background:#fff;color:#000;border:0}
+.app.simple.captain .top .wbtn.on{background:var(--k-card2);color:var(--k-fg);border:1px solid var(--k-line2)}
+.app.simple.captain .top .wbtn.on .dim{color:var(--k-fg3)}
+
+/* --- buttons --- */
+.app.simple.captain .btn{border-radius:14px}
+.app.simple.captain .btn.big{height:52px;font-size:16px;font-weight:650;border-radius:26px}
+.app.simple.captain .btn.pri,.app.simple.captain .s-buy-sm{background:var(--k-g)!important;color:var(--k-gink)!important;border:0!important;box-shadow:0 8px 22px rgba(43,212,106,.22)!important}
+.app.simple.captain .btn.pri::after{display:none}
+.app.simple.captain .btn.pri:active{transform:scale(.96)!important;box-shadow:0 3px 10px rgba(43,212,106,.2)!important}
+.app.simple.captain .btn.ghost{background:var(--k-card2);color:var(--k-fg);border:1px solid var(--k-line)}
+.app.simple.captain .btn:disabled{opacity:.45}
+.app.simple.captain button,.app.simple.captain .btn{transition:transform .25s var(--spring),background .15s,box-shadow .2s,opacity .15s}
+
+/* --- header numbers (Robinhood / Cash App: one big number, one line under it) --- */
+.hh{display:flex;flex-direction:column;gap:3px;padding:4px 2px 2px;animation:kRise .45s var(--ease) both}
+.hh-k{font-size:13.5px;color:var(--k-fg2,rgba(255,255,255,.64));font-weight:500}
+.hh-v{font-size:42px;font-weight:650;letter-spacing:-.035em;line-height:1.05}
+.hh-s{font-size:13.5px;color:var(--k-fg2,rgba(255,255,255,.64));display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.hh-s.up{color:var(--k-g)}.hh-s.dn{color:var(--k-r)}
+.live{width:8px;height:8px;border-radius:50%;background:var(--k-g,#2bd46a);box-shadow:0 0 0 0 rgba(43,212,106,.5);animation:kLive 2s ease-out infinite;flex:none}
+@keyframes kLive{0%{box-shadow:0 0 0 0 rgba(43,212,106,.55)}70%{box-shadow:0 0 0 8px rgba(43,212,106,0)}100%{box-shadow:0 0 0 0 rgba(43,212,106,0)}}
+.hh-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+.hh-stats>div{background:var(--k-card,#0e0e10);border:1px solid var(--k-line);border-radius:16px;padding:9px 12px 10px;display:flex;flex-direction:column;gap:0;min-width:0}
+.hh-stats b{font-size:17px;font-weight:650;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hh-stats span{font-size:11px;color:var(--k-fg3);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hh-cash{display:inline-flex;align-items:center;gap:8px;align-self:flex-start;margin-top:10px;padding:8px 12px;border-radius:14px;background:var(--k-card2);font-size:13px;color:var(--k-fg2)}.hh-cash b{color:var(--k-fg)}
+
+/* --- spotlight (Kalshi-style: the coin, and the goal it's climbing to) --- */
+.spot{display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:24px;background:radial-gradient(120% 90% at 100% 0%,rgba(43,212,106,.08),transparent 55%),var(--k-card);border:1px solid var(--k-line);cursor:pointer;animation:kRise .5s .05s var(--ease) both}
+.spot-k{display:flex;align-items:center;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 10px;border-radius:12px;font-size:12px;font-weight:600}
+.chip.gold{background:var(--k-golddim);color:var(--k-gold)}
+.spot-chg{font-size:14px;font-weight:650}.spot-chg small{font-size:11px;opacity:.65;font-weight:500}
+.spot-id{display:flex;align-items:center;gap:12px}
+.spot-id .pfp.lg{width:52px;height:52px;border-radius:16px}
+.spot-nm{flex:1;min-width:0;display:flex;flex-direction:column}.spot-nm b{font-size:21px;font-weight:700;letter-spacing:-.02em}.spot-nm span{font-size:12.5px;color:var(--k-fg3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.spot-v{text-align:right;display:flex;flex-direction:column}.spot-v b{font-size:21px;font-weight:650;letter-spacing:-.02em}.spot-v span{font-size:11px;color:var(--k-fg3)}
+.spot-q{background:var(--k-card2);border-radius:18px;padding:12px 14px;display:flex;flex-direction:column;gap:9px;font-size:13.5px;color:var(--k-fg2)}
+.spot-q b{color:var(--k-fg)}.spot-q b.gold{color:var(--k-gold)}
+.spot-chest{display:flex;align-items:center;gap:7px;font-size:12.5px}.spot-chest svg{color:var(--k-g);flex:none}
+.spot-cta{display:grid;grid-template-columns:1fr auto;gap:8px}.spot-cta .ghost{padding:0 18px}
+
+/* --- meters: gold = earned progress; a slow glint runs across --- */
+.meter{position:relative;height:8px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
+.meter i{position:relative;display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--k-gold2,#e2a93a),var(--k-gold,#f2c14e));transition:width 1s var(--ease);overflow:hidden}
+.meter i::after{content:"";position:absolute;top:0;bottom:0;width:40px;left:-40px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);animation:kGlint 3.6s 1s ease-in-out infinite}
+@keyframes kGlint{0%,60%{left:-40px}100%{left:110%}}
+
+/* --- grouped lists (Phantom / iOS): one rounded card, hairline rows --- */
+.grp{background:var(--k-card,#0e0e10);border:1px solid var(--k-line);border-radius:22px;padding:4px 0;overflow:hidden}
+.grp-hd{display:flex;align-items:center;gap:8px;padding:12px 16px 6px}.grp-hd b{font-size:15.5px;font-weight:650;letter-spacing:-.01em}
+.grp-hd a{display:inline-flex;align-items:center;gap:2px;font-size:13px;color:var(--k-fg3);font-weight:500}
+.cr{display:flex;align-items:center;gap:12px;width:100%;padding:11px 16px;text-align:left;background:none;border:0;color:inherit;font:inherit;cursor:pointer;position:relative}
+.cr+.cr::before{content:"";position:absolute;left:16px;right:16px;top:0;height:1px;background:var(--k-line)}
+.cr:active{background:rgba(255,255,255,.04)}
+.app.simple.captain .cr:active:not(:disabled){transform:none}
+.grp .cr{animation:kRise .4s var(--ease) both}
+.grp .cr:nth-child(2){animation-delay:.03s}.grp .cr:nth-child(3){animation-delay:.06s}.grp .cr:nth-child(4){animation-delay:.09s}.grp .cr:nth-child(5){animation-delay:.12s}.grp .cr:nth-child(6){animation-delay:.15s}.grp .cr:nth-child(n+7){animation-delay:.18s}
+.cr-rank{width:14px;flex:none;text-align:center;font-size:13px;font-weight:600;color:var(--k-fg3)}
+.cr .pfp.lg{width:42px;height:42px;border-radius:13px}
+.cr-mid{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.cr-name{font-size:15.5px;font-weight:650;letter-spacing:-.01em;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden}
+.cr-sub{font-size:12.5px;color:var(--k-fg2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cr-dim{color:var(--k-fg3)}
+.cr-shield{color:var(--k-g);display:inline-flex}
+.cr-warn{font-size:10.5px;font-weight:700;color:var(--k-r);background:var(--k-rdim);padding:2px 6px;border-radius:6px}
+.cr-badges{display:flex;gap:4px;flex-wrap:wrap;align-items:center;font-size:12px}
+.cr-chg{flex:none;min-width:76px;height:34px;border-radius:11px;display:flex;align-items:center;justify-content:center;gap:3px;font-size:14px;font-weight:650}
+.cr-chg small{font-size:10px;font-weight:500;opacity:.6}
+.cr-chg.up{background:var(--k-gdim);color:var(--k-g)}.cr-chg.dn{background:var(--k-rdim);color:var(--k-r)}
+.cr-right{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:12.5px}.cr-right b{font-size:15px;font-weight:650}
+.cr-chev{flex:none;color:var(--k-fg3);display:inline-flex}
+.app.simple.captain .s-badge{border-radius:6px;padding:2px 7px;font-size:11px}
+.app.simple.captain .s-badge.chest,.app.simple.captain .s-badge.gold{background:var(--k-golddim);color:var(--k-gold)}
+
+/* --- filter chips --- */
+.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:-4px -2px 0;padding:2px}.chips::-webkit-scrollbar{display:none}
+.chips button{flex:none;height:34px;padding:0 15px;border-radius:17px;background:var(--k-card2,#18181b);color:var(--k-fg2);font-size:13.5px;font-weight:600;border:0}
+.chips button.on{background:#fff;color:#000}
+.app.simple.captain .s-title{font-size:30px;font-weight:700;letter-spacing:-.03em;margin:4px 2px 0;text-shadow:none}
+.app.simple.captain .s-note{font-size:12.5px;color:var(--k-fg3);padding:0 6px}
+.app.simple.captain .s-empty{color:var(--k-fg3)}
+
+/* --- "how it works" steps --- */
+.explain{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border-radius:22px;background:var(--k-card);border:1px solid var(--k-line)}
+.explain>div{display:flex;gap:11px;align-items:flex-start;font-size:13.5px;color:var(--k-fg2);line-height:1.4}
+.ex-n{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;flex:none;font-size:12px;font-weight:700;background:var(--k-golddim);color:var(--k-gold)}
+
+/* --- ring (Cash App savings ring) --- */
+.ring{position:relative;display:inline-grid;place-items:center;flex:none}
+.ring>svg{position:absolute;inset:0}
+.ring-tr{stroke:rgba(255,255,255,.08)}.ring.gold .ring-fl{stroke:var(--k-gold,#f2c14e)}.ring.green .ring-fl{stroke:var(--k-g)}
+.ring-fl{transition:stroke-dashoffset 1.1s var(--ease)}
+.ring-in{position:relative;display:grid;place-items:center;color:var(--k-gold,#f2c14e)}
+.ring-in .pfp{width:32px;height:32px;border-radius:50%;font-size:16px}
+
+/* --- level (earned, so it's gold) --- */
+.lvl{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:22px;background:var(--k-card);border:1px solid var(--k-line)}
+.lvl-mid{flex:1;min-width:0;display:flex;flex-direction:column;gap:7px;font-size:12.5px}.lvl-mid b{font-size:15.5px}
+.lvb{position:relative;width:36px;height:40px;display:grid;place-items:center;flex:none}
+.lvb svg{position:absolute;inset:0;width:100%;height:100%;fill:var(--k-gold,#f2c14e);filter:drop-shadow(0 4px 10px rgba(242,193,78,.25))}
+.lvb b{position:relative;font-size:15px;font-weight:800;color:var(--k-goldink,#2a1d03);margin-top:-3px}
+.lvb.lg{width:48px;height:53px}.lvb.lg b{font-size:20px}
+.app.simple.captain .s-lvup{background:var(--k-card2);border:1px solid rgba(242,193,78,.35);box-shadow:0 18px 40px rgba(0,0,0,.6)}
+.app.simple.captain .s-lvup b{font-family:Geist,system-ui,sans-serif;font-weight:700;font-size:16px;color:var(--k-gold);text-shadow:none}
+
+/* --- trust line + footer link --- */
+.app.simple.captain .s-trust{background:none;border:0;padding:0 6px;font-size:12.5px;color:var(--k-fg3);justify-content:center}
+.app.simple.captain .s-trust svg{color:var(--k-g)}
+.app.simple.captain .s-how{color:var(--k-fg2);padding:4px 0 10px}
+
+/* --- coin screen --- */
+.sc{display:flex;flex-direction:column;gap:12px;padding-bottom:84px}
+.sc-top{display:flex;align-items:center;gap:10px}
+.app.simple.captain .s-back,.app.simple.captain .s-star{width:38px;height:38px;border-radius:50%;background:var(--k-card2);color:var(--k-fg);border:0;box-shadow:none;margin:0;font-size:inherit}
+.app.simple.captain .s-star.on{color:var(--k-gold)}
+.sc-id{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;min-width:0}.sc-id b{font-size:16px;font-weight:650}
+.sc-id .pfp{width:26px;height:26px;border-radius:8px;font-size:13px}
+.sc-shield{color:var(--k-g);display:inline-flex}
+.sc-head{display:flex;flex-direction:column;gap:2px;padding:0 2px}
+.sc-k{font-size:13px;color:var(--k-fg2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sc-v{font-size:42px;font-weight:650;letter-spacing:-.04em;line-height:1.05}
+.sc-sub{font-size:14px;font-weight:600}.sc-sub .dim{font-weight:500;margin-left:2px}
+.app.simple.captain .ac{gap:8px}.app.simple.captain .ac-box{border-radius:0;margin:0 -4px}
+.app.simple.captain .ac-chips button{height:32px;border-radius:16px;font-size:12.5px;color:var(--k-fg3);background:none;border:0}
+.app.simple.captain .ac-chips button.on{background:var(--k-card2);color:var(--k-fg)}
+.sc-pos{display:grid;grid-template-columns:1fr auto auto;gap:16px;align-items:end;padding:12px 16px;border-radius:20px;background:var(--k-card);border:1px solid var(--k-line)}
+.sc-pos b{font-size:20px;font-weight:650;letter-spacing:-.02em}
+.sc-pnl{display:flex;flex-direction:column;align-items:flex-end}.sc-pnl b{font-size:16px}.sc-pnl span{font-size:12px;opacity:.8}
+.sc-floor{text-align:right}.sc-floor b{font-size:16px;color:var(--k-gold)}
+.sc-grp .cr{padding:12px 16px}
+.sc-ic{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--k-card2);color:var(--k-fg2)}
+.sc-ic.ok{background:var(--k-gdim);color:var(--k-g)}.sc-ic.warn{background:var(--k-adim);color:var(--k-amber)}
+.sc-nochest{background:rgba(255,90,102,.05)}.sc-warn-ic{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--k-rdim);color:var(--k-r)}
+
+/* --- pinned action bar: one big green Buy --- */
+.app.simple.captain .s-actbar::before{content:"";position:absolute;left:-14px;right:-14px;top:-28px;bottom:-14px;background:linear-gradient(180deg,transparent,#000 45%);z-index:-1;pointer-events:none}
+.app.simple.captain .act{height:56px;border-radius:28px;font-family:Geist,system-ui,sans-serif;font-weight:700;font-size:17px;text-shadow:none;border:0!important;transition:transform .25s var(--spring)!important}
+.app.simple.captain .act.buy{background:var(--k-g)!important;color:var(--k-gink)!important;box-shadow:0 10px 28px rgba(43,212,106,.3)!important}
+.app.simple.captain .act.sell{background:var(--k-card2)!important;color:var(--k-fg)!important;border:1px solid var(--k-line2)!important;box-shadow:none!important}
+.app.simple.captain .act.quick{background:var(--k-card2)!important;color:var(--k-g)!important;border:1px solid var(--k-line2)!important;box-shadow:none!important;font-size:15px;width:84px}
+.app.simple.captain .act:active{transform:scale(.95)!important}
+.app.simple.captain .act-shine{display:none}
+
+/* --- sheets --- */
+.app.simple.captain .s-sheet{background:#0d0d0f;border:1px solid var(--k-line);border-bottom:0;border-radius:28px 28px 0 0;padding:8px 18px calc(18px + env(safe-area-inset-bottom,0));animation:kSheet .38s var(--spring)}
+@keyframes kSheet{0%{transform:translateY(60%)}100%{transform:none}}
+.app.simple.captain .s-sheet-bg{background:rgba(0,0,0,.62);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+.app.simple.captain .s-grab{background:rgba(255,255,255,.18);width:38px;height:5px}
+.is-hd{display:flex;align-items:center;gap:8px;padding:2px 0 4px}.is-hd b{font-size:18px;font-weight:700;letter-spacing:-.02em}
+.is-x{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--k-card2);color:var(--k-fg2);border:0}
+.is-list{display:flex;flex-direction:column}
+.is-row{display:flex;align-items:center;gap:12px;padding:10px 0;font-size:14.5px;border-top:1px solid var(--k-line)}.is-row:first-child{border-top:0}
+.is-row .sc-ic{width:34px;height:34px}.is-row.ok .sc-ic{background:var(--k-gdim);color:var(--k-g)}.is-row.warn .sc-ic{background:var(--k-adim);color:var(--k-amber)}
+.is-note{font-size:12.5px;line-height:1.45;padding-top:4px}
+.kvs .kv{font-size:14px;padding:11px 0;border-bottom:1px solid var(--k-line);color:var(--k-fg2)}.kvs .kv:last-child{border-bottom:0}
+.app.simple.captain .s-sheet.info .prog{background:none!important;border:0!important;padding:0!important;box-shadow:none!important;animation:none}
+.app.simple.captain .prog-bar{height:10px;border-radius:999px;background:rgba(255,255,255,.08);border:0;box-shadow:none}
+.app.simple.captain .prog-bar i{background:linear-gradient(90deg,var(--k-gold2),var(--k-gold))!important;animation:none!important;box-shadow:none!important}
+.app.simple.captain .prog-fill i{background:var(--k-g)!important;box-shadow:none!important}
+.app.simple.captain .prog-steps .hit{color:var(--k-gold)}
+.app.simple.captain .s-chest{background:var(--k-golddim);border:0;color:var(--k-gold);animation:none;box-shadow:none}
+.app.simple.captain .s-chest.bump{animation:chestBump .9s var(--spring)}
+
+/* --- trade sheet (the bet slip) --- */
+.app.simple.captain .s-sheet.trade{gap:12px}
+.app.simple.captain .ts-hd{gap:10px}.app.simple.captain .ts-hd .pfp{width:30px;height:30px;border-radius:9px;font-size:15px}.app.simple.captain .ts-hd b{font-size:16.5px;font-weight:650}
+.app.simple.captain .ts-amt{font-family:Geist,system-ui,sans-serif;font-size:64px;font-weight:650;letter-spacing:-.045em;line-height:1;margin-top:6px;background:none;color:var(--k-fg);-webkit-text-fill-color:currentColor;text-shadow:none;animation:kBump .3s var(--spring)}
+.app.simple.captain .ts-amt.short{color:var(--k-r)}
+@keyframes kBump{0%{transform:scale(.96)}100%{transform:none}}
+.app.simple.captain .ts-sub{font-size:14px;color:var(--k-fg2);margin-top:0}
+.app.simple.captain .ts-chips{gap:8px}
+.app.simple.captain .ts-chips button{height:40px;border-radius:20px;background:var(--k-card2)!important;border:0!important;box-shadow:none!important;color:var(--k-fg)!important;font-family:Geist,system-ui,sans-serif;font-size:15px;font-weight:600;text-shadow:none;animation:none}
+.app.simple.captain .ts-chips button.on{background:#fff!important;color:#000!important}
+.ts-keys{display:grid;grid-template-columns:repeat(3,1fr);gap:2px 8px}
+.ts-keys button{height:50px;border-radius:14px;background:none;border:0;color:var(--k-fg,#fff);font-size:26px;font-weight:500;display:grid;place-items:center;font-variant-numeric:tabular-nums}
+.ts-keys button:active{background:rgba(255,255,255,.07)}
+.app.simple.captain .ts-keys button:active:not(:disabled){transform:scale(.92)}
+.ts-det{display:flex;align-items:center;gap:6px;width:100%;padding:11px 14px;border-radius:14px;background:var(--k-card2,#18181b);border:0;color:var(--k-fg2);font-size:12.5px;font-weight:500;text-align:left}
+.ts-det-sum{display:flex;align-items:center;gap:4px;flex-wrap:wrap}.ts-det-sum i{font-style:normal;color:var(--k-fg3);margin:0 2px}
+.ts-det-chev{font-size:17px;color:var(--k-fg3);width:16px;text-align:center}
+.ts-det-body{display:flex;flex-direction:column;padding:0 4px;margin-top:-4px}.ts-det-body .kv{font-size:13px;padding:6px 0}
+.app.simple.captain .ts-warn{color:var(--k-amber)}
+.app.simple.captain .ts-foot{display:flex;align-items:center;justify-content:center;gap:6px;color:var(--k-fg3);font-size:11.5px}.app.simple.captain .ts-foot svg{color:var(--k-g)}
+/* slide to confirm */
+.app.simple.captain .slide{height:60px;border-radius:30px;background:var(--k-card2);border:1px solid var(--k-line);box-shadow:none}
+.app.simple.captain .slide-fill{border-radius:30px;background:linear-gradient(90deg,rgba(43,212,106,.06),rgba(43,212,106,.28))}
+.app.simple.captain .slide.sell .slide-fill{background:linear-gradient(90deg,rgba(255,90,102,.06),rgba(255,90,102,.28))}
+.app.simple.captain .slide-knob{width:52px;height:52px;top:3px;left:3px;border-radius:50%;border:0!important;background:var(--k-g)!important;color:var(--k-gink)!important;box-shadow:0 4px 14px rgba(43,212,106,.4)!important;text-shadow:none}
+.app.simple.captain .slide.sell .slide-knob{background:var(--k-r)!important;color:#2a0508!important;box-shadow:0 4px 14px rgba(255,90,102,.4)!important}
+.app.simple.captain .slide-lbl{font-family:Geist,system-ui,sans-serif;font-size:15.5px;font-weight:600;color:var(--k-fg);text-shadow:none}
+.app.simple.captain .slide:not(.off):not(.sending) .slide-lbl::after{color:var(--k-g)}
+.app.simple.captain .slide.sell:not(.off):not(.sending) .slide-lbl::after{color:var(--k-r)}
+.app.simple.captain .slide-spin{border-color:rgba(43,212,106,.25);border-top-color:var(--k-g)}
+/* receipt */
+.app.simple.captain .ts-done{gap:12px;padding:8px 0 2px}
+.app.simple.captain .ts-vault{width:104px;height:104px}
+.app.simple.captain .ts-vault .ts-check{color:var(--k-g)}.app.simple.captain .ts-ring{border-color:rgba(43,212,106,.55)}
+.app.simple.captain .ts-done-t{font-family:Geist,system-ui,sans-serif;font-size:22px;font-weight:700;letter-spacing:-.02em;background:none;color:var(--k-fg);-webkit-text-fill-color:currentColor;text-shadow:none}
+.ts-receipt{width:100%;background:var(--k-card2,#18181b);border-radius:18px;padding:6px 16px}.ts-receipt .kv{font-size:14px;padding:9px 0;border-bottom:1px solid var(--k-line)}.ts-receipt .kv:last-child{border-bottom:0}
+.ts-done-cta{display:flex;gap:8px;width:100%}.ts-done-cta>*{flex:1}
+
+/* --- bottom bar: floating capsule, a green home button cut out of it --- */
+@media(max-width:1000px){
+  .app.simple.captain .s-nav{height:64px;border-radius:32px;background:rgba(20,20,22,.9);border:1px solid var(--k-line2);box-shadow:0 12px 34px rgba(0,0,0,.6);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+}
+.app.simple.captain .s-tab{font-size:10.5px;font-weight:600;color:var(--k-fg3);background:none;box-shadow:none;margin:0}
+.app.simple.captain .s-tab.on{color:var(--k-fg);background:none;box-shadow:none}
+.app.simple.captain .s-tab.on svg{color:var(--k-g);transform:translateY(-1px)}
+.app.simple.captain .s-center{transform:translateY(-12px)}
+.app.simple.captain .s-center-btn{width:58px;height:58px;border-radius:50%;border:0!important;background:var(--k-g)!important;color:var(--k-gink)!important;box-shadow:0 0 0 6px #000,0 10px 26px rgba(43,212,106,.35)!important;text-shadow:none;animation:none!important}
+.app.simple.captain .s-center.on .s-center-btn{box-shadow:0 0 0 6px #000,0 0 0 8px rgba(43,212,106,.35),0 10px 26px rgba(43,212,106,.45)!important}
+.app.simple.captain .s-center:active .s-center-btn{transform:scale(.9)}
+.app.simple.captain .s-center:active .coin-face,.app.simple.captain .s-center.on .coin-face{transform:none}
+
+/* --- More sheet --- */
+.app.simple.captain .s-sheet-big{background:var(--k-card2)!important;color:var(--k-fg)!important;border:1px solid var(--k-line)!important;box-shadow:none!important;border-radius:18px;padding:14px;text-shadow:none}
+.app.simple.captain .s-sheet-big svg{width:40px;height:40px;padding:9px;border-radius:50%;background:var(--k-g);color:var(--k-gink);flex:none}
+.app.simple.captain .s-sheet-big b{font-family:Geist,system-ui,sans-serif;font-weight:650;font-size:15.5px;text-shadow:none}.app.simple.captain .s-sheet-big small{color:var(--k-fg3);opacity:1}
+.app.simple.captain .s-sheet-grid a{border-radius:16px;background:var(--k-card2);border:1px solid var(--k-line);padding:14px}
+.app.simple.captain .s-sheet-grid a svg{color:var(--k-fg2)}
+.app.simple.captain .s-sheet-pro{color:var(--k-fg3);background:none;border:0}
+
+/* --- motion --- */
+@keyframes kRise{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:none}}
+/* the old skins' loud effects stay off here */
+.app.simple.captain .s-hero::before{display:none}
+@media (prefers-reduced-motion: reduce){.app.simple.captain *{animation:none!important}.meter i::after{display:none}}
+
+/* the coin screen has its own top row: drop the app bar there, and keep toasts at the top on phones so they never cover Buy */
+@media(max-width:1000px){
+  .app.simple.captain.pg-coin .top{display:none}
+  .app.simple.captain .toasts{top:calc(10px + env(safe-area-inset-top,0));bottom:auto!important}
+  .app.simple.captain .toast{border-radius:16px;background:rgba(24,24,27,.96);border:1px solid var(--k-line2);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 12px 30px rgba(0,0,0,.5)}
+  .app.simple.captain.pg-coin .main{padding-top:max(12px,env(safe-area-inset-top,0))}
+}
+
+.app.simple.captain .slide-lbl{display:flex;align-items:center;justify-content:center;gap:10px}
+.app.simple.captain .slide:not(.off):not(.sending) .slide-lbl::after{margin-left:0}
+.app.simple.captain .ts-amt.long{font-size:52px}
+.app.simple.captain .s-sheet.info .prog{padding:0 2px!important}
+.app.simple.captain .s-sheet.info{max-height:86vh;overflow:auto}
+@media(max-width:1000px){.app.simple.captain{grid-template-rows:auto 1fr}.app.simple.captain.pg-coin{grid-template-rows:1fr}}
+/* app shell / home-screen app: content starts below the clock and notch */
+@media(max-width:1000px){
+  .app.simple.captain .top{padding-top:env(safe-area-inset-top,0);height:calc(56px + env(safe-area-inset-top,0))}
+}
+.native .top{padding-top:env(safe-area-inset-top,0);height:calc(52px + env(safe-area-inset-top,0))}
+.native .app{grid-template-rows:auto 1fr}
+/* no grey flash when tapping in the app shell, no text-selection on controls */
+.native button,.native a,.native .cr{-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+.app.simple.captain button,.app.simple.captain a{-webkit-tap-highlight-color:transparent}
+/* --- every other screen on the phone: same calm system --- */
+@media(max-width:1000px){
+  .app.simple .lay[style]{grid-template-columns:1fr!important}
+  .app.simple.captain .card{background:var(--k-card);border:1px solid var(--k-line);border-radius:20px}
+  .app.simple.captain .card h3{border-bottom-color:var(--k-line);font-size:15px;padding:14px 16px}
+  .app.simple.captain .card table{display:block;overflow-x:auto}
+  /* tabs read as chips */
+  .app.simple.captain .main>.seg{display:flex;gap:6px;overflow-x:auto;background:none;border:0;padding:0;scrollbar-width:none}
+  .app.simple.captain .main>.seg::-webkit-scrollbar{display:none}
+  .app.simple.captain .main>.seg button{flex:none;height:34px;padding:0 15px;border-radius:17px;background:var(--k-card2);color:var(--k-fg2);font-size:13.5px}
+  .app.simple.captain .main>.seg button.on{background:#fff;color:#000}
+  /* centered modals become bottom sheets */
+  .app.simple.captain .modal:not(.s-sheet-bg){align-items:flex-end;padding:0;background:rgba(0,0,0,.62);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+  .app.simple.captain .modal:not(.s-sheet-bg)>.box{width:100%!important;max-width:560px;max-height:92vh;overflow:auto;border-radius:28px 28px 0 0;border:1px solid var(--k-line);border-bottom:0;background:#0d0d0f;padding:18px 18px calc(20px + env(safe-area-inset-bottom,0));animation:kSheet .38s var(--spring)}
+  .app.simple.captain .modal:not(.s-sheet-bg)>.box .row h2{margin:0;font-size:19px;letter-spacing:-.02em}
+  .app.simple.captain .modal .box .row:first-child{flex-wrap:wrap;row-gap:6px}
+  .app.simple.captain .modal .box .tag{white-space:nowrap}
+  .app.simple.captain .modal .seg{border-radius:12px;background:var(--k-card2);border:0;padding:3px}
+  .app.simple.captain .modal .seg button{border-radius:9px;padding:7px 12px;font-size:13px}
+  .app.simple.captain .modal .seg button.on{background:#fff;color:#000}
+  .app.simple.captain .modal input:not([type=checkbox]):not([type=range]),.app.simple.captain .modal textarea,.app.simple.captain .inp{border-radius:14px;background:var(--k-card2);border-color:var(--k-line)}
+  .app.simple.captain .modal .btn:not(.pri){border-radius:14px;background:var(--k-card2);border-color:var(--k-line)}
+  /* settings & forms */
+  .app.simple.captain .main input:not([type=checkbox]):not([type=range]){border-radius:14px}
+}
+@media(max-width:1000px){.app.simple.captain .modal .box>.row:first-child .sp{display:none}.app.simple.captain .modal .box>.row:first-child{gap:8px}}
