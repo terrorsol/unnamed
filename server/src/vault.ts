@@ -278,11 +278,16 @@ export async function refund(id: string, auth?: { msg?: string; sig?: string }) 
   const v = vaults[id]; if (!v) throw new Error('no such vault')
   // an armed vault never pays out its chest — unless it never did anything: no tokens, no fills, no tax. Then the dev can still take the stake back and the vault is dropped.
   const untouched = v.tokens <= 0 && !(v.score && (v.score.captures || v.score.dips || v.score.deskFills)) && !v.activity.some((a) => a.kind === 'buy' || a.kind === 'capture' || a.kind === 'redeem')
-  // TEST_RECLAIM=1 (private-beta test launches only): the dev can take the WHOLE chest back — stake and the tax it collected — once the vault
-  // holds no tokens (nothing left to unwind). Off by default; with it off the chest never pays out, as designed.
-  const reclaim = process.env.TEST_RECLAIM === '1' && v.tokens <= 0
+  // TEST_RECLAIM=1 (private-beta test launches only): the dev takes the WHOLE chest back — stake, tax collected and market-making gains.
+  // Tokens the vault still holds are sold first, so everything comes back as SOL. Off by default; with it off the chest never pays out, as designed.
+  const reclaim = process.env.TEST_RECLAIM === '1'
   if (v.armed && !untouched && !reclaim) throw new Error(v.tokens > 0 && process.env.TEST_RECLAIM === '1' ? 'the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed' : 'an armed vault that has traded never pays out its chest — that is the point of it')
   devAuth(v, 'refund', v.mint || 'none', auth)
+  if (reclaim && v.mint && v.tokens > 0 && !PAPER) {
+    const m = await market(v.mint); const sold = v.tokens
+    const ssig = await trade(v, 'sell', '100%', false, m?.priceSol || 0); await sync(v, ssig, sold * (m?.priceSol || 0) * 0.97)
+    v.activity.unshift({ t: Date.now(), kind: 'note', sig: ssig, msg: `test reclaim: sold the vault's ${(sold / 1e6).toFixed(2)}M tokens back to SOL` }); save()
+  }
   // only the stake goes back; tax the chest collected meanwhile belongs to the holders and stays
   const staked = v.activity.filter((a) => a.kind === 'stake').reduce((a, x) => a + (x.sol || 0), 0) || v.stakeSol
   const avail = (v.shared ? v.chest : await balanceSol(v.pub)) - 0.001
@@ -421,7 +426,7 @@ async function tickOne(v: Vault) {
       try {
       // defense: tranches at −20 / −35 / −50 from the high the crash started at (mm.ts: episode anchor, day cap, pool-impact cap, seller-concentration check, cooldown)
       // MM_BUYS=0 (beta knob): the vault never buys from the pool — no dip tranches, no accumulation; captures, the standing ask and a capped desk bid still run
-      const NOBUY = process.env.MM_BUYS === '0'
+      const NOBUY = process.env.MM_BUYS === '0' && process.env.MM_ON !== '1'
       const dec = NOBUY ? null : MM.defense(v, m, p, now, dd, MM.sellerShare(recent(v.mint), now))
       if (dec) {
         const { spend, level } = dec; (v as any)._lastSpend = spend
