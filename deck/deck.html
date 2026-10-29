@@ -60,6 +60,29 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
   <div class="foot"><b>BANKER</b><span>3</span></div>
 </section>
 
+
+<!-- phone app -->
+<section class="s" style="padding:72px 120px">
+  <div style="display:grid;grid-template-columns:560px 1fr;gap:64px;align-items:center;height:100%">
+    <div>
+      <div class="kick">The phone app</div>
+      <h2 style="font-size:54px;margin-bottom:34px">Built for the guy who just wants to hold.</h2>
+      <ul>
+        <li><b>Dollars, not SOL.</b> A keypad, $5 / $10 / $25 / $50, slide to buy.</li>
+        <li><b>Every cost before you commit:</b> slippage, speed fee, what goes to the chest.</li>
+        <li><b>Plain safety checks</b> on every coin. Risky ones say Careful.</li>
+        <li><b>A goal to watch.</b> Each coin climbs a ladder of value milestones; the chest's ring fills.</li>
+        <li><b>Levels for holding</b>, never for trading more. No confetti on sells.</li>
+      </ul>
+      <p style="margin-top:26px;font-size:22px" class="dim">Same engine as the terminal. Pro mode is one tap away.</p>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:28px">
+      <div class="phone"><img src="m-home.png"></div><div class="phone"><img src="m-buy.png"></div><div class="phone"><img src="m-done.png"></div>
+    </div>
+  </div>
+  <div class="foot"><b>BANKER</b><span>4</span></div>
+</section>
+
 <!-- 5 vault -->
 <section class="s" style="padding:72px 120px">
   <div style="display:grid;grid-template-columns:700px 1fr;gap:60px;align-items:center;height:100%">
@@ -76,7 +99,7 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
     </div>
     <div class="shot"><img src="c-vault.png"></div>
   </div>
-  <div class="foot"><b>BANKER</b><span>4</span></div>
+  <div class="foot"><b>BANKER</b><span>5</span></div>
 </section>
 
 <!-- 6 why it holds -->
@@ -92,7 +115,21 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
   </table>
   <p style="margin-top:36px;font-size:24px">Naive policy → shipped policy. Crash budgets anchor to the crash, not a rolling window. Dips above VWAP aren’t dips. One wallet behind the selling halves the budget. Toxic desk flow pulls the bid and bans the seller. Every signature passes a keeper with hard caps and no withdraw path.</p>
   <div class="src">The simulator runs the same policy file the live bot runs.</div>
-  <div class="foot"><b>BANKER</b><span>5</span></div>
+  <div class="foot"><b>BANKER</b><span>6</span></div>
+</section>
+
+
+<!-- execution -->
+<section class="s">
+  <div class="kick">Execution</div>
+  <h2 style="font-size:54px">Fast, hard to front-run, replayed on real coins.</h2>
+  <div class="grid g3" style="margin-top:48px">
+    <div class="card" style="padding:44px"><div class="stat small green">77 / 77</div><p>real coins replayed tick by tick through the live market-maker code. Zero invariant violations, the chest never ended below its start.</p><div class="src">BACKTEST.md · pump.fun, pumpswap, LaunchLab · 4 seeds</div></div>
+    <div class="card" style="padding:44px"><div class="stat small">1.5% / 1%</div><p>max slippage on the vault's buys / sells (was 10%). Every tipped transaction carries Jito's do-not-front-run marker.</p><div class="src">VAULT_SLIP_BUY_BPS · jitodontfront</div></div>
+    <div class="card" style="padding:44px"><div class="stat small">25 SOL</div><p>most the vault spends in one buy, whatever the chest holds. Desk bids only rest at or under VWAP, after a 10-minute warmup.</p><div class="src">src/mm.ts · same file the live bot runs</div></div>
+  </div>
+  <p style="margin-top:44px;font-size:24px">User trades land through Helius Sender with a priority tip (validators + SWQOS), so a $10 buy doesn't sit in the public queue. The app shows the slippage cap and fast-lane state under every ticket.</p>
+  <div class="foot"><b>BANKER</b><span>7</span></div>
 </section>
 
 <!-- 7 desk -->
@@ -110,7 +147,7 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
       </ul>
     </div>
   </div>
-  <div class="foot"><b>BANKER</b><span>6</span></div>
+  <div class="foot"><b>BANKER</b><span>8</span></div>
 </section>
 
 <!-- 8 vamp -->
@@ -124,7 +161,7 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
     <div class="box" style="border-color:#2bd46a;color:#2bd46a">Holders switch back at spot<small>off-chart, no fee</small></div>
   </div>
   <p style="margin-top:80px;font-size:28px;max-width:1500px">On every other platform the clone wins the attention and the original bleeds. Here the clone works for the original, and anyone who bought the clone has a way back that doesn’t touch the chart.</p>
-  <div class="foot"><b>BANKER</b><span>7</span></div>
+  <div class="foot"><b>BANKER</b><span>9</span></div>
 </section>
 
 <!-- 9 launch -->
@@ -142,7 +179,7 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
       </ul>
     </div>
   </div>
-  <div class="foot"><b>BANKER</b><span>8</span></div>
+  <div class="foot"><b>BANKER</b><span>10</span></div>
 </section>
 
 <!-- why -->
@@ -159,7 +196,7 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
     <h3>Every exit is a red candle on the chart.</h3>
     <h3>Copycats drain the original within minutes.</h3>
   </div>
-  <div class="foot"><b>BANKER</b><span>9</span></div>
+  <div class="foot"><b>BANKER</b><span>11</span></div>
 </section>
 
 <!-- more -->
@@ -174,7 +211,22 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
     <div class="card"><h3>Dev cut, renounceable</h3><p>The creator earns a % of realized vault profit and can renounce it on chain in one click.</p></div>
     <div class="card"><h3>Terminal built in</h3><p>In-app wallet, quick buy, charts from the pool, runner signals, phone-first. Phantom and Solflare too.</p></div>
   </div>
-  <div class="foot"><b>BANKER</b><span>10</span></div>
+  <div class="foot"><b>BANKER</b><span>12</span></div>
+</section>
+
+
+<!-- creator rewards -->
+<section class="s">
+  <div class="kick">Creator rewards</div>
+  <h2 style="font-size:54px">Devs earn more by putting skin in, and only when the coin proves itself.</h2>
+  <div class="flow" style="margin-top:80px">
+    <div class="box">Lock SOL in the chest<small>up to 20% of fees at 3 SOL</small></div><div class="arr">→</div>
+    <div class="box">Fees accrue to the dev<small>held, not paid</small></div><div class="arr">→</div>
+    <div class="box" style="border-color:#d4af37;color:#d4af37">$50K · $150K · $250K · $500K<small>each held 15 min unlocks 25%</small></div><div class="arr">→</div>
+    <div class="box" style="border-color:#2bd46a;color:#2bd46a">Paid every hour<small>on their dashboard</small></div>
+  </div>
+  <p style="margin-top:72px;font-size:27px;max-width:1550px">Anything still locked 30 days after launch goes to the chest, so if the coin dies the holders get it. The way to earn is to back your coin, not to dump it. Built and tested, switches on after the beta.</p>
+  <div class="foot"><b>BANKER</b><span>13</span></div>
 </section>
 
 <!-- revenue -->
@@ -191,7 +243,7 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
     <tr style="background:#0d0d0d"><td><b style="color:#fff">Total</b></td><td></td><td class="c num green" style="font-weight:700;font-size:30px">$1.6M</td><td class="c num green" style="font-weight:700;font-size:30px">$16M</td><td class="c num green" style="font-weight:700;font-size:30px">$81M</td></tr>
   </table>
   <div class="src">Volume = trades on BANKER-launched coins. For scale: all Solana launchpads together clear ~$100M/day; pump.fun alone books ~$1M/day in fees (The Block, Oct 2025). Tax share, desk and import fees are live today; graduation LP and vault performance fee are switches in the config.</div>
-  <div class="foot"><b>BANKER</b><span>11</span></div>
+  <div class="foot"><b>BANKER</b><span>14</span></div>
 </section>
 
 <!-- 10 comparison -->
@@ -206,9 +258,26 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
     <tr><td>Trade fee into the coin’s own treasury</td><td class="c yes">● 2%</td><td class="c no">to creator</td><td class="c no">to platform / burn</td><td class="c no">to creator / platform</td></tr>
     <tr><td>Dev paid from profit, not from selling supply</td><td class="c yes">●</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
     <tr><td>Exact price &amp; chart from block zero</td><td class="c yes">●</td><td class="c yes">●</td><td class="c no">indexer</td><td class="c no">indexer</td></tr>
+    <tr><td>Phone app: dollar buys, costs shown before you commit</td><td class="c yes">●</td><td class="c yes">●</td><td class="c no">—</td><td class="c no">—</td></tr>
+    <tr><td>Creator paid by stake, unlocked by milestones</td><td class="c yes">●</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
     <tr><td>Bring an existing coin</td><td class="c yes">●</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
   </table>
-  <div class="foot"><b>BANKER</b><span>12</span></div>
+  <div class="foot"><b>BANKER</b><span>15</span></div>
+</section>
+
+
+<!-- roadmap -->
+<section class="s">
+  <div class="kick">Next</div>
+  <h2 style="font-size:54px">From beta to the App Store.</h2>
+  <table style="margin-top:36px">
+    <tr><th>Now</th><th>Next</th><th>After</th></tr>
+    <tr><td>Mainnet terminal at app.banker.cash</td><td>First real launches with testers, 0.5 SOL chests</td><td>Creator rewards on</td></tr>
+    <tr><td>Phone app (same code) compiles for iPhone</td><td>TestFlight, then App Store review</td><td>Push alerts when your chest buys a dip</td></tr>
+    <tr><td>Phantom + Solflare connect inside the app</td><td>Higher-liquidity launch curve (built, behind a switch)</td><td>Token-2022 sell-only tax and vamp refusal</td></tr>
+    <tr><td>Vault, desk, vamp defense live</td><td>Vault worker closer to the validators (Frankfurt)</td><td>One-signature escrow OTC fills (program + audit)</td></tr>
+  </table>
+  <div class="foot"><b>BANKER</b><span>16</span></div>
 </section>
 
 <!-- 12 close -->
