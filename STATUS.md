@@ -1,4 +1,4 @@
-# BANKER · status · 2026-10-28
+# BANKER · status · 2026-10-29
 
 ## Done (what we set out to build)
 
@@ -16,7 +16,16 @@
 - Live: server on Render (`unnamed-server.onrender.com`, helius, gate on, 2 SOL chest cap, 1 SOL import tier), app at `app.banker.cash`, landing at `banker.cash`. One brand wallet `BANKY…` is every vault (top holder on every coin) with per-vault chest ledgers booked from tx deltas; launched mints end in `…BANK` from a pre-ground pool; launch metadata self-hosted. Drawdown stop on the mm leg. Paper vault runs on CI against live coins (`paper.yml`).
 - Tests: server 35/35, app 20/20, e2e launch 21 (+21 in shared-wallet mode) · gate 15 · desk 50 · app 22 · import 16 · mm 10; mainnet: platform config created, platform fee claim (1.16 SOL) landed, a holder sell simulates clean. See POSTMORTEM.md for the first live launch.
 
-## Handoff (2026-10-28 evening) — read this first
+## Handoff (2026-10-29 overnight) — read this first
+
+Pushed tonight on J's standing go (design + app shell only; trading/vault/desk/fee logic unchanged; both new server switches off):
+- `68453bc8` phone "captain" design (default simple skin: black/white/green, gold only for chests/levels; one task per screen; keypad trade sheet with costs before commit; receipts; sheets instead of tabs) + iPhone app shell (Capacitor 8 in `app/ios`, Phantom/Solflare deeplink wallet `app/src/lib/deeplink.ts`, Taptic haptics, icons, `.github/workflows/ios.yml`). App Store steps: `APPSTORE.md`.
+- `55d0e338` ios CI pipefail. `a320bfc5` terminal polish (stat bar, quick-buy pill, health dots, colored ticket, bottom status bar with latency). `1efb4ef7` deck (+4 slides).
+- Checks at each push: unit app 23 / server 39, e2e app 22 · launch 21 · import 16 · gate 15 · mm 10 · desk 50, screenshot sweep, clean `npm ci` build. iOS simulator build passes on macOS-15. Preflight 32/33 (the LaunchLab ws swap wait times out on quiet pools; pre-existing).
+- Working copy note: `npm install` in `/home/claude/unnamed-app` drops the Playwright link; restore with `ln -sfn /opt/npm-tools/node_modules/playwright node_modules/playwright`. Screenshot harness: scratchpad `shoot.sh [names]`.
+- Only J can do: Apple Developer enrollment as the LLC (D-U-N-S), App Store Connect app + API key + 4 GitHub secrets, first TestFlight test of the Phantom round trip.
+
+## Handoff (2026-10-28 evening)
 
 State: **everything is paused on purpose.** No scheduled tasks run. Server on Render is the last pushed build; the commits below are **local only, not pushed** (a push to `main` redeploys Render — J said pause until he says go). TEST vault (`itkQy1XKM54`) still holds his 1.1 SOL stake; `MM_BUYS=0` on Render until he taps **Refund stake** (Vault page, his signature).
 
