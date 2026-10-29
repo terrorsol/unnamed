@@ -52,8 +52,9 @@ export async function pumpTrade(kp: Keypair, action: 'buy' | 'sell', mint: strin
   const url = (process.env.PUMPPORTAL_URL || 'https://pumpportal.fun/api') + '/trade-local'
   const jito = process.env.JITO === '1'
   // Jito mode: PumpPortal's array body builds bundle-ready txs — the first tx's priorityFee becomes the Jito tip. Response is base58 strings.
-  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(jito ? [args] : args) })
-  if (!r.ok) throw new Error('pumpportal ' + r.status + ' ' + (await r.text().catch(() => '')))
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(jito ? [args] : args) }).catch(() => null)
+  // PumpPortal refusing to build (HTTP 4xx/5xx, unreachable) is the same case as a failed dry-run: build the trade through Jupiter instead
+  if (!r || !r.ok) { lastRoute = 'jupiter'; return signSend(kp, await jupBuild(kp.publicKey, action, mint, amount, denominatedInSol, slippage * 100), signer, false) }
   let tx = jito ? VersionedTransaction.deserialize(bs58.decode((await r.json())[0])) : VersionedTransaction.deserialize(new Uint8Array(await r.arrayBuffer()))
   // dry-run before spending a fee: mayhem/Token-2022 curve coins have failed PumpPortal's builder in preflight (pump error 6063). On a sim error, rebuild through Jupiter.
   if (process.env.TRADE_SIM !== '0') {

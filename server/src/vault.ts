@@ -14,6 +14,7 @@ import * as KEEP from './keeper.ts'
 import * as VM from './vamp.ts'
 import * as MM from './mm.ts'
 import * as EV from './events.ts'
+import { taxWeights } from './tax.ts'
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
 
@@ -38,9 +39,10 @@ export function candles(mint: string, tf = 60, limit = 300) {
 }
 /** last 10 minutes of swaps on a mint, in memory (seller-concentration check) */
 export const recent = (mint: string) => recentTape.get(mint) || []
+let lastTapeSave = 0
 export function tape(mint: string, e: { t: number; side: 'buy' | 'sell'; sol: number; trader?: string; sig?: string }) {
   // the 2% platform fee lands in ONE launchlab vault for all our coins; per-coin credit comes from the volume we observe here
-  { const v = Object.values(vaults).find((x) => x.mint === mint && x.armed && x.venue === 'launchlab'); if (v && e.sol > 0) v.taxAccrued = +((v.taxAccrued || 0) + e.sol * LL.TAX_BPS / 1e4).toFixed(9) }
+  { const v = Object.values(vaults).find((x) => x.mint === mint && x.armed && x.venue === 'launchlab'); if (v && e.sol > 0) { v.taxAccrued = +((v.taxAccrued || 0) + e.sol * LL.TAX_BPS / 1e4).toFixed(9); if (Date.now() - lastTapeSave > 20_000) { lastTapeSave = Date.now(); try { save() } catch {} } } }
   const r = recentTape.get(mint) || []; r.push({ t: e.t, side: e.side, sol: e.sol, trader: e.trader }); recentTape.set(mint, r.filter((x) => e.t - x.t < 600_000))
   const vl = volLog.get(mint) || []; vl.push({ t: e.t, sol: e.sol, side: e.side }); if (vl.length > 50000) vl.splice(0, 10000); volLog.set(mint, vl)
   try { const d = DIR + '/tape'; if (!existsSync(d)) mkdirSync(d, { recursive: true }); const f = `${d}/${mint}.jsonl`; if (existsSync(f) && statSync(f).size > 20e6) return; appendFileSync(f, JSON.stringify(e) + '\n') } catch {}
@@ -558,9 +560,10 @@ export async function claimPlatformFees(force = false): Promise<number> {
     const pk = LL.platformKeypair(); const pkB58 = pk.publicKey.toBase58()
     const tx = await LL.buildClaimVault(); const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 }); await confirm(sig)
     const got = Math.max(0, await txDelta(sig, pkB58).catch(() => pending)); if (got < 0.0005) return 0
-    const ours = Object.values(vaults).filter((v) => v.armed && v.venue === 'launchlab' && !v.paper); const total = ours.reduce((a, v) => a + (v.taxAccrued || 0), 0)
+    const ours = Object.values(vaults).filter((v) => v.armed && v.venue === 'launchlab' && !v.paper)
+    const W = taxWeights(ours); const total = W.reduce((a, w) => a + w, 0)
     const credits: { v: Vault; sol: number; why: string }[] = []
-    for (const v of ours) { const share = total > 0 ? got * (v.taxAccrued || 0) / total : 0; v.taxAccrued = 0; if (share < 0.0001) continue
+    for (const [i, v] of ours.entries()) { const share = total > 0 ? got * W[i] / total : 0; v.taxAccrued = 0; if (share < 0.0001) continue
       const orig = v.copyOf ? ours.find((x) => x.mint === v.copyOf) : null; const toOrig = orig ? (v.vampFlag ? share : share / 2) : 0
       if (share - toOrig > 0) credits.push({ v, sol: share - toOrig, why: toOrig ? `tax → chest (${v.vampFlag ? 'all' : 'half'} of it to original ${orig!.symbol})` : 'tax → chest' })
       if (orig && toOrig > 0) credits.push({ v: orig, sol: toOrig, why: `tax from ${v.vampFlag ? 'flagged copy' : 'copy'} ${v.symbol}` }) }
