@@ -7,7 +7,7 @@ export function devAuth(v: { id: string; dev: string }, action: string, mint: st
   if (process.env.DEV_AUTH === '0') return
   // an invite session is an HMAC the server minted for a wallet that signed once; if it is the dev's wallet, no extra message signature (no wallet popup)
   if (auth?.sessionWallet && auth.sessionWallet === v.dev) return
-  if (!auth?.msg || !auth?.sig) throw new Error('dev signature required')
+  if (!auth?.msg || !auth?.sig) throw new Error(`dev signature required (session ${auth?.sessionWallet ? auth.sessionWallet.slice(0, 4) + '…' : 'none'}, vault dev ${v.dev.slice(0, 4)}…)`)
   const m = /^unnamed:([a-z-]+):([^:]+):([^:]+):(\d+)$/.exec(auth.msg); if (!m) throw new Error('bad auth message')
   if (m[1] !== action || m[2] !== v.id || m[3] !== mint) throw new Error('auth message does not match this launch')
   if (Math.abs(Date.now() / 60000 - +m[4]) > 10) throw new Error('auth message expired')

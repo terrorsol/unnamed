@@ -133,8 +133,7 @@ export async function launchOurs(ctx: Ctx, meta: P.CreateMeta, devBuySol: number
   const { conn, owner, sign, onStatus } = ctx
   onStatus?.('Uploading metadata…'); const uri = await P.uploadMetadata(meta, SERVER)
   onStatus?.('Building launch…')
-  const auth = vault && deps.signMsg ? await K.devAuth(deps.signMsg, 'launch', vault.id, owner.toBase58()) : undefined
-  const b = await K.llLaunchBuild({ dev: owner.toBase58(), name: meta.name, symbol: meta.symbol, uri, devBuySol, vaultId: vault?.id, vaultBuySol, auth, permTax: !!deps.permTax })
+  const b = await K.withDevAuth(vault ? deps.signMsg : undefined, 'launch', vault?.id || '', owner.toBase58(), (auth) => K.llLaunchBuild({ dev: owner.toBase58(), name: meta.name, symbol: meta.symbol, uri, devBuySol, vaultId: vault?.id, vaultBuySol, auth, permTax: !!deps.permTax }))
   const txs = b.txs.map((x) => VersionedTransaction.deserialize(Buffer.from(x, 'base64')))
   onStatus?.(txs.length > 1 ? `Sign ${txs.length} transactions…` : 'Sign the create…')
   const signed: VersionedTransaction[] = []; for (const t of txs) signed.push(await sign(t))
