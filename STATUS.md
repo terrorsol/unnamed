@@ -14,13 +14,15 @@
 - Private beta gate: invite keys (`npm run invites -- 10 "wave 1"` on the server), bound to the first wallet that signs, 30-day sessions; every write route and the bidder socket require one while `GATE=1`; reads stay open. Gate screen in the app, "have a key?" on banker.cash. 15-check e2e.
 - Brand: BANKER everywhere, black/white/green, bank mark; investor deck (`BANKER-deck.pdf`, source in `deck/`); waitlist landing live on banker.cash (repo `terrorsol/google`, gh-pages); `/waitlist` endpoint on the server.
 - Live: server on Render (`unnamed-server.onrender.com`, helius, gate on, 2 SOL chest cap, 1 SOL import tier), app at `app.banker.cash`, landing at `banker.cash`. One brand wallet `BANKY…` is every vault (top holder on every coin) with per-vault chest ledgers booked from tx deltas; launched mints end in `…BANK` from a pre-ground pool; launch metadata self-hosted. Drawdown stop on the mm leg. Paper vault runs on CI against live coins (`paper.yml`).
-- Tests: server 34/34, app 20/20, e2e launch 21 (+21 in shared-wallet mode) · gate 15 · desk 50 · app 22 · import 16 · mm 10; mainnet: platform config created, platform fee claim (1.16 SOL) landed, a holder sell simulates clean. See POSTMORTEM.md for the first live launch.
+- Tests: server 35/35, app 20/20, e2e launch 21 (+21 in shared-wallet mode) · gate 15 · desk 50 · app 22 · import 16 · mm 10; mainnet: platform config created, platform fee claim (1.16 SOL) landed, a holder sell simulates clean. See POSTMORTEM.md for the first live launch.
 
 ## Handoff (2026-10-28 evening) — read this first
 
 State: **everything is paused on purpose.** No scheduled tasks run. Server on Render is the last pushed build; the commits below are **local only, not pushed** (a push to `main` redeploys Render — J said pause until he says go). TEST vault (`itkQy1XKM54`) still holds his 1.1 SOL stake; `MM_BUYS=0` on Render until he taps **Refund stake** (Vault page, his signature).
 
 Just finished: the MM backtest he asked for. Verdict + all numbers in `BACKTEST.md`. Three policy changes + one real accounting bug fix in `server/src/mm.ts` (leg take-profit, desk bid gated by VWAP/warmup/pool-liq, 25 SOL per-buy cap, `bookSell`/`mmCost`). Follow-up (Opus 5.5 catch-up review): RFQ answers now share the desk-bid guards; late-landing captures book into the leg. Tests after the change: server 34/34 · e2e mm 10 · desk 50 · import 16 · gate 15 · launch 21.
+
+Pushed 2026-10-28 20:10 CT on J's go (vault slippage 10% → 1.5% buy / 1% sell via `VAULT_SLIP_BUY_BPS`/`VAULT_SLIP_SELL_BPS`; `jitodontfront` marker on every tipped tx, `JITO_DONTFRONT=0` to disable). Next, from the MEV/UX research: move the vault worker to Render Frankfurt (region is immutable → new service + disk copy; plan it, don't wing it), simulate-then-cap compute units, Phantom/Blowfish review email, one-signature escrow OTC fills (program + audit), optional Privy embedded wallet for one-click.
 
 When he says go, in order: `git push` (redeploys) → he taps Refund → flip `MM_BUYS: "1"` in `render.yaml` + push → then the list below.
 

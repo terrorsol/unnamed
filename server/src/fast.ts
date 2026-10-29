@@ -8,6 +8,7 @@ export const TIP_ACCOUNTS = [
   '2q5pghRs6arqVjRvT5gfgWfWcHWmw1ZuCzphgd5KfWGJ', 'wyvPkWjVZz1M8fHQnMMCDTQDbkManefNNhweYk5WkcF', '3KCKozbAaF75qEU33jtzozcJ29yJuaLJTy2jFdzUY8bT', '4vieeGHPYPG2MmyPRcYjdiDmmhN3ww7hsFNap8pVN3Ey', '4TQLFNWK8AovT1gFvda5jfw2oJeRMKEmw7aH6MGBJ3or',
 ]
 export const MIN_TIP_LAMPORTS = 1_000_000 // 0.001 SOL — below this Sender still forwards but outside the priority buffer
+export const DONTFRONT = new PublicKey('jitodontfront111111111111111111111111111111')
 export const tipAccount = () => new PublicKey(TIP_ACCOUNTS[Math.floor(Math.random() * TIP_ACCOUNTS.length)])
 
 /** Sender URL derived from the RPC: a Helius api-key lifts the limit from 1 rps (keyless) to 50 rps. */
@@ -24,7 +25,10 @@ export async function addTip(conn: Connection, tx: VersionedTransaction, payer: 
   const alts: AddressLookupTableAccount[] = []
   if (msg.version !== 'legacy') for (const l of msg.addressTableLookups) { const r = await conn.getAddressLookupTable(l.accountKey); if (r.value) alts.push(r.value) }
   const tm = TransactionMessage.decompile(msg, { addressLookupTableAccounts: alts })
-  tm.instructions.push(SystemProgram.transfer({ fromPubkey: payer, toPubkey: tipAccount(), lamports }))
+  const tip = SystemProgram.transfer({ fromPubkey: payer, toPubkey: tipAccount(), lamports })
+  // jitodontfront: a read-only marker account. Jito's block engine rejects any bundle that puts another tx in front of this one (in-bundle sandwich guard). The system program ignores extra accounts.
+  if (process.env.JITO_DONTFRONT !== '0') tip.keys.push({ pubkey: DONTFRONT, isSigner: false, isWritable: false })
+  tm.instructions.push(tip)
   const out = msg.version === 'legacy' ? tm.compileToLegacyMessage() : tm.compileToV0Message(alts)
   return new VersionedTransaction(out)
 }

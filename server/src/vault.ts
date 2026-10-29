@@ -365,8 +365,10 @@ function trimAllowed(v: Vault, m: any, p: number, now: number) {
 export const PAPER = process.env.PAPER === '1'
 const jitter = (base: number, pct: number) => base * (1 + (Math.random() * 2 - 1) * pct)
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+/** vault slippage: the min-out is computed from the pool state read at build time, so this only has to cover 1–2 slots of other flow. It was 10% — a free 10% for any sandwich bot. A trade that misses fails (fee only, no fill) and the next tick re-decides. */
+const SLIP_BUY_BPS = Math.max(10, +(process.env.VAULT_SLIP_BUY_BPS || 150)), SLIP_SELL_BPS = Math.max(10, +(process.env.VAULT_SLIP_SELL_BPS || 100))
 async function trade(v: Vault, action: 'buy' | 'sell', amount: number | string, denominatedInSol: boolean, price: number): Promise<string> {
-  if (!PAPER) { const signer = (tx: any) => KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'trade', action === 'buy' ? +amount : 0); const onLL = v.venue === 'launchlab' && !!(await LL.pool(v.mint!).catch(() => null))?.migrated === false; return onLL ? C.llTrade(kp(v), action, v.mint!, amount, 1000, signer) : pumpTrade(kp(v), action, v.mint!, amount, denominatedInSol, 10, undefined, signer) }
+  if (!PAPER) { const signer = (tx: any) => KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'trade', action === 'buy' ? +amount : 0); const onLL = v.venue === 'launchlab' && !!(await LL.pool(v.mint!).catch(() => null))?.migrated === false; const slip = action === 'buy' ? SLIP_BUY_BPS : SLIP_SELL_BPS; return onLL ? C.llTrade(kp(v), action, v.mint!, amount, slip, signer) : pumpTrade(kp(v), action, v.mint!, amount, denominatedInSol, slip / 100, undefined, signer) }
   if (action === 'buy') { const sol = +amount; v.chest -= sol; v.tokens += (sol / price) * 0.985 }
   else { const frac = typeof amount === 'string' ? parseFloat(amount) / 100 : +amount / v.tokens; const tok = v.tokens * frac; v.tokens -= tok; v.chest += tok * price * 0.985 }
   return 'paper-' + Math.random().toString(36).slice(2, 10)
