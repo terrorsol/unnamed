@@ -1,4 +1,4 @@
-# BANKER · status · 2026-10-29
+# BANKER · status · 2026-10-30
 
 ## Done (what we set out to build)
 
@@ -15,6 +15,30 @@
 - Brand: BANKER everywhere, black/white/green, bank mark; investor deck (`BANKER-deck.pdf`, source in `deck/`); waitlist landing live on banker.cash (repo `terrorsol/google`, gh-pages); `/waitlist` endpoint on the server.
 - Live: server on Render (`unnamed-server.onrender.com`, helius, gate on, 2 SOL chest cap, 1 SOL import tier), app at `app.banker.cash`, landing at `banker.cash`. One brand wallet `BANKY…` is every vault (top holder on every coin) with per-vault chest ledgers booked from tx deltas; launched mints end in `…BANK` from a pre-ground pool; launch metadata self-hosted. Drawdown stop on the mm leg. Paper vault runs on CI against live coins (`paper.yml`).
 - Tests: server 35/35, app 20/20, e2e launch 21 (+21 in shared-wallet mode) · gate 15 · desk 50 · app 22 · import 16 · mm 10; mainnet: platform config created, platform fee claim (1.16 SOL) landed, a holder sell simulates clean. See POSTMORTEM.md for the first live launch.
+
+## Handoff (2026-10-30 morning) — read this first
+
+What broke on Oct 29's launches and what's fixed (all pushed, live on Render at `846ccc31`+, unit + e2e green, mainnet preflight green):
+
+| Broke | Root cause | Fix |
+|---|---|---|
+| Every launch with a vault buy: Jito "bundle contains an expired blockhash" | the create's blockhash was stamped early and aged while the server finished building (vault buy, SDK queue) and while the wallet signed | one fresh blockhash stamped at the very end of the server build on the create (mint re-signs) and the vault buy (signed after); pump.fun bundles restamped right before signing. **Mainnet proof:** preflight step `jito: takes a real launch bundle` sends the exact bundle shape from unfunded wallets — Jito accepts it (bundle id returned) |
+| Bundle dropped/expired → app launched WITHOUT the vault buy | plain-send fallback | no fallback: resend ×3, rebuild on expired/dropped (×2, new signature), else "nothing launched, stake in the vault" |
+| Vault create refused (2 SOL cap) → coin launched with no chest | app swallowed the error | launch stops before anything is spent |
+| Refund pressed mid-launch killed the bundle | stake left the vault the bundle spends from | server refuses refund for 2 min after a launch build |
+| Retries reused an empty (refunded) vault; vault armed onto a mint that never went live | stale reuse; arm trusted the app's mint | reuse only a still-funded vault; arm checks the coin exists and recovers the build that went live (`builtMints`) |
+| Vault never armed / dev signature popups | invite session tied to one wallet | one key works on any wallet (redeem or link with one signature); arm also accepts the coin's on-chain creator |
+| Coin page stuck on "Loading" for a new coin | waited on indexers | reads our own pool (`/market/:mint`); trade box after 10 s no matter what |
+| Fees credited to no chest / payouts timing out | attribution with no observed volume; no priority fee | single-coin fallback; payouts with priority fee + rebroadcast, no double pay |
+| A buy could be sold into twice | launchlab coins ran the websocket AND the pool-read detector | websocket only, pool read as backstop when the subscription is silent |
+| …BANK mints all burned | every failed attempt popped one | dead mints return to the pool; `mints.yml` grinds and pushes fresh ones with the ADMIN_KEY secret |
+
+Market maker (test launches, image env in `server/Dockerfile`, Render env overrides):
+- block-zero vault buy up to 9 SOL inside the bundle; sells a slice of **every** incoming buy ≥0.05 SOL into it: ~10% of a small buy → **30% of a 2 SOL+ buy** (log curve, `MM_DYN_*`), first until the launch buy is back (never under cost +1%), then only above cost +4%, ≤8% of its tokens per sale, one at a time
+- small dip buys / desk bids (≤0.2 SOL, ≤0.6 out), profit-gated on volume; Close & withdraw all sells everything and pays the dev the whole chest
+- replay of XYZ's real 167-swap tape (+ the ~11 SOL of first-second buys) with this policy: 4 SOL block-zero buy → 54 sells, launch buy back, **+1.1 SOL** on the market-making leg plus ~1.6 SOL fees; 8 SOL → +1.0 (4.4% unsold at the end); 1.6 SOL → +0.34
+
+Recommended next launch: BANKER launchpad · Buy at launch ~4 SOL (≈12%) · chest 0.5 · own buy 0 (vault is the first buy) · in-app wallet or Phantom (both fit the window now).
 
 ## Handoff (2026-10-29 overnight) — read this first
 
