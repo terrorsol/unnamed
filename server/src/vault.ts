@@ -220,15 +220,16 @@ export async function bookCreateFunding(v: Vault, mint: string): Promise<boolean
   for (const x of first) { const before = fundedSol(v); try { await fund(v.id, x.signature); if (fundedSol(v) <= before) continue; EV.log('vault', `${v.symbol || v.id} stake booked from the create tx (one-signature launch)`, { id: v.id, sig: x.signature }); return true } catch {} }
   return false
 }
-/** Sniper report, once per launch, ~75 s after arm: who bought in the first minute (read off the chain, not our feed — the feed starts at arm),
+/** Sniper report, once per launch, ~3 min after arm: who bought in the first minute (read off the chain, not our feed — the feed starts at arm),
  *  how much of it landed in the launch block itself, and what the chest sold into them. Shown on the coin page. */
 export async function sniperReport(v: Vault) {
   if (!v.mint || PAPER) return null
   const pool = v.venue === 'launchlab' ? LL.poolIdOf(v.mint) : curvePda(v.mint); const poolB58 = pool.toBase58()
   const sigs = (await conn.getSignaturesForAddress(pool, { limit: 1000 })).filter((x) => !x.err).reverse(); if (!sigs.length) return null
-  const t0 = sigs[0].blockTime || 0, slot0 = sigs[0].slot; const first = sigs.filter((x) => (x.blockTime || 0) <= t0 + 60).slice(0, 150)
+  const t0 = sigs[0].blockTime || 0, slot0 = sigs[0].slot; const first = sigs.filter((x) => (x.blockTime || 0) <= t0 + 60).slice(0, 120)
   let buys = 0, buySol = 0, sells = 0, sellSol = 0, blockZero = 0; const wallets = new Set<string>()
-  for (const x of first) { const sw = await decodeSwap(conn, poolB58, x.signature, x.slot).catch(() => null); if (!sw || sw.trader === v.pub || sw.trader === v.dev) continue
+  // paced: one read every 250 ms — this shares the RPC with the live vault (a CI probe doing it flat out drew a wall of 429s)
+  for (const x of first) { await wait(250); const sw = await decodeSwap(conn, poolB58, x.signature, x.slot).catch(() => null); if (!sw || sw.trader === v.pub || sw.trader === v.dev) continue
     if (sw.side === 'buy') { buys++; buySol += sw.sol; wallets.add(sw.trader); if (x.slot <= slot0 + 1) blockZero += sw.sol } else { sells++; sellSol += sw.sol } }
   const t1 = (v.armedAt || Date.now()) + 120_000; const sold = v.activity.filter((a) => a.kind === 'capture' && a.t <= t1).reduce((a, x) => a + (x.sol || 0), 0)
   const r = { buys, buySol: +buySol.toFixed(4), wallets: wallets.size, sells, sellSol: +sellSol.toFixed(4), blockZeroSol: +blockZero.toFixed(4), soldInto: +sold.toFixed(4), at: Date.now() }
@@ -605,7 +606,7 @@ async function tickOne(v: Vault) {
       { const st = MM.stopped(v, p, now); if (st && !v.stopNoted) { v.stopNoted = true; v.activity.unshift({ t: now, kind: 'note', msg: `drawdown stop: mm leg ${(MM.mmPnl(v, p) / Math.max(v.mmSpent || 0, 1e-9) * 100).toFixed(0)}% on ${(v.mmSpent || 0).toFixed(2)} SOL deployed — no new buys, desk bid halved at −15%, resumes at break-even` }); EV.log('vault', `${v.symbol} drawdown stop`, { mint: v.mint, pnl: MM.mmPnl(v, p), spent: v.mmSpent }) } else if (!st && v.stopNoted) { v.stopNoted = false; v.activity.unshift({ t: now, kind: 'note', msg: 'drawdown stop cleared: mm leg back at break-even' }) } }
       if (!v.holders || now - v.holders.t > 60_000) { holderStats(v.mint, v.pub).then((h) => { v.holders = h }).catch(() => {}) }
       if (!v.score) v.score = { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: v.supply ? v.chest / v.supply : 0 }
-      if (!(v as any).sniper && !(v as any).sniperTried && !v.imported && (v.vaultBuySol || 0) > 0 && v.armedAt && now - v.armedAt > 75_000 && now - v.armedAt < 6 * 3600_000) { (v as any).sniperTried = true; sniperReport(v).catch(() => {}) }
+      if (!(v as any).sniper && !(v as any).sniperTried && !v.imported && (v.vaultBuySol || 0) > 0 && v.armedAt && now - v.armedAt > 180_000 && now - v.armedAt < 6 * 3600_000) { (v as any).sniperTried = true; sniperReport(v).catch(() => {}) }   // after the opening rush, not during it
       { const cu = (v as any).catchUp; if (cu != null) { (v as any).catchUp = undefined
         if (m.liqSol && now - (v.armedAt || 0) < 180_000) { const inflow = +(m.liqSol - cu).toFixed(6); v.lastLiq = m.liqSol; v.lastLiqT = now
           if (inflow >= MM.P.initialsMinBuy) { EV.log('vault', `${v.symbol} ${inflow.toFixed(2)} SOL of sniper buys landed before the chest switched on — selling into them`, { mint: v.mint }); await onBuy(v, inflow, m, p, now) } } } }
