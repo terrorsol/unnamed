@@ -9,7 +9,7 @@ import bs58 from 'bs58'
 
 const SUFFIX = process.env.MINT_SUFFIX || 'BANK'
 const args = process.argv.slice(2); const DIR = './mints'; mkdirSync(DIR, { recursive: true })
-const threads = String(Math.max(1, (await import('node:os')).cpus().length - 1))
+const threads = String(Math.max(1, (await import('node:os')).cpus().length))   // all cores: a grind box does nothing else
 const grind = (n: number) => { console.log(`grinding ${n} keys ending in ${SUFFIX} with ${threads} threads…`); const r = spawnSync('solana-keygen', ['grind', '--ends-with', `${SUFFIX}:${n}`, '--num-threads', threads], { cwd: DIR, stdio: 'inherit' }); if (r.status !== 0) throw new Error('solana-keygen failed — is it installed? https://docs.anza.xyz/cli/install') }
 const push = async (server: string, key: string) => {
   const files = readdirSync(DIR).filter((f) => f.endsWith(SUFFIX + '.json')); if (!files.length) { console.log('nothing to push'); return }

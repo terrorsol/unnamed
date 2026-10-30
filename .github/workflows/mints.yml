@@ -13,7 +13,7 @@ permissions:
 jobs:
   mints:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 75
     env:
       SERVER: ${{ vars.SERVER_URL || 'https://unnamed-server.onrender.com' }}
       ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
@@ -27,12 +27,15 @@ jobs:
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)" >/dev/null
           echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
-      - name: Grind and push (secrets stay on the runner until the server accepts them)
+      - name: Grind and push in small batches (each batch reaches the server before the next starts; secrets never leave the runner otherwise)
         working-directory: server
         run: |
-          set -o pipefail
-          { test -n "$ADMIN_KEY" && echo "admin key: present" || echo "admin key: MISSING"; which solana-keygen || echo "solana-keygen: not installed"; } > /tmp/mints.txt
-          npm run mints -- grind ${{ github.event.inputs.n || '30' }} push "$SERVER" "$ADMIN_KEY" 2>&1 | grep -v -i "secret\|wrote\|seed" | tail -20 >> /tmp/mints.txt || echo "mints script failed: $?" >> /tmp/mints.txt
+          { test -n "$ADMIN_KEY" && echo "admin key: present" || echo "admin key: MISSING"; } > /tmp/mints.txt
+          want=${{ github.event.inputs.n || '30' }}; got=0; end=$(( $(date +%s) + 65*60 ))
+          while [ $got -lt $want ] && [ $(date +%s) -lt $end ]; do
+            out=$(npm run --silent mints -- grind 2 push "$SERVER" "$ADMIN_KEY" 2>&1 | grep -E "^pushed|nothing to push|Error|failed" | tail -2)
+            echo "$(date -u +%H:%M) $out" >> /tmp/mints.txt; got=$((got + 2))
+          done
           rm -rf mints; cat /tmp/mints.txt
       - name: Publish the result (counts only, no keys)
         if: always()
