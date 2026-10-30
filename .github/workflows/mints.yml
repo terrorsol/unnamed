@@ -4,7 +4,7 @@ name: Refill …BANK mints (grind + push to the server)
 on:
   workflow_dispatch:
     inputs:
-      n: { description: 'how many', default: '30' }
+      n: { description: 'how many in total (split over 4 runners)', default: '40' }
   push:
     branches: [main]
     paths: ['.github/workflows/mints.yml']
@@ -13,7 +13,11 @@ permissions:
 jobs:
   mints:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 345
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]   # four runners grind in parallel; each pushes its own batches
     env:
       SERVER: ${{ vars.SERVER_URL || 'https://unnamed-server.onrender.com' }}
       ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
@@ -31,18 +35,18 @@ jobs:
         working-directory: server
         run: |
           { test -n "$ADMIN_KEY" && echo "admin key: present" || echo "admin key: MISSING"; echo "cores: $(nproc)"; echo "start $(date -u +%H:%M)"; } > /tmp/mints.txt
-          want=${{ github.event.inputs.n || '30' }}; got=0; end=$(( $(date +%s) + 65*60 ))
+          want=$(( ${{ github.event.inputs.n || '40' }} / 4 )); got=0; end=$(( $(date +%s) + 335*60 ))
           while [ $got -lt $want ] && [ $(date +%s) -lt $end ]; do
             out=$(npm run --silent mints -- grind 2 push "$SERVER" "$ADMIN_KEY" 2>&1 | grep -E "^pushed|nothing to push|Error|failed" | tail -2)
             echo "$(date -u +%H:%M) $out" >> /tmp/mints.txt; got=$((got + 2))
             # progress out after every batch (counts only)
-            ( R=https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git; rm -rf /tmp/pub && mkdir -p /tmp/pub && cd /tmp/pub && git init -q && git checkout -qb reports-mints && git config user.name unnamed-ci && git config user.email ci@unnamed.local && cp /tmp/mints.txt mints.txt && git add -A && git commit -qm progress && git push -qf $R reports-mints ) || true
+            ( R=https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git; rm -rf /tmp/pub && mkdir -p /tmp/pub && cd /tmp/pub && git init -q && git checkout -qb reports-mints-${{ matrix.shard }} && git config user.name unnamed-ci && git config user.email ci@unnamed.local && cp /tmp/mints.txt mints.txt && git add -A && git commit -qm progress && git push -qf $R reports-mints-${{ matrix.shard }} ) || true
           done
           rm -rf mints; cat /tmp/mints.txt
       - name: Publish the result (counts only, no keys)
         if: always()
         run: |
           R=https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
-          mkdir -p /tmp/pub && cd /tmp/pub && git init -q && git checkout -qb reports-mints && git config user.name unnamed-ci && git config user.email ci@unnamed.local
+          rm -rf /tmp/pub && mkdir -p /tmp/pub && cd /tmp/pub && git init -q && git checkout -qb reports-mints-${{ matrix.shard }} && git config user.name unnamed-ci && git config user.email ci@unnamed.local
           cp /tmp/mints.txt mints.txt 2>/dev/null || echo "no output" > mints.txt; date -u >> mints.txt
-          git add -A && git commit -qm "mints ${{ github.run_id }}" && git push -qf $R reports-mints
+          git add -A && git commit -qm "mints ${{ github.run_id }}" && git push -qf $R reports-mints-${{ matrix.shard }}
