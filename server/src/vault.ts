@@ -188,6 +188,22 @@ export async function bookCreateFunding(v: Vault, mint: string): Promise<boolean
   for (const x of first) { try { await fund(v.id, x.signature); EV.log('vault', `${v.symbol || v.id} stake booked from the create tx (one-signature launch)`, { id: v.id, sig: x.signature }); return true } catch {} }
   return false
 }
+/** A coin launched on our launchpad without a chest (or whose chest was withdrawn) gets one afterwards: its creator attaches a vault. It arms at
+ *  once and is fee-funded — the coin's 2% platform fee fills it from the next trade — and takes deposits like any chest. Free: the coin is ours.
+ *  Oct 30: a dev who launched without a chest had no way to give it one ("where do i go to deposit"). */
+export async function attach(dev: string, mint: string, auth?: { msg?: string; sig?: string; sessionWallet?: string | null }, hint?: { symbol?: string; name?: string }) {
+  const pl = await LL.pool(mint, 0); if (!pl) throw new Error('not a coin on the BANKER launchpad')
+  if (!LL.isOurs(pl)) throw new Error('this coin launched on another platform — use "add a chest" (import) instead')
+  if (pl.creator !== dev) throw new Error('only the wallet that created this coin can attach its chest')
+  devAuth({ id: 'attach', dev }, 'attach', mint, auth)
+  const live = Object.values(vaults).find((x) => x.mint === mint && x.armed && !(x as any).closedAt); if (live) return pub(live)
+  const k = newKey(); const id = bs58.encode(randomBytes(8)); const m = await market(mint).catch(() => null)
+  const v: Vault = { id, venue: 'launchlab', shared: !!SHARED, vaultBuySol: 0, pub: k.publicKey.toBase58(), sk: enc(k.secretKey), dev, stakeSol: 0, pct: 5, cut: 5, armed: true, armedAt: Date.now(), renounced: false, createdAt: Date.now(), streamed: 0, redeemed: 0, supply: 1e9, deskBid: 0, trimmedToday: 0, trimDay: 0, depositedTokens: 0, funders: {}, avgCost: 0, tokens: 0, chest: 0, spentEpisode: 0, high15: [], samples: [], ema5: null, ema15: null, lastBuy: 0, lastTrim: 0, activity: [], devPaid: 0, mint, symbol: (m as any)?.symbol || String(hint?.symbol || '').slice(0, 12), name: String(hint?.name || '').slice(0, 40) } as any
+  v.mode = 'mm'; v.ceiling = R.MM_MAX_CAPTURE
+  try { const sup = await conn.getTokenSupply(new PublicKey(mint)); v.supply = +(sup.value.uiAmount || 1e9) } catch {}
+  v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'chest attached after launch · the 2% fee fills it from the next trade · deposits welcome' })
+  vaults[id] = v; VM.watch(mint); save(); EV.log('vault', `${v.symbol || mint.slice(0, 4)} chest attached by its creator`, { id, mint }); return pub(v)
+}
 /** Every 15s: a funded vault whose coin is on chain but which never armed (bundle dropped, arm never signed, tab closed) arms itself —
  *  the dev already authorized the launch; arm needs no second signature. Unfunded vaults older than 2h are dropped. */
 let armingNow = false

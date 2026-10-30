@@ -11,7 +11,7 @@ const DIST = __r(HERE, '../dist'); const MIME = { '.html': 'text/html', '.js': '
 createServer((req, res) => { let p = join(DIST, req.url.split('?')[0]); if (!existsSync(p) || p.endsWith('/')) p = join(DIST, 'index.html'); res.setHeader('content-type', MIME[extname(p)] || 'application/octet-stream'); res.end(readFileSync(p)) }).listen(4197)
 
 // ---- mock UNNAMED server (:4198) ----
-const vaultKp = Keypair.generate(); const mintKp = Keypair.generate(); const MINT = mintKp.publicKey.toBase58(); const MINT2 = Keypair.generate().publicKey.toBase58(); const MINT3 = Keypair.generate().publicKey.toBase58(); let alreadyLive = false
+const vaultKp = Keypair.generate(); const mintKp = Keypair.generate(); const MINT = mintKp.publicKey.toBase58(); const MINT2 = Keypair.generate().publicKey.toBase58(); const MINT3 = Keypair.generate().publicKey.toBase58(); const MINT4 = Keypair.generate().publicKey.toBase58(); let alreadyLive = false; let creatorAddr = ''
 const calls = {}; const bh = '11111111111111111111111111111111'
 const v0 = (payer, lamports = 1) => new VersionedTransaction(new TransactionMessage({ payerKey: payer, recentBlockhash: bh, instructions: [SystemProgram.transfer({ fromPubkey: payer, toPubkey: payer, lamports })] }).compileToV0Message())
 const b64 = (tx) => Buffer.from(tx.serialize()).toString('base64')
@@ -20,6 +20,7 @@ createServer(async (req, res) => {
   res.setHeader('access-control-allow-origin', '*'); res.setHeader('access-control-allow-headers', '*'); res.setHeader('access-control-allow-methods', '*'); if (req.method === 'OPTIONS') return res.end()
   const u = new URL(req.url, 'http://x'); const p = u.pathname; let body = ''; for await (const c of req) body += c; const b = body ? JSON.parse(body) : {}
   ;(calls[p] ||= []).push(b); const json = (o) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(o)) }
+  if (p.startsWith('/vault/mint/') && p.endsWith(MINT4)) return json(calls['/vault/attach'] ? { ...vaultPub, id: 'v4', mint: MINT4, armed: true, chest: 0 } : null)
   if (p === '/health') return json({ ok: true, vaults: 0, desk: { openBids: 0 }, beta: { keeper: {} } })
   if (p === '/ll/platform') return json({ venue: 'launchlab', permTaxBps: 0, platformId: 'PLAT', admin: 'ADMIN', feeWallet: 'FEE', taxBps: 200, creatorFeeBps: 50, chain: { id: 'PLAT', exists: true, feeRate: 2, creatorFeeRate: 0.5 } })
   if (p === '/ipfs') return json({ uri: 'https://ipfs.io/ipfs/test' })
@@ -38,6 +39,8 @@ createServer(async (req, res) => {
   if (p === '/vault/arm') return json({ ...vaultPub, armed: true, tokens: 16.5e6, chest: 0.5 })
   if (p === '/vaults') return json(calls['/vault/arm'] ? [{ ...vaultPub, armed: true, tokens: 16.5e6, chest: 0.5 }] : [])
   if (p.startsWith('/vault/mint/')) return json(calls['/vault/arm'] ? { ...vaultPub, armed: true, tokens: 16.5e6, chest: 0.5 } : null)
+  if (p === '/vault/attach') return json({ ...vaultPub, id: 'v4', mint: b.mint, armed: true, chest: 0, dev: b.dev })
+  if (p.startsWith('/ll/pool/') && p.endsWith(MINT4)) return json({ poolId: 'POOL4', status: 0, migrated: false, priceSol: 3.0e-8, liqSol: 31, soldPct: 0.4, platformId: 'PLAT', ours: true, platformFee: '0', creator: creatorAddr })
   if (p.startsWith('/ll/pool/')) return json(p.endsWith(MINT) ? { poolId: 'POOL', status: 0, migrated: false, priceSol: 3.0e-8, liqSol: 31, soldPct: 0.4, platformId: 'PLAT', ours: true, platformFee: '12000000' } : null)
   if (p === '/ll/trade') { const owner = new PublicKey(b.owner); return json({ tx: b64(v0(owner, 3)) }) }
   if (p.startsWith('/book/')) return json({ mint: MINT, bids: [], asks: [], rules: { feeBps: 50 }, minBlock: 0.5, open: false, why: 'no volume yet' })
@@ -53,7 +56,7 @@ const b = await chromium.launch(); const pg = await b.newPage({ viewport: { widt
 await pg.addInitScript(() => { localStorage.setItem('unnamed_server', 'http://localhost:4198') })
 const errs = []; pg.on('pageerror', (e) => { errs.push(String(e)); console.log('PAGEERR', String(e.stack || e).slice(0, 700)) })
 const sent = []
-await pg.route(/api\.dexscreener\.com/, (r) => { const u = r.request().url(); if (u.includes('boosts')) return r.fulfill({ json: [{ chainId: 'solana', tokenAddress: 'CURVE111' }] }); if (u.includes('/tokens/v1/') && u.includes('So1111')) return r.fulfill({ json: [{ ...curve, priceUsd: '200', baseToken: { address: 'So11111111111111111111111111111111111111112', name: 'Wrapped SOL', symbol: 'SOL' } }] }); if (u.includes('/tokens/v1/') || u.includes('/token-pairs/')) return r.fulfill({ json: u.includes(MINT) ? [] : [curve] }); r.fulfill({ json: [] }) })
+await pg.route(/api\.dexscreener\.com/, (r) => { const u = r.request().url(); if (u.includes('boosts')) return r.fulfill({ json: [{ chainId: 'solana', tokenAddress: 'CURVE111' }] }); if (u.includes('/tokens/v1/') && u.includes('So1111')) return r.fulfill({ json: [{ ...curve, priceUsd: '200', baseToken: { address: 'So11111111111111111111111111111111111111112', name: 'Wrapped SOL', symbol: 'SOL' } }] }); if (u.includes('/tokens/v1/') || u.includes('/token-pairs/')) return r.fulfill({ json: u.includes(MINT) || u.includes(MINT4) ? [] : [curve] }); r.fulfill({ json: [] }) })
 await pg.route(/geckoterminal\.com/, (r) => r.fulfill({ json: { data: [] } }))
 await pg.route(/raw\.githubusercontent\.com/, (r) => r.fulfill({ status: 404, body: '' }))
 await pg.route(/mainnet-beta\.solana\.com|helius-rpc\.com/, (r) => { const q = JSON.parse(r.request().postData()); const id = q.id
@@ -139,6 +142,13 @@ chk('pump: the server builds the launch (fundInBundle, vault, dev signature)', !
 chk('pump: no stake transfer sent ahead, one bundle [create+stake, vault buy]', sent.length === sentBefore && (calls['/bundle'] || []).length === bundlesBefore + 1 && calls['/bundle'].at(-1).txs.length === 2)
 chk('pump: armed onto the new coin with the create signature as the stake proof', calls['/vault/arm'].at(-1).mint === MINT3 && !!calls['/vault/arm'].at(-1).fundSig)
 chk('pump: success toast + coin page', [...seen3].some((t) => t.includes('live on pump') && t.includes('vault in block zero')) && pg.url().includes('#/coin/' + MINT3))
+// ---- a coin launched here without a chest: its creator switches the chest on from the coin page (free) ----
+creatorAddr = addr
+await pg.goto('http://localhost:4197/#/coin/' + MINT4); await pg.waitForTimeout(2500)
+await pg.locator('button', { hasText: /^Vault/ }).first().click().catch(() => {}); await pg.waitForTimeout(800)
+const sw = pg.locator('button', { hasText: 'Switch on the chest' }); chk('creator sees "Switch on the chest · free" on their chest-less launchpad coin', (await sw.count()) === 1)
+await sw.first().click().catch(() => {}); await pg.waitForTimeout(1500)
+const at = calls['/vault/attach']?.[0]; chk('attach sent for this coin by its creator, with a dev signature', !!at && at.mint === MINT4 && at.dev === addr && !!at.auth?.msg?.startsWith('unnamed:attach:attach:' + MINT4))
 chk('no page errors', errs.filter((e) => !e.startsWith('FAIL') && !/net::|WebSocket|ERR_|Failed to fetch|localStorage/.test(e)).length === 0)
 await pg.screenshot({ path: join(SC, 'launch-coinpage.png') })
 await b.close(); const fails = errs.filter((e) => e.startsWith('FAIL')); if (fails.length) { console.log('ERRORS:', fails.join('; ')); process.exit(1) } process.exit(0)

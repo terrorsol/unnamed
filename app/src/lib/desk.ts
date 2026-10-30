@@ -191,14 +191,14 @@ export const vaultCreate = (dev: string, stakeSol: number, copyOf?: string, mode
 export const vaultSetMode = (id: string, dev: string, mode: 'floor' | 'mm', ceiling?: number): Promise<VaultPub> => j('/vault/mode', { id, dev, mode, ceiling })
 export type DevAuth = { msg: string; sig: string }
 /** proves to the server that the dev of a vault is the one asking it to sign a launch (`unnamed:<action>:<vaultId>:<mint>:<minute>`) */
-export async function devAuth(signMsg: (m: Uint8Array) => Promise<Uint8Array>, action: 'launch' | 'bundle' | 'arm' | 'refund', vaultId: string, mint: string, force = false): Promise<DevAuth> {
+export async function devAuth(signMsg: (m: Uint8Array) => Promise<Uint8Array>, action: 'launch' | 'bundle' | 'arm' | 'refund' | 'attach', vaultId: string, mint: string, force = false): Promise<DevAuth> {
   // with an invite session the server already knows this wallet (it signed once to redeem the key): no message popup per step
   if (sessionToken() && !force) return { msg: '', sig: '' }
   const msg = `unnamed:${action}:${vaultId}:${mint}:${Math.floor(Date.now() / 60000)}`
   return { msg, sig: bs58.encode(await signMsg(new TextEncoder().encode(msg))) }
 }
 /** run a dev-authorized call with the session; if the server still wants a wallet signature (session for another wallet, expired), sign once and retry */
-export async function withDevAuth<T>(signMsg: ((m: Uint8Array) => Promise<Uint8Array>) | undefined, action: 'launch' | 'bundle' | 'arm' | 'refund', vaultId: string, mint: string, call: (a: DevAuth | undefined) => Promise<T>): Promise<T> {
+export async function withDevAuth<T>(signMsg: ((m: Uint8Array) => Promise<Uint8Array>) | undefined, action: 'launch' | 'bundle' | 'arm' | 'refund' | 'attach', vaultId: string, mint: string, call: (a: DevAuth | undefined) => Promise<T>): Promise<T> {
   const first = signMsg ? await devAuth(signMsg, action, vaultId, mint) : undefined
   try { return await call(first) } catch (e: any) {
     if (!signMsg || !/dev signature required/.test(String(e?.message || e))) throw e
@@ -206,6 +206,8 @@ export async function withDevAuth<T>(signMsg: ((m: Uint8Array) => Promise<Uint8A
   }
 }
 export const vaultGet = (id: string): Promise<VaultPub | null> => j('/vault/' + id)
+/** give a coin launched on our launchpad without a chest its chest (creator only, free): armed at once, the 2% fee fills it */
+export const vaultAttach = (dev: string, mint: string, symbol: string, name: string, auth?: DevAuth): Promise<VaultPub> => j('/vault/attach', { dev, mint, symbol, name, auth })
 export const vaultRefund = (id: string, auth: DevAuth): Promise<{ sig: string; sol: number }> => j('/vault/refund', { id, auth })
 export const vaultFund = (id: string, sig: string): Promise<VaultPub> => j('/vault/fund', { id, sig })
 export const vaultArm = (id: string, mint: string, symbol: string, name = '', auth?: DevAuth, fundSig?: string): Promise<VaultPub> => j('/vault/arm', { id, mint, symbol, name, auth, fundSig })
@@ -294,7 +296,7 @@ export function openSwapFeed(onSwap: (s: SwapEvt) => void) {
 }
 
 // ---- LaunchLab (our launchpad) ----
-export type LLPool = { poolId: string; status: number; migrated: boolean; priceSol: number; liqSol: number; soldPct: number; platformId: string; ours: boolean; platformFee: string }
+export type LLPool = { poolId: string; status: number; migrated: boolean; priceSol: number; liqSol: number; soldPct: number; platformId: string; ours: boolean; platformFee: string; creator?: string }
 export type LLPlatform = { venue: string; permTaxBps?: number; platformId: string | null; admin: string | null; selfAdmin?: boolean; feeWallet: string; taxBps: number; creatorFeeBps: number; ready?: boolean; walletSol?: number; setup?: string | null; chain: { id: string; exists: boolean; feeRate?: number; creatorFeeRate?: number } | null }
 export const llPlatform = (): Promise<LLPlatform> => j('/ll/platform')
 export const llPlatformBuild = (admin: string): Promise<{ tx: string; platformId: string }> => j('/ll/platform/build', { admin })

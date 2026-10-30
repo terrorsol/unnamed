@@ -185,9 +185,10 @@ export function plainMsg(m?: string): string {
   x = x.replace(/^mode → mm · capture ceiling (\d+)%$/, 'set to buy dips and take profit (up to $1% per buy)').replace(/^mode → floor$/, 'set to floor only')
   return x
 }
-export function CoinVault({ mint, v, isDev, onRenounce, solPrice, onMode }: { mint: string; v: K.VaultPub | null | undefined; isDev: boolean; onRenounce: () => void; solPrice: number; onMode?: (m: 'floor' | 'mm', c: number) => void }) {
+export function CoinVault({ mint, v, isDev, onRenounce, solPrice, onMode, onAttach }: { mint: string; v: K.VaultPub | null | undefined; isDev: boolean; onRenounce: () => void; solPrice: number; onMode?: (m: 'floor' | 'mm', c: number) => void; onAttach?: () => void }) {
   const mountedAt = useMemo(() => Date.now(), []); const [more, setMore] = useState(false)
   if (v === undefined) return <div className="empty" style={{ padding: 18 }}>Loading the chest…</div>
+  if (!v && onAttach) return <div className="panel"><div className="card" style={{ padding: 14 }}><div style={{ fontSize: 15, fontWeight: 600 }}>Your coin has no chest yet</div><div className="nm" style={{ marginTop: 4, fontSize: 12.5, lineHeight: 1.5 }}>You launched it on BANKER, so its chest is free. Switch it on and the 2% fee from every trade starts filling it from the next trade. You can add SOL to it any time.</div><button className="btn pri" style={{ marginTop: 10 }} onClick={onAttach}>Switch on the chest · free</button></div></div>
   if (!v) return <div className="panel"><div className="note">This coin has no chest yet. Coins launched on BANKER get one for free. For any other coin, <a href={'#/import/' + mint} style={{ textDecoration: 'underline' }}>add a chest</a> for 15 SOL (5 of it goes straight into the chest).</div></div>
   const last = v.activity.find((a) => ['capture', 'buy', 'bid', 'redeem', 'trim'].includes(a.kind))
   const floorUsd = v.floor * solPrice

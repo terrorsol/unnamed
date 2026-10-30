@@ -58,7 +58,9 @@ export function SimpleCoinView({ c, vault, rug, held, valSol, cost, p, range, se
         <span className="cr-mid"><span className="cr-name">Safety chest</span><span className="cr-sub num"><b className="gold">{S(vault.chest, 2)} SOL</b> <span className="cr-dim">· ${S(vault.chest * sp, 0)}</span></span></span>
         <span className="cr-right"><b className="num">{L.next ? F(L.next) : 'Done'}</b><span className="dim num">{L.next ? `${Math.round(L.frac * 100)}% to goal` : 'all goals hit'}</span></span>
         <span className="cr-chev">{Ic.chev(16)}</span>
-      </button> : <div className="cr sc-nochest"><span className="sc-warn-ic">{Ic.alert(18)}</span><span className="cr-mid"><span className="cr-name">No chest on this coin</span><span className="cr-sub">Nothing defends the price. Trade with care.</span></span></div>}
+      </button> : c.venue === 'launchlab' && (c.raw as any)?.ours && (c.raw as any)?.creator && (c.raw as any).creator === p.desk?.owner && p.onAttach
+        ? <button className="cr sc-chest" onClick={() => { haptic(8); p.onAttach(c) }}><span className="sc-ic ok">{Ic.chest(18)}</span><span className="cr-mid"><span className="cr-name">Switch on your chest · free</span><span className="cr-sub">You launched it here: the 2% fee fills it from the next trade</span></span><span className="cr-chev">{Ic.chev(16)}</span></button>
+        : <div className="cr sc-nochest"><span className="sc-warn-ic">{Ic.alert(18)}</span><span className="cr-mid"><span className="cr-name">No chest on this coin</span><span className="cr-sub">Nothing defends the price. Trade with care.</span></span></div>}
       <button className="cr" onClick={() => open('safety')}>
         <span className={'sc-ic ' + (warn ? 'warn' : 'ok')}>{warn ? Ic.alert(18) : Ic.check(18)}</span>
         <span className="cr-mid"><span className="cr-name">{warn ? `${warn} thing${warn > 1 ? 's' : ''} to know` : 'Safety checks passed'}</span><span className="cr-sub">{checks.length - warn} of {checks.length} checks look good</span></span>
