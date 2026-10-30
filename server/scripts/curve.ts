@@ -1,22 +1,16 @@
-// shared wallet vs the chest ledgers (the server's own audit), and every BANKY tx on this coin with who signed
-const S = 'https://unnamed-server.onrender.com'; const AK = process.env.ADMIN_KEY || ''
-if (AK) { const w: any = await fetch(S + '/admin/wallet?key=' + AK).then((r) => r.json()).catch((e) => ({ err: String(e) })); console.log('AUDIT', JSON.stringify(w).slice(0, 1500)) }
-const { PublicKey } = await import('@solana/web3.js'); const { conn } = await import('../src/chain.ts')
-const W = new PublicKey('BANKYubgHd48UQt2VFtEytyE8QyeBHhiuptC3tHmfVPH'); const mint = process.env.MINT!
-console.log('BANKY SOL', (await conn.getBalance(W)) / 1e9)
-const accs = await conn.getParsedTokenAccountsByOwner(W, { mint: new PublicKey(mint) }); for (const a of accs.value) console.log('BANKY coin', a.account.data.parsed.info.tokenAmount.uiAmountString)
-// every tx of the wallet itself in the last hour: SOL move, coin move, and whether its compute-budget/tip shape is the server's or the app's
-const sigs = await conn.getSignaturesForAddress(W, { limit: 200 }); const since = Date.now() / 1000 - 3 * 3600
-let n = 0, buys = 0, buySol = 0
-for (const x of sigs) { if ((x.blockTime || 0) < since) break; await new Promise((r) => setTimeout(r, 300))
-  const tx = await conn.getParsedTransaction(x.signature, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }).catch(() => null); if (!tx?.meta) continue; n++
-  const keys = tx.transaction.message.accountKeys.map((k: any) => k.pubkey.toBase58()); const wi = keys.indexOf(W.toBase58())
-  const sol = wi >= 0 ? (tx.meta.postBalances[wi] - tx.meta.preBalances[wi]) / 1e9 : 0
-  const pre = tx.meta.preTokenBalances?.find((b: any) => b.owner === W.toBase58() && b.mint === mint)?.uiTokenAmount.uiAmount || 0
-  const post = tx.meta.postTokenBalances?.find((b: any) => b.owner === W.toBase58() && b.mint === mint)?.uiTokenAmount.uiAmount || 0
-  const signers = tx.transaction.message.accountKeys.filter((k: any) => k.signer).map((k: any) => k.pubkey.toBase58().slice(0, 6)).join('+')
-  const progs = [...new Set(tx.transaction.message.instructions.map((i: any) => (i.programId?.toBase58?.() || String(i.programId)).slice(0, 6)))].join(',')
-  if (post - pre > 0 && sol < -0.5) { buys++; buySol += -sol }
-  if (Math.abs(sol) > 0.3 || post - pre > 0) console.log(new Date((x.blockTime || 0) * 1000).toISOString().slice(11, 19), x.signature.slice(0, 12), x.err ? 'ERR' : 'ok ', 'sol', sol.toFixed(4).padStart(9), 'coin', (post - pre).toFixed(0).padStart(11), 'signers', signers, 'progs', progs) }
-console.log('txs read', n, 'big coin buys', buys, 'SOL', buySol.toFixed(4))
+// the brand wallet's real position: SOL + coin now (marked at the pool price), vs what it held right before the launch create
+const LL = await import('../src/launchlab.ts'); const { PublicKey } = await import('@solana/web3.js'); const { conn } = await import('../src/chain.ts')
+const mint = process.env.MINT!; const W = new PublicKey('BANKYubgHd48UQt2VFtEytyE8QyeBHhiuptC3tHmfVPH')
+const p: any = await LL.pool(mint, 0); const f = (x: bigint, d = 9) => Number(x) / 10 ** d
+const raised = f(p.realB), sold = f(p.realA, 6), vB = f(p.virtualB), vA = f(p.virtualA, 6); const price = (vB + raised) / (vA - sold)
+const sol = (await conn.getBalance(W)) / 1e9
+const accs = await conn.getParsedTokenAccountsByOwner(W, { mint: new PublicKey(mint) }); const tok = accs.value.reduce((a: number, x: any) => a + (x.account.data.parsed.info.tokenAmount.uiAmount || 0), 0)
+// what selling all of it into the curve would actually return (constant product, 2.25% fees)
+const x = vB + raised, y = vA - sold, k = x * y; const outGross = x - k / (y + tok); const out = outGross * (1 - 0.0225)
+console.log(JSON.stringify({ t: new Date().toISOString(), bondedPct: +(100 * raised / f(p.totalFundRaisingB)).toFixed(2), priceSol: price, mcapSol: +(price * 1e9).toFixed(1), walletSol: +sol.toFixed(4), walletTokensM: +(tok / 1e6).toFixed(3), tokensAtSpotSol: +(tok * price).toFixed(4), tokensIfSoldAllSol: +out.toFixed(4) }))
+for (const s of ['4UtXTnHY4sm4Cpy1VNF5vpmtFXpnYmhXEz7NKCkAUHDQvepJ1quEccXDq3ietaJaNXhrih9p6qBpVR6YaeLPJgym']) {
+  const tx = await conn.getParsedTransaction(s, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }); const keys = tx!.transaction.message.accountKeys.map((k: any) => k.pubkey.toBase58()); const i = keys.indexOf(W.toBase58())
+  console.log('create tx: wallet SOL before', tx!.meta!.preBalances[i] / 1e9, 'after', tx!.meta!.postBalances[i] / 1e9, 'signers', tx!.transaction.message.accountKeys.filter((k: any) => k.signer).map((k: any) => k.pubkey.toBase58()).join(' ')) }
+const sigs = await conn.getSignaturesForAddress(W, { limit: 400 }); const t0 = Date.parse('2026-10-30T21:10:00Z') / 1000; const early = sigs.filter((x) => (x.blockTime || 0) < t0).slice(0, 3)
+for (const e of early) { const tx = await conn.getParsedTransaction(e.signature, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }); const keys = tx!.transaction.message.accountKeys.map((k: any) => k.pubkey.toBase58()); const i = keys.indexOf(W.toBase58()); console.log('before launch:', new Date((e.blockTime || 0) * 1000).toISOString(), 'wallet SOL after that tx', tx!.meta!.postBalances[i] / 1e9) }
 process.exit(0)
