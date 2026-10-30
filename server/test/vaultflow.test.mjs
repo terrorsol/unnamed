@@ -18,7 +18,7 @@ const DEVPK = dev.publicKey.toBase58()
 
 // ---- fake chain ----
 const parsed = new Map()          // sig → parsed tx (keys + pre/post lamports)
-let poolLive = false, vaultTokens = 0, blockhashValid = false, tradeN = 0
+let poolLive = false, vaultTokens = 0, blockhashValid = false, tradeN = 0, reuseMint = null
 const createSigs = []             // signatures in the order they landed on the mint
 const land = (tx, deltas) => { const sig = bs58.encode(tx.signatures[0]); const keys = [...new Set([...tx.message.staticAccountKeys.map((k) => k.toBase58()), ...Object.keys(deltas)])]
   // parsed instructions the way the RPC returns them: system transfers decoded, everything else opaque
@@ -33,7 +33,7 @@ mock.module('../src/launchlab.ts', { namedExports: {
   quote: (_s, solIn) => ({ tokens: solIn * 27e6, after: { virtualA: 1073025605596382n, virtualB: 30000852951n, realA: 0n, realB: BigInt(Math.round((0.5 + solIn) * 0.977e9)) } }),
   buildTrade: async (owner) => new VersionedTransaction(new TransactionMessage({ payerKey: owner, recentBlockhash: bh, instructions: [SystemProgram.transfer({ fromPubkey: owner, toPubkey: new PublicKey('96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5'), lamports: 5e6 + (++tradeN) })] }).compileToV0Message()),   // unique per build, like a real one
   buildLaunch: async (devPk, _meta, devBuy) => {
-    mintKp = Keypair.generate(); MINT = mintKp.publicKey.toBase58()   // every launch is a new coin (as with the real mint pool)
+    mintKp = reuseMint || Keypair.generate(); MINT = mintKp.publicKey.toBase58()   // every launch is a new coin (as with the real mint pool) — unless a test hands back a reclaimed one
     const txs = [new VersionedTransaction(new TransactionMessage({ payerKey: devPk, recentBlockhash: bh, instructions: [SystemProgram.createAccount({ fromPubkey: devPk, newAccountPubkey: mintKp.publicKey, lamports: 1e6, space: 82, programId: SystemProgram.programId })] }).compileToV0Message())]
     const restamp = (b) => { for (const t of txs) { t.message.recentBlockhash = b; t.sign([mintKp]) } return txs.map((t) => Buffer.from(t.serialize()).toString('base64')) }
     const addTransfer = async (to, lamports) => { const m = TransactionMessage.decompile(txs[0].message); m.instructions.push(SystemProgram.transfer({ fromPubkey: devPk, toPubkey: to, lamports })); txs[0] = new VersionedTransaction(m.compileToV0Message()); return txs[0].serialize().length }
@@ -146,4 +146,16 @@ test('only the dev\'s own transfer counts: SOL someone else sent to the shared w
   const t = new VersionedTransaction(new TransactionMessage({ payerKey: dev.publicKey, recentBlockhash: bh, instructions: [SystemProgram.transfer({ fromPubkey: other.publicKey, toPubkey: SHARED.publicKey, lamports: 3e9 })] }).compileToV0Message()); t.sign([dev, other])
   const sig = land(t, { [BANKY]: +3 })
   await assert.rejects(V.fund(v.id, sig), /no SOL from the vault owner/)
+})
+
+test('a reclaimed …BANK mint handed to a second vault launches for that vault (the first vault lets go of it)', async () => {
+  const A = await launch(); const M = mintKp; reuseMint = M   // A's launch never landed; its mint goes back to the pool
+  const B = await launch(); reuseMint = null; assert.equal(B.b.mint, A.b.mint)
+  const ct = VersionedTransaction.deserialize(Buffer.from(B.b.txs[0], 'base64')); ct.sign([dev]); const vt = VersionedTransaction.deserialize(Buffer.from(B.b.vaultTx, 'base64'))
+  createSigs.length = 0; const cs = land(ct, { [DEVPK]: -(STAKE + 0.52), [BANKY]: +STAKE }); land(vt, { [BANKY]: -(B.b.vaultSpend + 0.005) }); createSigs.push(cs)
+  poolLive = true; vaultTokens = 197e6
+  const armed = await V.arm(B.v.id, B.b.mint, 'BANK', 'Bank', { sessionWallet: DEVPK }, cs)
+  assert.equal(armed.armed, true); assert.ok(Math.abs(armed.chest - (STAKE - B.b.vaultSpend - 0.005)) < 1e-6)
+  await assert.rejects(V.arm(A.v.id, A.b.mint, 'BANK', 'Bank', { sessionWallet: DEVPK }), /did not launch that coin|not on chain|another chest/)
+  poolLive = false; createSigs.length = 0
 })

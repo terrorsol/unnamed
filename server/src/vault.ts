@@ -855,7 +855,10 @@ export async function liveBuild(v: Vault): Promise<string | null> {
   for (const m of [...(((v as any).builtMints || []) as string[])].reverse().slice(0, 4)) { if (await onChain(v, m)) return m }
   return null
 }
-const noteBuilt = (v: Vault, mint: string) => { (v as any).buildAt = Date.now(); const bm = ((v as any).builtMints ||= [] as string[]); if (!bm.includes(mint)) bm.push(mint); if (bm.length > 20) bm.splice(0, bm.length - 20) }
+const noteBuilt = (v: Vault, mint: string) => { (v as any).buildAt = Date.now(); const bm = ((v as any).builtMints ||= [] as string[]); if (!bm.includes(mint)) bm.push(mint); if (bm.length > 20) bm.splice(0, bm.length - 20)
+  // a …BANK mint whose launch never went live goes back to the pool and can be handed to another vault: it belongs to this one now — drop it from
+  // every other vault's builds, or their 'already live' check and the stake lookup would take this launch for theirs
+  for (const w of Object.values(vaults)) { if (w.id === v.id) continue; const wb = (w as any).builtMints as string[] | undefined; if (wb?.includes(mint)) wb.splice(wb.indexOf(mint), 1); if ((w as any).pendingLaunch?.mint === mint) delete (w as any).pendingLaunch; if (w.mint === mint && !w.armed) w.mint = undefined } }
 /** pump.fun launch built on the server, the same way as ours: the mint is a …BANK key from our pool (we mint-sign the create, so the dev can't
  *  rebuild it without the stake), PumpPortal builds [create + dev buy + Jito tip] for the dev and the vault's block-zero buy, and the stake
  *  rides inside the create — one wallet signature, all-or-nothing in one Jito bundle. */
