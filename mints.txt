@@ -1,0 +1,9 @@
+admin key: present
+cores: 4
+start 07:26
+07:31 pushed 2, rejected 0 · pool now 4 available, 5 used
+07:49 pushed 2, rejected 0 · pool now 10 available, 5 used
+08:24 pushed 2, rejected 0 · pool now 18 available, 5 used
+09:02 pushed 2, rejected 0 · pool now 22 available, 5 used
+09:40 pushed 2, rejected 0 · pool now 26 available, 5 used
+Fri Oct 30 09:40:59 UTC 2026
