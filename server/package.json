@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node --experimental-strip-types src/index.ts",
-    "test": "node --experimental-strip-types --test test/*.test.mjs",
+    "test": "node --experimental-strip-types --experimental-test-module-mocks --test-force-exit --test test/*.test.mjs",
     "smoke": "node --experimental-strip-types scripts/smoke.ts",
     "preflight": "node --experimental-strip-types scripts/preflight.ts",
     "mmsim": "node --experimental-strip-types scripts/mmsim.ts",

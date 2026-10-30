@@ -121,7 +121,9 @@ export function create(dev: string, stakeSol: number, copyOf?: string, mode: 'fl
 /** Step 1b: the dev's stake transfer landed (sig). Required for shared-wallet vaults (the ledger can't see deposits in the wallet balance); harmless for per-key vaults. */
 export async function fund(id: string, sig: string) {
   const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('already armed')
-  if (Object.values(vaults).some((x) => x.activity.some((a) => a.sig === sig))) return pub(v)
+  // already booked as a stake → done. (Only stake entries count: the same signature as some other entry — e.g. the vault's own block-zero
+  // buy in the same slot as the create — is not funding, and used to be taken as 'already booked'.)
+  if (Object.values(vaults).some((x) => x.activity.some((a) => a.sig === sig && a.kind === 'stake'))) return pub(v)
   // a just-confirmed tx can take a few seconds to show up parsed: wait for it instead of failing the arm
   let tx: any = null; for (let i = 0; i < 6 && !tx; i++) { tx = await conn.getParsedTransaction(sig, { maxSupportedTransactionVersion: 1, commitment: 'confirmed' }).catch(() => null); if (!tx && i < 5) await new Promise((r) => setTimeout(r, 1000)) }
   if (!tx || tx.meta?.err) throw new Error('funding tx not found or failed')
@@ -196,7 +198,7 @@ export async function bookCreateFunding(v: Vault, mint: string): Promise<boolean
   for (let p = 0; p < 10; p++) { page = await conn.getSignaturesForAddress(new PublicKey(mint), { before, limit: 1000 }); if (!page.length) break; oldest = page; before = page[page.length - 1].signature; if (page.length < 1000) break }
   if (!oldest.length) return false
   const slot = oldest[oldest.length - 1].slot; const first = oldest.filter((x) => x.slot === slot && !x.err).reverse()
-  for (const x of first) { try { await fund(v.id, x.signature); EV.log('vault', `${v.symbol || v.id} stake booked from the create tx (one-signature launch)`, { id: v.id, sig: x.signature }); return true } catch {} }
+  for (const x of first) { const before = fundedSol(v); try { await fund(v.id, x.signature); if (fundedSol(v) <= before) continue; EV.log('vault', `${v.symbol || v.id} stake booked from the create tx (one-signature launch)`, { id: v.id, sig: x.signature }); return true } catch {} }
   return false
 }
 /** A coin launched on our launchpad without a chest (or whose chest was withdrawn) gets one afterwards: its creator attaches a vault. It arms at
