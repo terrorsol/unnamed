@@ -170,7 +170,10 @@ export async function arm(id: string, mint: string, symbol: string, name = '', a
   if (bundled) {
     await sync(v)
     // the bundle can be signed and still not land (Jito drops it, tip too low). Tokens on the vault wallet are the only proof.
-    if (v.tokens > 0) { v.avgCost = buy / v.tokens; v.launchSpend = buy; v.activity.unshift({ t: Date.now(), kind: 'seed', sol: buy, tokens: v.tokens, msg: 'block-zero vault supply (bundled)' }); save(); return pub(v) }
+    if (v.tokens > 0) { v.avgCost = buy / v.tokens; v.launchSpend = buy; v.activity.unshift({ t: Date.now(), kind: 'seed', sol: buy, tokens: v.tokens, msg: 'block-zero vault supply (bundled)' })
+      // the snipers who bought between the bundle and this arm: the first tick sells into all of it at once (the swap feed only starts now)
+      const bl = (v as any).bundleLiq; if (bl?.mint === mint && bl.liq > 0) { (v as any).catchUp = bl.liq; v.nextTickAt = 0 }
+      save(); return pub(v) }
     if (MM.P.profitOnly) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'block-zero buy did not land — test mode: no market buy after launch, the fees fill the chest' }); save(); return pub(v) }
     v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'bundle did not land — seeding now' })
   }
@@ -429,7 +432,8 @@ function liveReadout(v: Vault) {
 export function setMode(id: string, dev: string, mode: 'floor' | 'mm', ceiling?: number) { const v = vaults[id]; if (!v || v.dev !== dev) throw new Error('not yours'); v.mode = mode; if (ceiling != null) v.ceiling = Math.min(R.MM_MAX_CAPTURE, Math.max(0.05, ceiling)); v.activity.unshift({ t: Date.now(), kind: 'note', msg: `mode → ${mode}${mode === 'mm' ? ` · capture ceiling ${Math.round((v.ceiling) * 100)}%` : ''}` }); save(); return pub(v) }
 /** A buy was observed (stream or inferred). MM mode may counter it. */
 export async function onBuy(v: Vault, solIn: number, m: any, p: number, now: number) {
-  const initials = MM.initialsOn(v); const perBuy = MM.perBuyOn(v); if (perBuy && (v as any)._capBusy) return
+  // one sale at a time — but a buy that lands while a sale is in flight is queued, not dropped (a sniper wave is ten buys in two seconds)
+  const initials = MM.initialsOn(v); const perBuy = MM.perBuyOn(v); if (perBuy && (v as any)._capBusy) { (v as any)._pendIn = +(((v as any)._pendIn || 0) + solIn).toFixed(9); return }
   const tokens = MM.capture(v, m, p, solIn, now); if (tokens <= 0) return
   if (perBuy) (v as any)._capBusy = true
   const frac = R.captureFracV2(p, R.vwap(v.samples), v.avgCost, m.mcapUsd, R.sigma(v.samples), MM.vaultedPct(v), v.pct || 5, v.ceiling ?? R.MM_MAX_CAPTURE, 0.5)
@@ -444,7 +448,8 @@ export async function onBuy(v: Vault, solIn: number, m: any, p: number, now: num
     const profit = got - v.avgCost * tokens; const cut = v.cut > 0 ? Math.max(0, profit) * (v.cut / 100) : 0
     await payCut(v, cut, now, 'capture profit')
   } catch (e: any) { v.activity.unshift({ t: now, kind: 'note', msg: 'capture failed: ' + String(e.message).slice(0, 80) }); if (e?.sig) deferBook(v, e.sig, tokens * p * 0.97, (vv, cb) => MM.bookSell(vv, tokens, vv.chest - cb)) }
-  finally { if (perBuy) (v as any)._capBusy = false }
+  finally { if (perBuy) { (v as any)._capBusy = false; const pend = (v as any)._pendIn || 0; (v as any)._pendIn = 0
+    if (pend >= MM.P.initialsMinBuy && v.armed) setTimeout(() => { market(v.mint!).then((mm) => mm && mm.priceSol ? onBuy(v, pend, mm, mm.priceSol, Date.now()) : undefined).then(() => save()).catch(() => {}) }, 0) } }
 }
 /** the dev cut on realized profit. A copy (declared at launch, or flagged by the vamp detector) streams half of every cut to the original's chest. */
 async function payCut(v: Vault, cut: number, now: number, why: string) {
@@ -557,6 +562,9 @@ async function tickOne(v: Vault) {
       { const st = MM.stopped(v, p, now); if (st && !v.stopNoted) { v.stopNoted = true; v.activity.unshift({ t: now, kind: 'note', msg: `drawdown stop: mm leg ${(MM.mmPnl(v, p) / Math.max(v.mmSpent || 0, 1e-9) * 100).toFixed(0)}% on ${(v.mmSpent || 0).toFixed(2)} SOL deployed — no new buys, desk bid halved at −15%, resumes at break-even` }); EV.log('vault', `${v.symbol} drawdown stop`, { mint: v.mint, pnl: MM.mmPnl(v, p), spent: v.mmSpent }) } else if (!st && v.stopNoted) { v.stopNoted = false; v.activity.unshift({ t: now, kind: 'note', msg: 'drawdown stop cleared: mm leg back at break-even' }) } }
       if (!v.holders || now - v.holders.t > 60_000) { holderStats(v.mint, v.pub).then((h) => { v.holders = h }).catch(() => {}) }
       if (!v.score) v.score = { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: v.supply ? v.chest / v.supply : 0 }
+      { const cu = (v as any).catchUp; if (cu != null) { (v as any).catchUp = undefined
+        if (m.liqSol && now - (v.armedAt || 0) < 180_000) { const inflow = +(m.liqSol - cu).toFixed(6); v.lastLiq = m.liqSol; v.lastLiqT = now
+          if (inflow >= MM.P.initialsMinBuy) { EV.log('vault', `${v.symbol} ${inflow.toFixed(2)} SOL of sniper buys landed before the chest switched on — selling into them`, { mint: v.mint }); await onBuy(v, inflow, m, p, now) } } } }
       // per-swap detection: our launchlab pool, any graduated pool, and — unless the PumpPortal stream is on — the pump.fun bonding curve itself
       // (the curve account's own SOL delta is the exact buy). Re-pointed when the coin migrates (curve → AMM), so a graduated coin is never left on a dead stream.
       const pumpPP = m.onCurve && (m as any).venue !== 'launchlab' && !!process.env.PUMPPORTAL_KEY
@@ -741,7 +749,7 @@ export async function buildPumpLaunch(b: { dev: string; name: string; symbol: st
       if (bi.maxSolCost < cost) throw new Error(`max_sol_cost ${bi.maxSolCost.toFixed(4)} below the real cost ${cost.toFixed(4)}`)
       if (cost + bi.tipSol > spend * 1.05 + 0.01) throw new Error(`block-zero buy costs ${cost.toFixed(3)} SOL, policy allows ${spend.toFixed(3)}`)
       if (bi.maxSolCost > bal + 0.001) throw new Error(`max_sol_cost ${bi.maxSolCost.toFixed(3)} exceeds the vault's ${bal.toFixed(3)} SOL`)
-      vaultTokens = bi.tokens
+      vaultTokens = bi.tokens; (v as any).bundleLiq = { mint, liq: L.bundleCost(c.buy?.tokens || 0, bi.tokens).after.vSol }
       // one fresh blockhash for both, stamped last; the mint signs the create, the keeper signs the vault buy
       const lb = await conn.getLatestBlockhash('confirmed'); ct.message.recentBlockhash = lb.blockhash; vt.message.recentBlockhash = lb.blockhash; ct.sign([mintKp])
       KEEP.sign({ id: v.id, chest: bal, sk: kp(v) }, vt, 'launch', cost + bi.tipSol); vaultTx = Buffer.from(vt.serialize()).toString('base64')
@@ -781,7 +789,8 @@ export async function buildLaunch(b: { dev: string; name: string; symbol: string
       // one fresh blockhash for the whole bundle, stamped last (create re-signed by the mint, the vault buy signed after) — nothing slow runs after this
       const lb = await conn.getLatestBlockhash('confirmed'); launchTxs = built.restamp(lb.blockhash); if (tx.message.header.numRequiredSignatures === 1) tx.message.recentBlockhash = lb.blockhash
       KEEP.sign({ id: v.id, chest: bal, sk: kp(v) }, tx, 'launch', vaultSpend)
-      vaultTx = Buffer.from(tx.serialize()).toString('base64'); vaultTokens = LL.quote(built.afterDev, vaultSpend).tokens
+      vaultTx = Buffer.from(tx.serialize()).toString('base64'); const q = LL.quote(built.afterDev, vaultSpend); vaultTokens = q.tokens
+      ;(v as any).bundleLiq = { mint: built.mint, liq: Number(q.after.virtualB + q.after.realB) / 1e9 }   // the pool right after [create, vault buy]: everything above it at arm is snipers
       v.mint = built.mint; v.uri = b.uri; v.symbol = b.symbol; v.name = b.name; v.permTax = built.permTax; resolveImage(v); v.activity.unshift({ t: Date.now(), kind: 'note', sig: bs58.encode(tx.signatures[0]), mint: built.mint, msg: `signed block-zero buy · ${vaultSpend.toFixed(3)} SOL for ${(vaultTokens / 1e6).toFixed(2)}M tokens (launchlab)${fundSol ? ` · stake ${fundSol.toFixed(3)} SOL inside the create` : ''}` } as any); save()
     }
   }
