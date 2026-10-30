@@ -19,6 +19,7 @@ jobs:
         env:
           RPC_URL: ${{ secrets.HELIUS_RPC }}
           MINT: nUCiRZJQz1xGbGpM5FthfiF8ZUiDqsy9QcnwxvFBANK
+          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
         run: timeout 780 node --experimental-strip-types scripts/curve.ts > curve.txt 2>&1 || true; cat curve.txt
       - name: Publish
         if: always()
