@@ -220,6 +220,23 @@ export async function bookCreateFunding(v: Vault, mint: string): Promise<boolean
   for (const x of first) { const before = fundedSol(v); try { await fund(v.id, x.signature); if (fundedSol(v) <= before) continue; EV.log('vault', `${v.symbol || v.id} stake booked from the create tx (one-signature launch)`, { id: v.id, sig: x.signature }); return true } catch {} }
   return false
 }
+/** Arm the moment the launch lands, from the server: the vault's own block-zero buy signature is known at build time, so its landing is
+ *  watched here (every 400 ms for 90 s) instead of waiting for the app to confirm and call arm — the snipers are being sold into seconds
+ *  sooner. The app's arm (or autoArm) then finds it armed. */
+function watchLanding(id: string, sig: string, mint: string) {
+  const t0 = Date.now()
+  const poll = async () => {
+    const v = vaults[id]; if (!v || v.armed || (v as any).closedAt || v.mint !== mint || Date.now() - t0 > 90_000) return
+    const st = (await conn.getSignatureStatuses([sig]).catch(() => null))?.value?.[0]
+    if (st?.err) return
+    if (st && (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized')) {
+      for (let i = 0; i < 4; i++) { try { await arm(id, mint, v.symbol || '', v.name || '', { sessionWallet: v.dev }); EV.log('vault', `${v.symbol} armed by the server ${((Date.now() - t0) / 1000).toFixed(1)} s after its build (bundle landed)`, { id, mint }); return } catch (e: any) { if (/closed|not on chain/i.test(String(e?.message))) return; await wait(1500) } }
+      return
+    }
+    setTimeout(poll, 400)
+  }
+  setTimeout(poll, 1500)
+}
 /** Sniper report, once per launch, ~3 min after arm: who bought in the first minute (read off the chain, not our feed — the feed starts at arm),
  *  how much of it landed in the launch block itself, and what the chest sold into them. Shown on the coin page. */
 export async function sniperReport(v: Vault) {
@@ -800,7 +817,7 @@ export async function buildPumpLaunch(b: { dev: string; name: string; symbol: st
       vaultTokens = bi.tokens; (v as any).bundleLiq = { mint, liq: L.bundleCost(c.buy?.tokens || 0, bi.tokens).after.vSol }
       // one fresh blockhash for both, stamped last; the mint signs the create, the keeper signs the vault buy
       const lb = await conn.getLatestBlockhash('confirmed'); ct.message.recentBlockhash = lb.blockhash; vt.message.recentBlockhash = lb.blockhash; ct.sign([mintKp])
-      KEEP.sign({ id: v.id, chest: bal, sk: kp(v) }, vt, 'launch', cost + bi.tipSol); vaultTx = Buffer.from(vt.serialize()).toString('base64')
+      KEEP.sign({ id: v.id, chest: bal, sk: kp(v) }, vt, 'launch', cost + bi.tipSol); vaultTx = Buffer.from(vt.serialize()).toString('base64'); setTimeout(() => watchLanding(v.id, bs58.encode(vt.signatures[0]), mint), 0)
       v.vaultBuySol = +cost.toFixed(4); v.activity.unshift({ t: Date.now(), kind: 'note', sig: bs58.encode(vt.signatures[0]), mint, msg: `signed block-zero buy · ${cost.toFixed(3)} SOL for ${(bi.tokens / 1e6).toFixed(2)}M tokens (pump)${fundSol ? ` · stake ${fundSol.toFixed(3)} SOL inside the create` : ''}` } as any)
     } else { const lb = await conn.getLatestBlockhash('confirmed'); ct.message.recentBlockhash = lb.blockhash; ct.sign([mintKp]) }
     if (v) { v.mint = mint; v.uri = b.uri; v.symbol = b.symbol; v.name = b.name; resolveImage(v); noteBuilt(v, mint); save() }
@@ -837,7 +854,7 @@ export async function buildLaunch(b: { dev: string; name: string; symbol: string
       // one fresh blockhash for the whole bundle, stamped last (create re-signed by the mint, the vault buy signed after) — nothing slow runs after this
       const lb = await conn.getLatestBlockhash('confirmed'); launchTxs = built.restamp(lb.blockhash); if (tx.message.header.numRequiredSignatures === 1) tx.message.recentBlockhash = lb.blockhash
       KEEP.sign({ id: v.id, chest: bal, sk: kp(v) }, tx, 'launch', vaultSpend)
-      vaultTx = Buffer.from(tx.serialize()).toString('base64'); const q = LL.quote(built.afterDev, vaultSpend); vaultTokens = q.tokens
+      vaultTx = Buffer.from(tx.serialize()).toString('base64'); const q = LL.quote(built.afterDev, vaultSpend); vaultTokens = q.tokens; watchLanding(v.id, bs58.encode(tx.signatures[0]), built.mint)
       ;(v as any).bundleLiq = { mint: built.mint, liq: Number(q.after.virtualB + q.after.realB) / 1e9 }   // the pool right after [create, vault buy]: everything above it at arm is snipers
       v.mint = built.mint; v.uri = b.uri; v.symbol = b.symbol; v.name = b.name; v.permTax = built.permTax; resolveImage(v); v.activity.unshift({ t: Date.now(), kind: 'note', sig: bs58.encode(tx.signatures[0]), mint: built.mint, msg: `signed block-zero buy · ${vaultSpend.toFixed(3)} SOL for ${(vaultTokens / 1e6).toFixed(2)}M tokens (launchlab)${fundSol ? ` · stake ${fundSol.toFixed(3)} SOL inside the create` : ''}` } as any); save()
     }
