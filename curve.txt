@@ -1,0 +1,21 @@
+23:34:17 live 73d59db7 stream {"connected":true}
+AUDIT {"wallet":"BANKYubgHd48UQt2VFtEytyE8QyeBHhiuptC3tHmfVPH","balanceSol":0.001019,"ledgersSol":0,"unattributedSol":0.001019,"vaults":4}
+EV 23:33:19 error platform fee claim: Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 2: custom program error: 0x1. 
+Logs: 
+[
+  "Program 
+EV 23:34:18 error platform fee claim: Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 2: custom program error: 0x1. 
+Logs: 
+[
+  "Program 
+EV 23:37:48 error platform fee claim: Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 2: custom program error: 0x1. 
+Logs: 
+[
+  "Program 
+VAULT XYZ launchlab J4RRpz chest 0.0000 tokens 0
+VAULT BANKER launchlab nUCiRZ chest 0.0000 tokens 0
+VAULT BANKER pump oLMoTt chest 0.0000 tokens 0
+VAULT BANKER launchlab 6XnV32 chest 0.0000 tokens 0
