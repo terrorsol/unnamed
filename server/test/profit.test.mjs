@@ -55,3 +55,16 @@ test('take: after the launch buy is back, every buy still gets a slice sold into
   const big = MM.capture(s, mkt(4e-8, 500), 4e-8, 50, 1e6, TK, 0.99, 0.5); assert.ok(big <= 1e9 * 0.08 + 1, 'one sale ≤ 8% of what the vault holds')
   assert.equal(MM.takeOn(s, { ...TK, takeFrac: 0 }), false, 'off → normal policy')
 })
+test('dynamic share: grows with the buy, ~10% small → 30% at 2 SOL+, never above 30%; drives initials and take', () => {
+  const D = { ...PO, dynMin: 0.10, dynMax: 0.30, dynRefSol: 2, initialsFrac: 0.5, takeFrac: 0.4, initialsMinBuy: 0.05, profitMargin: 0.04, takeMaxTokFrac: 1 }
+  const sh = (x) => MM.sellShare(x, false, D)
+  assert.ok(sh(0.05) >= 0.10 && sh(0.05) < 0.15, `0.05 → ${sh(0.05)}`)
+  assert.ok(sh(0.1) > 0.13 && sh(0.1) < 0.17, `0.1 → ${sh(0.1)}`)
+  assert.ok(sh(0.5) > 0.20 && sh(0.5) < 0.25, `0.5 → ${sh(0.5)}`)
+  assert.equal(sh(2), 0.3); assert.equal(sh(50), 0.3)
+  for (let x = 0.01; x < 10; x *= 1.7) assert.ok(sh(x) <= 0.3 && sh(x * 1.7) >= sh(x), 'monotone, capped')
+  assert.equal(MM.sellShare(1, true, { ...D, dynMax: 0 }), 0.5, 'off → fixed initials share')
+  const s = mk({ tokens: 1e9, avgCost: 3e-8, launchSpend: 4, invGot: 0 })
+  const t = MM.capture(s, mkt(4e-8, 50), 4e-8, 2, 1e6, D, 0.99, 0.5); assert.ok(Math.abs(t * 4e-8 - 0.6) < 1e-6, `initials sells 30% of a 2 SOL buy: ${t * 4e-8}`)
+  s.invGot = 5; const t2 = MM.capture(s, mkt(4e-8, 50), 4e-8, 0.1, 1e6, D, 0.99, 0.5); assert.ok(Math.abs(t2 * 4e-8 - 0.1 * sh(0.1)) < 1e-6, 'take uses the same curve')
+})

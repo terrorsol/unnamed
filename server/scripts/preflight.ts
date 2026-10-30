@@ -288,6 +288,27 @@ await step('launchlab: launch bundle [create+dev buy, vault buy] → decode + si
   return `${txs.length} create tx · signers ${txs.map((t) => t.message.header.numRequiredSignatures).join('/')} · dev ${(built.devTokens / 1e6).toFixed(3)}M tok (${z.devPct.toFixed(2)}%) · vault buy ${(z.vaultTokens / 1e6).toFixed(3)}M (${z.vaultPct.toFixed(2)}%) programs ${progs} · mcap after ${z.mcapSol.toFixed(1)} SOL · ` + sims.join(' · ')
 })
 
+await step('jito: takes a real launch bundle [create, vault buy] with a fresh blockhash (unfunded keys — it can never land, costs nothing)', async () => {
+  // the Oct 29 failure was 'bundle contains an expired blockhash' on every launch with a vault buy. This sends the exact bundle shape the app sends:
+  // the server's restamped create (dev + mint signed) and the vault's block-zero buy, from brand-new unfunded wallets, and checks Jito's answer.
+  const LL = await import('../src/launchlab.ts'); const C = await import('../src/chain.ts'); const { LAUNCHPAD_PLATFORM } = await import('@raydium-io/raydium-sdk-v2'); const { Keypair } = await import('@solana/web3.js')
+  const dev = Keypair.generate(), vault = Keypair.generate(); const t0 = Date.now()
+  const built = await LL.buildLaunch(dev.publicKey, { name: 'preflight', symbol: 'PRE', uri: 'https://ipfs.io/ipfs/bafkreigh2akiscaildc' }, 0, LAUNCHPAD_PLATFORM)
+  const vt = await LL.buildTrade(vault.publicKey, 'buy', built.mint, 0.05, { poolState: built.afterDev, fromCreate: true, slippageBps: 3000, platformId: LAUNCHPAD_PLATFORM, tipLamports: 1_000_000 })
+  const lb = await conn.getLatestBlockhash('confirmed'); const raws = built.restamp(lb.blockhash).map((b) => VersionedTransaction.deserialize(Buffer.from(b, 'base64')))
+  if (vt.message.header.numRequiredSignatures === 1) vt.message.recentBlockhash = lb.blockhash
+  for (const t of raws) t.sign([dev]); vt.sign([vault]); const buildMs = Date.now() - t0
+  const same = raws.every((t) => t.message.recentBlockhash === vt.message.recentBlockhash)
+  try {
+    const id = await C.sendBundle([...raws.map((t) => t.serialize()), vt.serialize()])
+    await new Promise((r) => setTimeout(r, 3000)); const st = await C.bundleStatus(id).catch(() => null)
+    return `accepted · bundle ${String(id).slice(0, 10)}… · Jito status after 3 s: ${st?.status || 'not reported'} (unfunded, so it is expected to fail at the leader) · build ${buildMs} ms · one blockhash for the bundle: ${same}`
+  } catch (e: any) {
+    const m = String(e.message || e); if (/expired|blockhash/i.test(m)) throw new Error(`Jito refused a FRESH bundle as expired (build ${buildMs} ms): ${m.slice(0, 200)}`)
+    return `refused for another reason (not the blockhash — fine for unfunded keys): ${m.slice(0, 160)} · build ${buildMs} ms · one blockhash: ${same}`
+  }
+})
+
 await step('launchlab: token-2022 launch with the permanent transfer tax → simulate create + vault buy shape', async () => {
   const LL = await import('../src/launchlab.ts'); const { LAUNCHPAD_PLATFORM } = await import('@raydium-io/raydium-sdk-v2')
   const built = await LL.buildLaunch(PAYER, { name: 'preflight', symbol: 'PRE', uri: 'https://ipfs.io/ipfs/bafkreigh2akiscaildc' }, 0.05, LAUNCHPAD_PLATFORM, true)

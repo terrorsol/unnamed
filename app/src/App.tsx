@@ -243,8 +243,10 @@ export default function App() {
     try {
       let vault: K.VaultPub | null = null
       // a vault funded by a launch that failed later (expired blockhash, rejected signature) is reused on the retry instead of orphaning the stake
-      const pend = pendingVault.current; if (stake > 0 && pend && pend.dev === ws.owner && pend.stake === stake && pend.venue === venue) vault = pend.v
-      if (stake > 0 && !vault) { setBusy('Creating vault…'); vault = await K.vaultCreate(ws.owner, stake, copyOf, mode, ceiling, venue, buy, targetPct).catch((e) => { toast({ kind: 'err', title: 'Could not reach BANKER · launching without a chest', rows: [['Error', String(e.message)]] }); return null }) }
+      // reuse a vault funded by a failed attempt only while it still holds that stake and never armed (a refunded or armed one gets a fresh vault)
+      const pend = pendingVault.current; if (stake > 0 && pend && pend.dev === ws.owner && pend.stake === stake && pend.venue === venue) { const fresh = await K.vaultGet(pend.v.id).catch(() => null); if (fresh && !fresh.armed && fresh.chest >= stake * 0.95 - 0.001) vault = fresh; else pendingVault.current = null }
+      // a launch that asked for a chest never goes out without one: if the vault can't be made, stop here (nothing has been spent yet)
+      if (stake > 0 && !vault) { setBusy('Creating vault…'); vault = await K.vaultCreate(ws.owner, stake, copyOf, mode, ceiling, venue, buy, targetPct).catch((e) => { throw new Error('vault not created — nothing launched, nothing spent: ' + String(e.message || e)) }) }
       let sig: string, mint: string, bundled = false
       if (vault) {
         // fund the vault first so it can buy in block zero (skipped when retrying with an already-funded vault)

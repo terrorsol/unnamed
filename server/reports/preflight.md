@@ -1,35 +1,36 @@
-# Preflight · 2026-10-28T13:27:03.031Z · 1/33 passed
+# Preflight · 2026-10-30T01:28:09.260Z · 1/34 passed
 
-- FAIL **dexscreener: SOL pairs shape** — fetch failed · 39ms
-- FAIL **geckoterminal: pump-fun curve pools (dex id)** — fetch failed · 2ms
-- FAIL **geckoterminal: active pumpswap pool (trending) + ohlcv + trades** — fetch failed · 4ms
+- FAIL **dexscreener: SOL pairs shape** — fetch failed · 36ms
+- FAIL **geckoterminal: pump-fun curve pools (dex id)** — fetch failed · 5ms
+- FAIL **geckoterminal: active pumpswap pool (trending) + ohlcv + trades** — fetch failed · 3ms
 - FAIL **dexscreener: curve + amm coin fields we use** — fetch failed · 2ms
-- FAIL **pool price: curve reserves vs dexscreener** — Cannot read properties of undefined (reading '_bn') · 2ms
+- FAIL **pool price: curve reserves vs dexscreener** — Cannot read properties of undefined (reading '_bn') · 3ms
 - FAIL **pool price: pumpswap vaults vs dexscreener** — Cannot read properties of undefined (reading '_bn') · 0ms
 - FAIL **token program: curve + amm mints** — Cannot read properties of undefined (reading '_bn') · 0ms
 - FAIL **token-2022 share of top 50 pumpswap mints** — fetch failed · 2505ms
-- FAIL **helius: priority estimate** — fetch failed · 6ms
+- FAIL **helius: priority estimate** — fetch failed · 5ms
 - FAIL **helius: sender ping** — fetch failed · 2ms
-- FAIL **jito: getTipAccounts** — fetch failed · 3ms
-- FAIL **jito: tip floor** — fetch failed · 4ms
-- FAIL **pumpportal: curve buy (single) → simulate** — fetch failed · 3ms
+- FAIL **jito: getTipAccounts** — fetch failed · 2ms
+- FAIL **jito: tip floor** — fetch failed · 3ms
+- FAIL **pumpportal: curve buy (single) → simulate** — fetch failed · 2ms
 - OK   **mayhem coin: pumpportal buy vs jupiter fallback → simulate** — no Token-2022 curve coin in the top 10 right now — skipped · 0ms
-- FAIL **market(): geckoterminal fallback fields for a curve coin** — fetch failed · 6203ms
-- FAIL **pumpportal: amm buy (single) → simulate** — fetch failed · 6ms
+- FAIL **market(): geckoterminal fallback fields for a curve coin** — fetch failed · 6316ms
+- FAIL **pumpportal: amm buy (single) → simulate** — fetch failed · 2ms
 - FAIL **our sender tip appended to pumpportal tx → simulate** — no curve buy tx · 0ms
-- FAIL **pumpportal: bundle mode (array) → base58 txs → simulate** — fetch failed · 4ms
-- FAIL **pumpportal: create + dev buy (random mint) → shape only** — fetch failed · 78ms
-- FAIL **launch bundle: [create+dev buy, vault buy] → decode + math check** — fetch failed · 7ms
-- FAIL **pumpportal: collectCreatorFee → shape** — fetch failed · 2ms
-- FAIL **launchlab: reference platform + default config decode** — failed to get info about account 4Bu96XjU84XjPDSpveTVf6LYGCkfW5FK7SNkREWcEfV4: TypeError: fetch failed · 6ms
-- FAIL **launchlab: live pool decode vs geckoterminal price** — raydium launch api gave no rows · fetch failed | fetch failed | fetch failed · 5ms
+- FAIL **pumpportal: bundle mode (array) → base58 txs → simulate** — fetch failed · 2ms
+- FAIL **pumpportal: create + dev buy (random mint) → shape only** — fetch failed · 3ms
+- FAIL **launch bundle: [create+dev buy, vault buy] → decode + math check** — fetch failed · 5ms
+- FAIL **pumpportal: collectCreatorFee → shape** — fetch failed · 1ms
+- FAIL **launchlab: reference platform + default config decode** — failed to get info about account 4Bu96XjU84XjPDSpveTVf6LYGCkfW5FK7SNkREWcEfV4: TypeError: fetch failed · 4ms
+- FAIL **launchlab: live pool decode vs geckoterminal price** — raydium launch api gave no rows · fetch failed | fetch failed | fetch failed · 4ms
 - FAIL **launchlab: buy tx via sdk → simulate** — no pool · 0ms
 - FAIL **launchlab: platform fee claim tx shape → simulate as that platform** — no pool · 0ms
 - FAIL **launchlab: create platform config tx → simulate** — failed to get info about account 4Bu96XjU84XjPDSpveTVf6LYGCkfW5FK7SNkREWcEfV4: TypeError: fetch failed · 2ms
-- FAIL **launchlab: launch bundle [create+dev buy, vault buy] → decode + simulate create** — failed to get info about account 6s1xP3hpbAfFoNtUNF8mfHsjr2Bd97JxFJRWLbL6aHuX: TypeError: fetch failed · 9ms
-- FAIL **launchlab: token-2022 launch with the permanent transfer tax → simulate create + vault buy shape** — failed to get info about account 6s1xP3hpbAfFoNtUNF8mfHsjr2Bd97JxFJRWLbL6aHuX: TypeError: fetch failed · 8ms
-- FAIL **launchlab: HTTP routes on a live server (/ll/platform, /ll/pool, /ll/trade, /ll/launch/build) → simulate** — /ll/platform: {"venue":"launchlab","permTaxBps":0,"program":"LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj","platformId":"4Bu96XjU84XjPDSpveTVf6LYGCkfW5FK7SNkREWcEfV4","admin": · 1098ms
+- FAIL **launchlab: launch bundle [create+dev buy, vault buy] → decode + simulate create** — failed to get info about account 6s1xP3hpbAfFoNtUNF8mfHsjr2Bd97JxFJRWLbL6aHuX: TypeError: fetch failed · 7ms
+- FAIL **jito: takes a real launch bundle [create, vault buy] with a fresh blockhash (unfunded keys — it can never land, costs nothing)** — failed to get info about account 6s1xP3hpbAfFoNtUNF8mfHsjr2Bd97JxFJRWLbL6aHuX: TypeError: fetch failed · 5ms
+- FAIL **launchlab: token-2022 launch with the permanent transfer tax → simulate create + vault buy shape** — failed to get info about account 6s1xP3hpbAfFoNtUNF8mfHsjr2Bd97JxFJRWLbL6aHuX: TypeError: fetch failed · 3ms
+- FAIL **launchlab: HTTP routes on a live server (/ll/platform, /ll/pool, /ll/trade, /ll/launch/build) → simulate** — /ll/platform: {"venue":"launchlab","permTaxBps":100,"program":"LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj","platformId":"4Bu96XjU84XjPDSpveTVf6LYGCkfW5FK7SNkREWcEfV4","admin · 1054ms
 - FAIL **jupiter: api.jup.ag quote + swap → simulate** — fetch failed · 2ms
 - FAIL **desk fill tx: build + verify on real mint** — Cannot read properties of undefined (reading '_bn') · 0ms
 - FAIL **helius ws: logsSubscribe on a launchlab pool → decode one swap (the vault's per-swap detector for our coins)** — no live launchlab pool · 0ms
-- FAIL **helius ws: logsSubscribe on amm pool → decode one swap** — ws error Received network error or non-101 status code. · 3ms
+- FAIL **helius ws: logsSubscribe on amm pool → decode one swap** — ws error Received network error or non-101 status code. · 2ms

@@ -45,6 +45,8 @@ function TradeOpts() { const st = loadSettings(); return <div className="tradeop
 
 export default function CoinPage(p: Props) {
   const [coin, setCoin] = useState<D.Coin | undefined>(p.coin)
+  // never leave the page on 'Loading' with no way to sell: after 10 s with nothing from any source, show the coin with its trade box (routes through Jupiter)
+  useEffect(() => { const t = setTimeout(() => setCoin((c) => c || ({ mint: p.mint, symbol: p.mint.slice(0, 4), name: '', dex: 'unknown', priceUsd: 0, mcap: 0, liq: 0, vol24: 0, vol1h: 0, ch1h: 0, ch24: 0, ch5m: 0, buys24: 0, sells24: 0, createdAt: Date.now(), onCurve: false } as any)), 10_000); return () => clearTimeout(t) }, [p.mint])
   const [side, setSide] = useState<'buy' | 'sell'>('buy'); const [amt, setAmt] = useState(String(p.quickSol)); const [frac, setFrac] = useState(1)
   const flash = useFlash(coin?.priceUsd); const mountedAt = useMemo(() => Date.now(), [])
   // simple mode starts the buy box on $10 once the SOL price is known
@@ -78,6 +80,9 @@ export default function CoinPage(p: Props) {
     const f = async () => {
       const [c, ll] = await Promise.all([D.tokenPairs(p.mint).catch(() => null), K.llPool(p.mint).catch(() => null)])
       if (!on) return
+      // brand-new coin the indexers don't know yet: our own server reads the pool (pump curve, LaunchLab, AMM) so the chart and the buy/sell box show at once
+      if (!c && !(ll && !ll.migrated)) { const mk = await K.marketOf(p.mint).catch(() => null); if (!on) return
+        if (mk && mk.priceSol) { const px = mk.priceSol * (p.solPrice || 0); setCoin((old) => ({ ...(old || ({} as any)), mint: p.mint, symbol: mk.symbol || vault?.symbol || old?.symbol || p.mint.slice(0, 4), name: old?.name || vault?.name || '', image: old?.image || vault?.image, dex: mk.dexId || mk.venue || 'unknown', venue: mk.venue as any, priceUsd: px, mcap: mk.mcapUsd || px * 1e9, liq: (mk.liqSol || 0) * 2 * (p.solPrice || 0), depthSol: mk.liqSol, vol24: 0, vol1h: mk.vol1h || 0, ch1h: 0, ch24: 0, ch5m: 0, buys24: 0, sells24: 0, createdAt: old?.createdAt || Date.now(), onCurve: mk.onCurve, pair: mk.pair, raw: { ...(old?.raw || ({} as any)), priceNative: String(mk.priceSol) } } as any)); return } }
       if (ll && !ll.migrated) {
         const px = ll.priceSol * (p.solPrice || 0); const base: D.Coin = c || { mint: p.mint, symbol: vault?.symbol || p.mint.slice(0, 4), name: vault?.name || '', image: vault?.image, dex: 'launchlab', priceUsd: 0, mcap: 0, liq: 0, vol24: 0, vol1h: 0, ch1h: 0, ch24: 0, ch5m: 0, buys24: 0, sells24: 0, createdAt: 0, onCurve: true, depthSol: 0 }
         setCoin({ ...base, venue: 'launchlab', onCurve: true, dex: 'launchlab', priceUsd: px || base.priceUsd, mcap: px ? ll.priceSol * 1e9 * (p.solPrice || 0) : base.mcap, depthSol: ll.liqSol, liq: ll.liqSol * 2 * (p.solPrice || 0), pair: ll.poolId, raw: { ...(base.raw || ({} as any)), priceNative: String(ll.priceSol), soldPct: ll.soldPct } })

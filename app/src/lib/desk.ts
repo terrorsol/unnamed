@@ -205,6 +205,7 @@ export async function withDevAuth<T>(signMsg: ((m: Uint8Array) => Promise<Uint8A
     return call(await devAuth(signMsg, action, vaultId, mint, true))
   }
 }
+export const vaultGet = (id: string): Promise<VaultPub | null> => j('/vault/' + id)
 export const vaultRefund = (id: string, auth: DevAuth): Promise<{ sig: string; sol: number }> => j('/vault/refund', { id, auth })
 export const vaultFund = (id: string, sig: string): Promise<VaultPub> => j('/vault/fund', { id, sig })
 export const vaultArm = (id: string, mint: string, symbol: string, name = '', auth?: DevAuth): Promise<VaultPub> => j('/vault/arm', { id, mint, symbol, name, auth })
@@ -212,6 +213,8 @@ export const vaultRenounce = (id: string, dev: string): Promise<VaultPub> => j('
 export const vaultByMint = (mint: string): Promise<VaultPub | null> => j('/vault/mint/' + mint)
 export const candles = (mint: string, tf = 60): Promise<{ time: number; open: number; high: number; low: number; close: number; volume: number }[]> => j(`/candles/${mint}?tf=${tf}`).then(arr)
 export const inviteRedeem = (code: string, wallet: string, msg: string, sig: string): Promise<{ token: string; wallet: string; exp: number }> => j('/invite/redeem', { code, wallet, msg, sig })
+export const marketOf = (mint: string): Promise<{ priceSol: number; mcapUsd: number; liqSol: number; onCurve: boolean; venue: string; dexId: string; symbol: string; pair: string; vol1h: number } | null> => j('/market/' + mint)
+export const bundleStatus = (id: string): Promise<{ status: string; slot?: number }> => j('/bundle/status/' + id)
 export const inviteLink = (wallet: string, msg: string, sig: string): Promise<{ token: string; wallet: string; exp: number }> => j('/invite/link', { wallet, msg, sig })
 export const inviteSession = (token: string): Promise<{ ok: boolean; wallet?: string; gate?: boolean }> => j('/invite/session', { token })
 export const vaults = (): Promise<VaultPub[]> => j('/vaults').then(arr)

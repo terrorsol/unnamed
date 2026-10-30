@@ -72,5 +72,5 @@ export async function buildLaunchBundle(dev: string, vaultPub: string, meta: { n
   const enc: string[] = await r.json()
   const txs = enc.map((e) => VersionedTransaction.deserialize(bs58.decode(e)))
   txs[0].sign([mintKp])
-  return { mint, createTx: txs[0], vaultTx: txs[1] }
+  return { mint, createTx: txs[0], vaultTx: txs[1], mintKp }
 }

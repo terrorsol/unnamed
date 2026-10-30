@@ -75,7 +75,7 @@ await pg.locator('.modal input:not([type=checkbox])').nth(0).fill('Ours'); await
 const png = join(SC, 'logo.png'); writeFileSync(png, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64'))
 await pg.locator('.modal input[type=file]').setInputFiles(png); await pg.waitForTimeout(200)
 const noteTxt = await pg.locator('.modal .note').first().innerText()
-chk('launch modal: default is tax-funded (no SOL next to the 20% target) ' + JSON.stringify(noteTxt.slice(0, 40)), /Coins the chest holds\s+20%\s*\n/.test(noteTxt) && (await pg.locator('.modal .seg button.on', { hasText: 'Fees fill it' }).count()) === 1)
+chk('launch modal: default is Buy at launch (the vault buys its supply in block zero) ' + JSON.stringify(noteTxt.slice(0, 40)), /Coins the chest holds\s+20% · [67]\.\d+ SOL/.test(noteTxt) && (await pg.locator('.modal .seg button.on', { hasText: 'Buy at launch' }).count()) === 1)
 await pg.locator('.modal .seg button', { hasText: 'Buy at launch' }).click(); await pg.waitForTimeout(100)
 const noteTxt2 = await pg.locator('.modal .note').first().innerText()
 chk('buy at launch: 20% priced off the real curve ≈ 7 SOL ' + JSON.stringify(noteTxt2.slice(0, 40)), /20% · [67]\.\d+ SOL/.test(noteTxt2))

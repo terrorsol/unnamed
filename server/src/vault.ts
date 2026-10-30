@@ -102,7 +102,7 @@ export function solForPct(pct: number, devSol = 0) { let lo = 0, hi = 500; for (
 
 /** Step 1 (before launch): make a vault address the dev will fund */
 /** Beta cap: vault keys are hot on this server, so no single chest may hold more than this until the on-chain program lands. 0 = no cap. */
-export const MAX_CHEST_SOL = +(process.env.MAX_CHEST_SOL ?? 25)
+export const MAX_CHEST_SOL = +(process.env.TEST_MAX_CHEST_SOL ?? process.env.MAX_CHEST_SOL ?? 25)   // TEST_MAX_CHEST_SOL (image env) wins over the Render setting for test launches
 const capCheck = (sol: number) => { if (MAX_CHEST_SOL > 0 && sol > MAX_CHEST_SOL) throw new Error(`beta cap: a vault chest holds at most ${MAX_CHEST_SOL} SOL right now (custodial keys) — the on-chain program lifts this`) }
 export function create(dev: string, stakeSol: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = R.MM_MAX_CAPTURE, venue: 'pump' | 'launchlab' = 'pump', vaultBuySol?: number, targetPct?: number) {
   if (!Number.isFinite(stakeSol) || stakeSol < 0) throw new Error('bad stake')
@@ -129,6 +129,14 @@ export async function fund(id: string, sig: string) {
 /** Step 2 (after the coin exists + dev sent the stake): bind mint, seed the position */
 export async function arm(id: string, mint: string, symbol: string, name = '', auth?: { msg?: string; sig?: string }, fundSig?: string) {
   const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) return pub(v)
+  // the coin must exist: a LaunchLab vault armed onto a mint that never went live sat dead on Oct 29. If the given mint has no pool, use the
+  // build of this vault that did go live.
+  if (v.venue === 'launchlab' && !v.imported) {
+    if (!(await LL.pool(mint).catch(() => null))) {
+      let live = ''; for (const m of [...(((v as any).builtMints || []) as string[])].reverse()) { if (m !== mint && await LL.pool(m).catch(() => null)) { live = m; break } }
+      if (!live) throw new Error('that coin is not on chain yet — the vault arms itself once it is'); EV.log('vault', `arm: ${mint.slice(0, 4)}… never went live, arming on ${live.slice(0, 4)}… (built by this vault)`, { id: v.id, mint, live }); mint = live
+    }
+  }
   // arming needs the dev: a session/message signature, OR the coin itself — a LaunchLab pool whose on-chain creator is the vault's dev (only that wallet could have created it)
   if (!v.imported) { try { devAuth(v, 'arm', mint, auth) } catch (e) { const pl = await LL.pool(mint).catch(() => null); if (!pl || pl.creator !== v.dev) throw e } }
   // after a block-zero bundle half the stake is already in tokens, so the SOL check is against the other half
@@ -173,7 +181,9 @@ export async function autoArm() {
       if (!v.mint) { if (Date.now() - v.createdAt > 2 * 3600_000 && funded === 0 && v.chest === 0) { delete vaults[v.id]; save() } continue }
       if (v.shared ? funded < v.stakeSol * 0.95 - 0.001 : false) continue
       if (v.nextAutoArmAt && Date.now() < v.nextAutoArmAt) continue; v.nextAutoArmAt = Date.now() + 30_000
-      const exists = await LL.pool(v.mint).then((p) => !!p).catch(() => false); if (!exists) continue
+      let exists = await LL.pool(v.mint).then((p) => !!p).catch(() => false)
+      if (!exists) for (const m of [...(((v as any).builtMints || []) as string[])].reverse()) { if (m !== v.mint && await LL.pool(m).then((p) => !!p).catch(() => false)) { v.mint = m; exists = true; break } }   // the build that went live
+      if (!exists) continue
       try { await arm(v.id, v.mint, v.symbol || '', v.name || '', { sessionWallet: v.dev }); EV.log('vault', `${v.symbol} auto-armed (coin on chain, arm never signed)`, { id: v.id, mint: v.mint }) }
       catch (e: any) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'auto-arm: ' + String(e.message || e).slice(0, 100) }); EV.log('error', `${v.symbol} auto-arm: ${String(e.message || e).slice(0, 140)}`, { id: v.id }) }
     }
@@ -298,6 +308,8 @@ export async function refund(id: string, auth?: { msg?: string; sig?: string }) 
   const reclaim = process.env.TEST_RECLAIM === '1'
   if (v.armed && !untouched && !reclaim) throw new Error(v.tokens > 0 && process.env.TEST_RECLAIM === '1' ? 'the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed' : 'an armed vault that has traded never pays out its chest — that is the point of it')
   devAuth(v, 'refund', v.mint || 'none', auth)
+  // a launch built in the last 2 minutes may still land with this stake inside its bundle: refunding now would make the vault's block-zero buy fail
+  if (!v.armed && (v as any).buildAt && Date.now() - (v as any).buildAt < 120_000) throw new Error('a launch with this vault is still in flight — wait 2 minutes, then refund if nothing launched')
   // a payout that did not confirm in time must never be paid twice: wait until its blockhash can no longer land, or until it is found landed
   { const pp = (v as any)._payPending; if (pp) { const st = (await conn.getSignatureStatuses([pp.sig]).catch(() => null))?.value?.[0]
     if (st && !st.err) throw new Error('the last payout landed — refresh, it is in your wallet')
@@ -618,7 +630,7 @@ export async function signBundleTx(id: string, mint: string, txB64: string, maxS
   if (cost + b.tipSol > spend * 1.05 + 0.01) throw new Error(`block-zero buy costs ${cost.toFixed(3)} SOL, policy allows ${spend.toFixed(3)}`)
   if (b.maxSolCost > bal) throw new Error(`max_sol_cost ${b.maxSolCost.toFixed(3)} exceeds the vault balance`)
   KEEP.sign({ id: v.id, chest: bal, sk: kp(v) }, tx, 'launch', cost + b.tipSol)
-  v.mint = mint; v.activity.unshift({ t: Date.now(), kind: 'note', sig: bs58.encode(tx.signatures[0]), msg: `signed block-zero buy · ${cost.toFixed(3)} SOL for ${(b.tokens / 1e6).toFixed(2)}M tokens (${(b.tokens / (v.supply || 1e9) * 100).toFixed(2)}% of supply)` }); save()
+  v.mint = mint; (v as any).buildAt = Date.now(); v.activity.unshift({ t: Date.now(), kind: 'note', sig: bs58.encode(tx.signatures[0]), msg: `signed block-zero buy · ${cost.toFixed(3)} SOL for ${(b.tokens / 1e6).toFixed(2)}M tokens (${(b.tokens / (v.supply || 1e9) * 100).toFixed(2)}% of supply)` }); save()
   return { tx: Buffer.from(tx.serialize()).toString('base64'), spend: cost, tokens: b.tokens }
 }
 /** Submit a Jito bundle (array of base64 signed txs). Returns bundle id. */
@@ -629,24 +641,29 @@ export async function sendBundle(txs: string[]) { return C.sendBundle(txs.map((b
 export async function buildLaunch(b: { dev: string; name: string; symbol: string; uri: string; devBuySol?: number; vaultId?: string; vaultBuySol?: number; permTax?: boolean; auth?: { msg?: string; sig?: string } }) {
   const dev = new PK(b.dev); const devBuy = Math.max(0, +(b.devBuySol || 0))
   if (b.vaultId) { const v = vaults[b.vaultId]; if (!v) throw new Error('no such vault'); if (v.dev !== b.dev) throw new Error('not your vault'); devAuth(v, 'launch', b.dev, b.auth) }
+  const t0 = Date.now()
   const built = await LL.buildLaunch(dev, { name: b.name, symbol: b.symbol, uri: b.uri }, devBuy, LL.PLATFORM_ID, !!b.permTax)
-  let vaultTx: string | null = null, vaultSpend = 0, vaultTokens = 0
+  let vaultTx: string | null = null, vaultSpend = 0, vaultTokens = 0; let launchTxs = built.txs
   if (b.vaultId) {
     const v = vaults[b.vaultId]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('already armed')
     v.venue = 'launchlab'
     const bal = v.shared ? v.chest : await balanceSol(v.pub); if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL${v.shared ? ' — call /vault/fund with the stake tx first' : ''}`)
     vaultSpend = +Math.min(+(b.vaultBuySol ?? v.vaultBuySol ?? v.stakeSol * 0.5), bal - 0.05, MM.P.profitOnly ? +(process.env.PROFIT_LAUNCH_BUY_SOL ?? 0) : Infinity).toFixed(4)   // 0 = tax-funded: no block-zero buy at all. Profit-only tests: none unless PROFIT_LAUNCH_BUY_SOL
-    if (MM.P.profitOnly && +(process.env.PROFIT_LAUNCH_BUY_SOL ?? 0) > 0 && vaultSpend < 0.05) throw new Error('pick “Buy at launch” — this test launch needs the vault to buy its supply in block zero')
     v.mint = built.mint; v.uri = b.uri; v.symbol = b.symbol; v.name = b.name   // bound now even with no vault buy, so the vault can arm itself once the coin is on chain
     v.vaultBuySol = vaultSpend   // the real block-zero spend (after caps): it is the vault's cost basis and the initials to recover
     if (vaultSpend >= 0.05) {
-      const tx = await LL.buildTrade(kp(v).publicKey, 'buy', built.mint, vaultSpend, { poolState: built.afterDev, fromCreate: true, slippageBps: 3000, tipLamports: Math.floor(+(process.env.TIP_SOL || 0.001) * 1e9), permTaxBps: built.permTax })
+      const tx = await LL.buildTrade(kp(v).publicKey, 'buy', built.mint, vaultSpend, { poolState: built.afterDev, fromCreate: true, slippageBps: 3000, tipLamports: Math.floor(+(process.env.LAUNCH_TIP_SOL || process.env.TIP_SOL || 0.003) * 1e9), permTaxBps: built.permTax })
+      // one fresh blockhash for the whole bundle, stamped last (create re-signed by the mint, the vault buy signed after) — nothing slow runs after this
+      const lb = await conn.getLatestBlockhash('confirmed'); launchTxs = built.restamp(lb.blockhash); if (tx.message.header.numRequiredSignatures === 1) tx.message.recentBlockhash = lb.blockhash
       KEEP.sign({ id: v.id, chest: bal, sk: kp(v) }, tx, 'launch', vaultSpend)
       vaultTx = Buffer.from(tx.serialize()).toString('base64'); vaultTokens = LL.quote(built.afterDev, vaultSpend).tokens
       v.mint = built.mint; v.uri = b.uri; v.symbol = b.symbol; v.name = b.name; v.permTax = built.permTax; resolveImage(v); v.activity.unshift({ t: Date.now(), kind: 'note', sig: bs58.encode(tx.signatures[0]), msg: `signed block-zero buy · ${vaultSpend.toFixed(3)} SOL for ${(vaultTokens / 1e6).toFixed(2)}M tokens (launchlab)` }); save()
     }
   }
-  return { venue: 'launchlab', mint: built.mint, poolId: built.poolId, txs: built.txs, vaultTx, vaultSpend, vaultTokens, devTokens: built.devTokens, permTax: built.permTax, tax: LL.status() }
+  if (!vaultTx) launchTxs = built.restamp((await conn.getLatestBlockhash('confirmed')).blockhash)
+  const ms = Date.now() - t0; if (ms > 4000) EV.log('vault', `launch build took ${(ms / 1000).toFixed(1)} s (blockhash stamped at the end)`, { mint: built.mint, ms })
+  if (b.vaultId && vaults[b.vaultId]) { (vaults[b.vaultId] as any).buildAt = Date.now(); const bm = ((vaults[b.vaultId] as any).builtMints ||= [] as string[]); if (!bm.includes(built.mint)) bm.push(built.mint); if (bm.length > 20) bm.splice(0, bm.length - 20); save() }
+  return { venue: 'launchlab', mint: built.mint, poolId: built.poolId, txs: launchTxs, vaultTx, vaultSpend, vaultTokens, devTokens: built.devTokens, permTax: built.permTax, tax: LL.status() }
 }
 /** the tax: claim this coin's accrued platform fee from its pool to the platform wallet, then forward it to the chest. Runs from the tick, every ~2–4 min per vault. */
 let claiming = false; let nextClaimAt = 0

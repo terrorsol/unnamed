@@ -109,20 +109,43 @@ export async function collectCreatorFee(ctx: Ctx, mint: string): Promise<string>
 export async function launchBlockZero(ctx: Ctx, meta: P.CreateMeta, devBuySol: number, vault: { id: string; pub: string }, vaultBuySol: number, deps: { bundleSign: (id: string, mint: string, tx: string, maxSol: number, createTx?: string, auth?: K.DevAuth) => Promise<{ tx: string }>; sendBundle: (txs: string[]) => Promise<{ bundleId: string }>; signMsg?: (m: Uint8Array) => Promise<Uint8Array> }): Promise<{ sig: string; mint: string; bundled: boolean }> {
   const { conn, owner, sign, settings, onStatus } = ctx
   onStatus?.('Uploading metadata…'); const uri = await P.uploadMetadata(meta, SERVER)
-  try {
-    onStatus?.('Building block-zero bundle…')
-    const { mint, createTx, vaultTx } = await P.buildLaunchBundle(owner.toBase58(), vault.pub, { name: meta.name, symbol: meta.symbol, uri }, devBuySol, vaultBuySol, settings.slippageBps / 100, settings.priorityFeeSol)
-    onStatus?.('Vault signing…'); const auth = deps.signMsg ? await K.devAuth(deps.signMsg, 'bundle', vault.id, mint) : undefined; const signedVault = await deps.bundleSign(vault.id, mint, Buffer.from(vaultTx.serialize()).toString('base64'), vaultBuySol, Buffer.from(createTx.serialize()).toString('base64'), auth)
-    onStatus?.('Sign the create…'); const signedCreate = await sign(createTx)
-    onStatus?.('Sending bundle…'); await deps.sendBundle([Buffer.from(signedCreate.serialize()).toString('base64'), signedVault.tx])
-    onStatus?.('Confirming…'); await confirmByPollingB58(conn, signedCreate)
-    return { sig: bs58.encode(signedCreate.signatures[0]), mint, bundled: true }
-  } catch (e: any) {
-    if (/signature|reject|user/i.test(String(e?.message))) throw e
-    onStatus?.('Bundle unavailable — plain launch…')
-    const { tx, mint } = await P.buildCreate(owner.toBase58(), { name: meta.name, symbol: meta.symbol, uri }, devBuySol, settings.slippageBps / 100, settings.priorityFeeSol)
-    const sig = await sendAndConfirm(conn, tx, sign, onStatus); return { sig, mint, bundled: false }
+  // the vault's block-zero buy only exists inside the bundle: a launch never goes live without it (no plain fallback). An expired or dropped
+  // bundle is rebuilt (fresh blockhash) and signed again, up to twice; otherwise nothing launches and the stake stays in the vault.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      onStatus?.('Building block-zero bundle…')
+      const { mint, createTx, vaultTx, mintKp } = await P.buildLaunchBundle(owner.toBase58(), vault.pub, { name: meta.name, symbol: meta.symbol, uri }, devBuySol, vaultBuySol, settings.slippageBps / 100, Math.max(settings.priorityFeeSol || 0, 0.003))
+      // one fresh blockhash on both txs right before anyone signs, then the mint re-signs
+      const bh = (await conn.getLatestBlockhash('confirmed')).blockhash; createTx.message.recentBlockhash = bh; vaultTx.message.recentBlockhash = bh; createTx.sign([mintKp])
+      onStatus?.('Vault signing…')
+      const signedVault = await K.withDevAuth(deps.signMsg, 'bundle', vault.id, mint, (auth) => deps.bundleSign(vault.id, mint, Buffer.from(vaultTx.serialize()).toString('base64'), vaultBuySol, Buffer.from(createTx.serialize()).toString('base64'), auth))
+      onStatus?.('Sign the create…'); const signedCreate = await sign(createTx)
+      const bundle = [Buffer.from(signedCreate.serialize()).toString('base64'), signedVault.tx]
+      for (let i = 0; i < 3; i++) {
+        let bundleId = ''
+        try { onStatus?.(i ? `Resending bundle (${i + 1}/3)…` : 'Sending bundle…'); bundleId = (await deps.sendBundle(bundle)).bundleId }
+        catch (e: any) { if (/blockhash|expired/i.test(String(e?.message || e))) throw new Error('blockhash expired — rebuilding'); if (i === 2) throw new Error('Jito is not taking the launch bundle right now — nothing launched, your stake is still in the vault. Press Create again in a minute.'); await new Promise((r) => setTimeout(r, 1200)); continue }
+        try { onStatus?.('Confirming…'); await confirmOrDropped(conn, signedCreate, bundleId, 20000); return { sig: bs58.encode(signedCreate.signatures[0]), mint, bundled: true } }
+        catch (e: any) { if (/blockhash|block height|expired|dropped/i.test(String(e?.message || e))) throw e }
+      }
+      try { onStatus?.('Checking if it landed…'); await confirmByPollingB58(conn, signedCreate, 35000); return { sig: bs58.encode(signedCreate.signatures[0]), mint, bundled: true } }
+      catch { throw new Error('the launch bundle did not land — nothing launched, your stake is still in the vault. Press Create again.') }
+    } catch (e: any) {
+      if (attempt >= 2 || !/blockhash|block height exceeded|expired|dropped/i.test(String(e?.message || e))) throw e
+      onStatus?.(/dropped/i.test(String(e?.message)) ? 'Jito dropped it — rebuilding, sign again…' : 'That took too long — rebuilding, sign again…')
+    }
   }
+}
+/** wait for the create to land, but stop early when Jito itself reports the bundle Failed/Invalid (then the caller rebuilds instead of waiting out the clock) */
+async function confirmOrDropped(conn: Connection, tx: VersionedTransaction, bundleId: string, ms: number) {
+  const sig = bs58.encode(tx.signatures[0]); const t0 = Date.now()
+  while (Date.now() - t0 < ms) {
+    const st = (await conn.getSignatureStatuses([sig]).catch(() => null))?.value?.[0]
+    if (st) { if (st.err) throw new Error('Transaction failed on-chain: ' + JSON.stringify(st.err)); if (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized') return }
+    if (bundleId && Date.now() - t0 > 2500) { const b = await K.bundleStatus(bundleId).catch(() => null); if (b && /failed|invalid/i.test(b.status)) throw new Error(`bundle dropped by Jito (${b.status}) — rebuilding`) }
+    await new Promise((r) => setTimeout(r, 1200))
+  }
+  throw new Error('Confirmation timed out')
 }
 async function confirmByPollingB58(conn: Connection, tx: VersionedTransaction, ms = 60000) { const { confirmByPolling } = await import('./rpc'); await confirmByPolling(conn, bs58.encode(tx.signatures[0]), ms) }
 
@@ -135,7 +158,7 @@ export async function launchOurs(ctx: Ctx, meta: P.CreateMeta, devBuySol: number
   // the launch txs carry the server's blockhash (they are pre-signed by the mint and the vault), so slow wallet signing can outlive it: rebuild once and sign again
   for (let attempt = 0; ; attempt++) {
     try { return await launchOursOnce(ctx, meta, uri, devBuySol, vault, vaultBuySol, deps) }
-    catch (e: any) { if (attempt >= 1 || !/blockhash|block height exceeded|expired/i.test(String(e?.message || e))) throw e; onStatus?.('That took too long — rebuilding, sign again…') }
+    catch (e: any) { if (attempt >= 2 || !/blockhash|block height exceeded|expired|dropped/i.test(String(e?.message || e))) throw e; onStatus?.(/dropped/i.test(String(e?.message)) ? 'Jito dropped it — rebuilding, sign again…' : 'That took too long — rebuilding, sign again…') }
   }
 }
 async function launchOursOnce(ctx: Ctx, meta: P.CreateMeta, uri: string, devBuySol: number, vault: { id: string } | null, vaultBuySol: number, deps: { sendBundle: (txs: string[]) => Promise<{ bundleId: string }>; signMsg?: (m: Uint8Array) => Promise<Uint8Array>; permTax?: boolean }): Promise<{ sig: string; mint: string; bundled: boolean }> {
@@ -150,10 +173,11 @@ async function launchOursOnce(ctx: Ctx, meta: P.CreateMeta, uri: string, devBuyS
     // the vault's block-zero buy only exists inside the bundle: never fall back to a plain launch that would put the coin live without it
     const bundle = [...signed.map((t) => Buffer.from(t.serialize()).toString('base64')), b.vaultTx]
     for (let i = 0; i < 3; i++) {
-      try { onStatus?.(i ? `Resending bundle (${i + 1}/3)…` : 'Sending bundle…'); await deps.sendBundle(bundle) }
+      let bundleId = ''
+      try { onStatus?.(i ? `Resending bundle (${i + 1}/3)…` : 'Sending bundle…'); bundleId = (await deps.sendBundle(bundle)).bundleId }
       catch (e: any) { if (/blockhash|expired/i.test(String(e?.message || e))) throw new Error('blockhash expired — rebuilding'); if (i === 2) throw new Error('Jito is not taking the launch bundle right now — nothing launched, your stake is still in the vault. Press Create again in a minute.'); await new Promise((r) => setTimeout(r, 1200)); continue }
-      try { onStatus?.('Confirming…'); await confirmByPollingB58(conn, signed[0], 20000); return { sig, mint: b.mint, bundled: true } }
-      catch (e: any) { if (/blockhash|block height|expired/i.test(String(e?.message || e))) throw e }
+      try { onStatus?.('Confirming…'); await confirmOrDropped(conn, signed[0], bundleId, 20000); return { sig, mint: b.mint, bundled: true } }
+      catch (e: any) { if (/blockhash|block height|expired|dropped/i.test(String(e?.message || e))) throw e }
     }
     // last look before saying nothing launched: a bundle can land in the final slots of its blockhash
     try { onStatus?.('Checking if it landed…'); await confirmByPollingB58(conn, signed[0], 35000); return { sig, mint: b.mint, bundled: true } }

@@ -89,6 +89,17 @@ export async function llTrade(kp: Keypair, action: 'buy' | 'sell', mint: string,
 export const FAST = process.env.FAST ? process.env.FAST === '1' : /helius/.test(RPC)
 export const TIP_LAMPORTS = Math.max(MIN_TIP_LAMPORTS, Math.floor(+(process.env.TIP_SOL || 0.001) * 1e9))
 /** Jito bundle: ≤5 signed txs, base64 (Jito: base58 is "slow, DEPRECATED"; default is still base58 so the encoding option is explicit). Helius RPC proxies sendBundle (5 rps) so it is the default when the RPC is Helius. */
+const bundleAt = new Map<string, string>()   // bundle id → the block-engine URL that accepted it
+/** Jito's own view of a bundle we sent: Landed | Pending | Failed | Invalid (null when the engine does not know it) */
+export async function bundleStatus(id: string): Promise<{ status: string; slot?: number } | null> {
+  const u = bundleAt.get(id); if (!u || !/jito/.test(u)) return null
+  const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getInflightBundleStatuses', params: [[id]] })
+  for (const url of [u.replace(/\/bundles$/, '/getInflightBundleStatuses'), u]) {   // the docs list both paths; whichever answers
+    const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body }).catch(() => null)
+    const d: any = r ? await r.json().catch(() => null) : null; const v = d?.result?.value?.[0]; if (v) return { status: String(v.status), slot: v.landed_slot ?? undefined }
+  }
+  return null
+}
 export async function sendBundle(raws: Uint8Array[]): Promise<string> {
   if (raws.length > 5) throw new Error('bundle > 5 txs')
   // helius proxies sendBundle only on paid plans ("Method not available on your current plan"); jito's public block engine takes bundles from anyone (tip tx required, rate-limited)
@@ -99,6 +110,7 @@ export async function sendBundle(raws: Uint8Array[]): Promise<string> {
   for (const u of urls) {
     try { const b = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body }); const d: any = await b.json().catch(() => ({ error: { message: 'http ' + b.status } }))
       if (d.error) { last = JSON.stringify(d.error); if (/plan|not available|unauthorized|forbidden|expired|blockhash|rate|limit|congest/i.test(last)) continue; throw new Error('jito: ' + last) }
+      if (d.result) bundleAt.set(String(d.result), u)
       return d.result as string } catch (e: any) { last = String(e.message || e); if (!/plan|not available|fetch failed|http 4|http 5/i.test(last)) throw e }
   }
   // say whether OUR node still thinks the blockhash is valid: tells a slow signer (really expired) from a block engine that disagrees

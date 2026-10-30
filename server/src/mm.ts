@@ -28,6 +28,11 @@ export const P = {
   // only while the price is ≥ cost × (1 + profitMargin), each sale ≤ takeMaxTokFrac of what the vault holds, one at a time. 0 = the normal capture policy.
   takeFrac: +(process.env.MM_TAKE_FRAC ?? 0),
   takeMaxTokFrac: +(process.env.MM_TAKE_MAX_TOK ?? 0.08),
+  // dynamic share (when dynMax > 0): the slice sold into a buy grows with the buy — ~dynMin for a small buy, dynMax once a buy reaches dynRefSol.
+  // Replaces initialsFrac/takeFrac. Log-shaped: a 0.1 SOL buy gets ~15%, 0.5 SOL ~24%, 2 SOL+ the full 30%.
+  dynMin: +(process.env.MM_DYN_MIN ?? 0.10),
+  dynMax: +(process.env.MM_DYN_MAX ?? 0),
+  dynRefSol: +(process.env.MM_DYN_REF_SOL ?? 2),
   episodeAnchor: true,
   captureOn: true,
   defendBelowVwap: 1.02,
@@ -170,6 +175,12 @@ export function onDefended(s: State, spend: number, got: number, level: number, 
   s.spentEpisode += spend; s.dayDefense = (s.dayDefense || 0) + spend; s.lastBuy = now; (s.tranchesFired ||= []).push(level); s.mmSpent = (s.mmSpent || 0) + spend; s.mmTok = (s.mmTok || 0) + got; s.mmCost = (s.mmCost || 0) + spend
 }
 
+/** share of an incoming buy the vault sells into it: dynamic by size when dynMax > 0, else the fixed initials/take fraction */
+export function sellShare(solIn: number, initials: boolean, p_: Params = P): number {
+  if (!(p_.dynMax > 0)) return initials ? p_.initialsFrac : p_.takeFrac
+  const x = Math.max(0, solIn) / Math.max(1e-9, p_.dynRefSol); const k = Math.min(1, Math.log10(1 + 20 * x) / Math.log10(21))
+  return +Math.min(p_.dynMax, Math.max(p_.dynMin, p_.dynMin + (p_.dynMax - p_.dynMin) * k)).toFixed(4)
+}
 /** SOL of the launch buy not yet recovered by selling inventory */
 export const initialsLeft = (s: State) => Math.max(0, (s.launchSpend || 0) - (s.invGot || 0))
 export const initialsOn = (s: State, p_: Params = P) => p_.initialsFrac > 0 && initialsLeft(s) > 0.005
@@ -182,13 +193,13 @@ export function capture(s: State, m: Market, p: number, solIn: number, now: numb
   if (p_.captureOn && s.mode === 'mm' && s.tokens > 0 && initialsOn(s, p_)) {
     if (solIn < p_.initialsMinBuy || (s.avgCost > 0 && p < s.avgCost * 1.01)) return 0
     const impact = m.liqSol > 0 ? (m.liqSol * p_.poolImpactMax) / p : Infinity
-    const t = Math.min(Math.min(solIn * p_.initialsFrac, initialsLeft(s) * 1.03) / p, impact, s.tokens)
+    const t = Math.min(Math.min(solIn * sellShare(solIn, true, p_), initialsLeft(s) * 1.03) / p, impact, s.tokens)
     return t * p >= 0.005 ? t : 0
   }
   if (p_.captureOn && s.mode === 'mm' && s.tokens > 0 && takeOn(s, p_)) {
     if (solIn < p_.initialsMinBuy || (s.avgCost > 0 && p < s.avgCost * (1 + p_.profitMargin))) return 0
     const impact = m.liqSol > 0 ? (m.liqSol * p_.poolImpactMax) / p : Infinity
-    const t = Math.min((solIn * p_.takeFrac) / p, impact, s.tokens * p_.takeMaxTokFrac, s.tokens)
+    const t = Math.min((solIn * sellShare(solIn, false, p_)) / p, impact, s.tokens * p_.takeMaxTokFrac, s.tokens)
     return t * p >= 0.005 ? t : 0
   }
   if (!p_.captureOn || s.mode !== 'mm' || solIn < R.MM_MIN_BUY_SOL || s.tokens <= 0) return 0

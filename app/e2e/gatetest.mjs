@@ -51,9 +51,9 @@ chk('gate gone after redeeming', (await pg.locator('.gate').count()) === 0 && (a
 const token = await pg.evaluate(() => localStorage.getItem('banker_session')); chk('session stored', !!token && token.length > 30)
 const h2 = await (await fetch(S + '/health')).json(); chk('key now redeemed and bound', h2.invites.redeemed === 1)
 const r1 = await post('/vault/create', { dev: addr, stakeSol: 1 }, { 'x-banker-session': token }); chk('write with the session → 200', r1.status === 200 && (await r1.json()).pub)
-// same key, different wallet → refused; wrong key → refused; reload keeps the session
+// same key, different wallet → that wallet is added to the key; wrong key → refused; reload keeps the session
 const w2 = Keypair.generate(); const msg = `banker:invite:${w2.publicKey.toBase58()}:${Math.floor(Date.now() / 60000)}`; const sig = bs58.encode(nacl.sign.detached(new TextEncoder().encode(msg), w2.secretKey))
-const r2 = await post('/invite/redeem', { code: keys[0], wallet: w2.publicKey.toBase58(), msg, sig }); chk('same key from another wallet → refused', r2.status >= 400 && /already in use/.test((await r2.json()).error || ''))
+const r2 = await post('/invite/redeem', { code: keys[0], wallet: w2.publicKey.toBase58(), msg, sig }); chk('same key from another of the holder\'s wallets → works (one key, any wallet)', r2.status === 200 && !!(await r2.json()).token)
 const r3 = await post('/invite/redeem', { code: 'BANK-AAAA-AAAA', wallet: w2.publicKey.toBase58(), msg, sig }); chk('unknown key → refused', r3.status >= 400)
 await pg.reload(); await pg.waitForTimeout(2500); chk('reload: still unlocked', (await pg.locator('.gate').count()) === 0)
 chk('no page errors', errs.length === 0)

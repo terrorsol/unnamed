@@ -1,20 +1,20 @@
 {
- "at": 1793194023032,
+ "at": 1793323689263,
  "out": [
   {
    "name": "dexscreener: SOL pairs shape",
    "ok": false,
-   "info": "fetch failed · 39ms"
+   "info": "fetch failed · 36ms"
   },
   {
    "name": "geckoterminal: pump-fun curve pools (dex id)",
    "ok": false,
-   "info": "fetch failed · 2ms"
+   "info": "fetch failed · 5ms"
   },
   {
    "name": "geckoterminal: active pumpswap pool (trending) + ohlcv + trades",
    "ok": false,
-   "info": "fetch failed · 4ms"
+   "info": "fetch failed · 3ms"
   },
   {
    "name": "dexscreener: curve + amm coin fields we use",
@@ -24,7 +24,7 @@
   {
    "name": "pool price: curve reserves vs dexscreener",
    "ok": false,
-   "info": "Cannot read properties of undefined (reading '_bn') · 2ms"
+   "info": "Cannot read properties of undefined (reading '_bn') · 3ms"
   },
   {
    "name": "pool price: pumpswap vaults vs dexscreener",
@@ -44,7 +44,7 @@
   {
    "name": "helius: priority estimate",
    "ok": false,
-   "info": "fetch failed · 6ms"
+   "info": "fetch failed · 5ms"
   },
   {
    "name": "helius: sender ping",
@@ -54,17 +54,17 @@
   {
    "name": "jito: getTipAccounts",
    "ok": false,
-   "info": "fetch failed · 3ms"
+   "info": "fetch failed · 2ms"
   },
   {
    "name": "jito: tip floor",
    "ok": false,
-   "info": "fetch failed · 4ms"
+   "info": "fetch failed · 3ms"
   },
   {
    "name": "pumpportal: curve buy (single) → simulate",
    "ok": false,
-   "info": "fetch failed · 3ms"
+   "info": "fetch failed · 2ms"
   },
   {
    "name": "mayhem coin: pumpportal buy vs jupiter fallback → simulate",
@@ -74,12 +74,12 @@
   {
    "name": "market(): geckoterminal fallback fields for a curve coin",
    "ok": false,
-   "info": "fetch failed · 6203ms"
+   "info": "fetch failed · 6316ms"
   },
   {
    "name": "pumpportal: amm buy (single) → simulate",
    "ok": false,
-   "info": "fetch failed · 6ms"
+   "info": "fetch failed · 2ms"
   },
   {
    "name": "our sender tip appended to pumpportal tx → simulate",
@@ -89,32 +89,32 @@
   {
    "name": "pumpportal: bundle mode (array) → base58 txs → simulate",
    "ok": false,
-   "info": "fetch failed · 4ms"
+   "info": "fetch failed · 2ms"
   },
   {
    "name": "pumpportal: create + dev buy (random mint) → shape only",
    "ok": false,
-   "info": "fetch failed · 78ms"
+   "info": "fetch failed · 3ms"
   },
   {
    "name": "launch bundle: [create+dev buy, vault buy] → decode + math check",
    "ok": false,
-   "info": "fetch failed · 7ms"
+   "info": "fetch failed · 5ms"
   },
   {
    "name": "pumpportal: collectCreatorFee → shape",
    "ok": false,
-   "info": "fetch failed · 2ms"
+   "info": "fetch failed · 1ms"
   },
   {
    "name": "launchlab: reference platform + default config decode",
    "ok": false,
-   "info": "failed to get info about account 4Bu96XjU84XjPDSpveTVf6LYGCkfW5FK7SNkREWcEfV4: TypeError: fetch failed · 6ms"
+   "info": "failed to get info about account 4Bu96XjU84XjPDSpveTVf6LYGCkfW5FK7SNkREWcEfV4: TypeError: fetch failed · 4ms"
   },
   {
    "name": "launchlab: live pool decode vs geckoterminal price",
    "ok": false,
-   "info": "raydium launch api gave no rows · fetch failed | fetch failed | fetch failed · 5ms"
+   "info": "raydium launch api gave no rows · fetch failed | fetch failed | fetch failed · 4ms"
   },
   {
    "name": "launchlab: buy tx via sdk → simulate",
@@ -134,17 +134,22 @@
   {
    "name": "launchlab: launch bundle [create+dev buy, vault buy] → decode + simulate create",
    "ok": false,
-   "info": "failed to get info about account 6s1xP3hpbAfFoNtUNF8mfHsjr2Bd97JxFJRWLbL6aHuX: TypeError: fetch failed · 9ms"
+   "info": "failed to get info about account 6s1xP3hpbAfFoNtUNF8mfHsjr2Bd97JxFJRWLbL6aHuX: TypeError: fetch failed · 7ms"
+  },
+  {
+   "name": "jito: takes a real launch bundle [create, vault buy] with a fresh blockhash (unfunded keys — it can never land, costs nothing)",
+   "ok": false,
+   "info": "failed to get info about account 6s1xP3hpbAfFoNtUNF8mfHsjr2Bd97JxFJRWLbL6aHuX: TypeError: fetch failed · 5ms"
   },
   {
    "name": "launchlab: token-2022 launch with the permanent transfer tax → simulate create + vault buy shape",
    "ok": false,
-   "info": "failed to get info about account 6s1xP3hpbAfFoNtUNF8mfHsjr2Bd97JxFJRWLbL6aHuX: TypeError: fetch failed · 8ms"
+   "info": "failed to get info about account 6s1xP3hpbAfFoNtUNF8mfHsjr2Bd97JxFJRWLbL6aHuX: TypeError: fetch failed · 3ms"
   },
   {
    "name": "launchlab: HTTP routes on a live server (/ll/platform, /ll/pool, /ll/trade, /ll/launch/build) → simulate",
    "ok": false,
-   "info": "/ll/platform: {\"venue\":\"launchlab\",\"permTaxBps\":0,\"program\":\"LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj\",\"platformId\":\"4Bu96XjU84XjPDSpveTVf6LYGCkfW5FK7SNkREWcEfV4\",\"admin\": · 1098ms"
+   "info": "/ll/platform: {\"venue\":\"launchlab\",\"permTaxBps\":100,\"program\":\"LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj\",\"platformId\":\"4Bu96XjU84XjPDSpveTVf6LYGCkfW5FK7SNkREWcEfV4\",\"admin · 1054ms"
   },
   {
    "name": "jupiter: api.jup.ag quote + swap → simulate",
@@ -164,7 +169,7 @@
   {
    "name": "helius ws: logsSubscribe on amm pool → decode one swap",
    "ok": false,
-   "info": "ws error Received network error or non-101 status code. · 3ms"
+   "info": "ws error Received network error or non-101 status code. · 2ms"
   }
  ]
 }

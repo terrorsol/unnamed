@@ -93,7 +93,7 @@ export async function buildPlatformTx(admin: PublicKey): Promise<{ tx: string; p
   return { tx: Buffer.from(tx.serialize()).toString('base64'), platformId: getPdaPlatformId(PROGRAM, admin).publicKey.toBase58() }
 }
 
-export type LaunchBuild = { mint: string; poolId: string; txs: string[]; devTokens: number; devCostSol: number; afterDev: { virtualA: bigint; virtualB: bigint; realA: bigint; realB: bigint }; permTax: number }
+export type LaunchBuild = { mint: string; poolId: string; txs: string[]; restamp: (blockhash: string) => string[]; devTokens: number; devCostSol: number; afterDev: { virtualA: bigint; virtualB: bigint; realA: bigint; realB: bigint }; permTax: number }
 /** The create (+ dev buy) tx(s) for the dev to sign; the mint keypair has already co-signed. Platform = ours (must exist on chain). */
 export async function buildLaunch(dev: PublicKey, meta: { name: string; symbol: string; uri: string }, devBuySol: number, platformId: PublicKey | null = PLATFORM_ID, permTax = false): Promise<LaunchBuild> {
   if (!platformId) throw new Error('no platform configured (PLATFORM_ADMIN)')
@@ -107,14 +107,12 @@ export async function buildLaunch(dev: PublicKey, meta: { name: string; symbol: 
     computeBudgetConfig: { units: 600_000, microLamports: 100_000 }, ...launchOpts(permTax), ...curveOpts(),
   })) } catch (e) { if (branded) MP.unuse(mintKp); throw e }
   const txs: VersionedTransaction[] = r.transactions
-  // a fresh blockhash on every launch tx: Jito refused bundles as 'expired blockhash' when the SDK's own was already old (Oct 29)
-  // only when the dev and the mint are the sole signers (both sign after this): any other pre-signed key would be invalidated
-  // stamp EVERY launch tx with one fresh blockhash (the SDK's own was found already expired at send, Oct 29), then re-sign the mint; the dev signs after
-  { const lb = await conn.getLatestBlockhash('confirmed'); for (const t of txs) t.message.recentBlockhash = lb.blockhash
-    const ok = (await conn.isBlockhashValid(lb.blockhash, { commitment: 'processed' }).catch(() => ({ value: true }))).value; if (!ok) throw new Error('RPC returned a stale blockhash — try again') }
-  for (const t of txs) { const keys = t.message.staticAccountKeys.map((k) => k.toBase58()); if (keys.includes(mintKp.publicKey.toBase58()) && t.message.header.numRequiredSignatures > 1) t.sign([mintKp]) }
+  // Every launch tx carries ONE blockhash stamped as late as possible: the caller restamps right before it hands the txs out (after the vault's
+  // buy is built too), so time spent building never eats the ~60 s a blockhash lives. Oct 29: bundles reached Jito already expired.
+  const mintKey = mintKp.publicKey.toBase58()
+  const restamp = (blockhash: string) => { for (const t of txs) { t.message.recentBlockhash = blockhash; const keys = t.message.staticAccountKeys.map((k) => k.toBase58()); if (keys.includes(mintKey) && t.message.header.numRequiredSignatures > 1) t.sign([mintKp]) } return txs.map((t) => Buffer.from(t.serialize()).toString('base64')) }
   const z = quoteFresh(devBuySol)
-  return { mint: mintKp.publicKey.toBase58(), poolId: poolIdOf(mintKp.publicKey.toBase58()).toBase58(), txs: txs.map((t) => Buffer.from(t.serialize()).toString('base64')), devTokens: z.tokens, devCostSol: z.cost, afterDev: z.after, permTax: permTax ? PERM_TAX_BPS : 0 }
+  return { mint: mintKey, poolId: poolIdOf(mintKey).toBase58(), txs: restamp((await conn.getLatestBlockhash('confirmed')).blockhash), restamp, devTokens: z.tokens, devCostSol: z.cost, afterDev: z.after, permTax: permTax ? PERM_TAX_BPS : 0 }
 }
 // default config curve (SDK LaunchpadPoolInitParam): virtual 30.00085 SOL × 1,073,025,605.6 tokens, 793.1M on the curve, 85 SOL raise
 const CURVE_DEFAULT = { virtualA: 1_073_025_605_596_382n, virtualB: 30_000_852_951n, totalSellA: 793_100_000_000_000n, totalFundRaisingB: 85_000_000_000n, supply: 1_000_000_000_000_000n }
