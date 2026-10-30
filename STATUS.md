@@ -49,10 +49,14 @@ another vault holds (shared-wallet token balances); fee claims handing unobserve
 desk bid fills debiting the first vault in the file; block-zero buys escaping booking on an RPC error. All fixed (see the commit
 'ledger hardening…'), each with a test where it can be faked. Open by design: the pump chest buy still goes through PumpPortal's
 wrapper program, which gets signer authority over the shared wallet for that tx — build it against the pump program directly next.
+A second review of those fixes found more (ad09ea3d): parallel builds and build-vs-refund on one vault (now one money operation per
+vault at a time), crowd contributions bookable from someone else's transfer, a credit before an await that a retry could repeat,
+imports/crowds arming next to a launch, fees accruing on migrated (AMM) swaps, harvests booked off the wallet balance, a wall-clock
+write-off of launch buys. Fixed with tests; a third review was run on that pass.
 
 New on the coin page: launch progress row (chest → upload → build → sign → land, with a clock), "launch buy paid back" bar,
 the chest's last moves, and a **sniper report** (first-minute buys/wallets/launch-block SOL and what the chest sold into them).
-Tests: server 66 (incl. a faked-chain money-path suite: build → land → arm books stake + vault buy exactly once, racing arms, parallel fund, cross-vault and foreign transfers, in-flight builds, reclaimed mints),
+Tests: server 68 (incl. a faked-chain money-path suite: build → land → arm books stake + vault buy exactly once, racing arms, parallel fund, cross-vault and foreign transfers, in-flight builds, reclaimed mints),
 app 23, e2e launch 37 (one signature, already-live retry, pump path, switch-on chest, chest card), app 22, desk 40, gate 15, import 16, mm 10.
 Mainnet preflight 39/39. Read-only probe workflow: push to the `probe` branch → `reports-probe`.
 
