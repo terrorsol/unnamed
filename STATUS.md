@@ -16,6 +16,28 @@
 - Live: server on Render (`unnamed-server.onrender.com`, helius, gate on, 2 SOL chest cap, 1 SOL import tier), app at `app.banker.cash`, landing at `banker.cash`. One brand wallet `BANKY…` is every vault (top holder on every coin) with per-vault chest ledgers booked from tx deltas; launched mints end in `…BANK` from a pre-ground pool; launch metadata self-hosted. Drawdown stop on the mm leg. Paper vault runs on CI against live coins (`paper.yml`).
 - Tests: server 35/35, app 20/20, e2e launch 21 (+21 in shared-wallet mode) · gate 15 · desk 50 · app 22 · import 16 · mm 10; mainnet: platform config created, platform fee claim (1.16 SOL) landed, a holder sell simulates clean. See POSTMORTEM.md for the first live launch.
 
+## Handoff (2026-10-30 evening) — independent review of the fast path, fixed
+
+The review found one blocker: on the sniper-tax handler `const priceSol` had ended up inside a `//` comment, so every fast-path capture threw
+a ReferenceError the handler swallowed — **the sniper tax could not fire on the fast feed while 19c52fbe/15992973 were live** (no pump chest
+was live then, so no money moved). Fixed, plus a compiler check in the tests (`test/typecheck.test.mjs`: unknown names / use before
+declaration / argument counts across src/, the class of bug the stripped-types runtime can't see). The rest, each fixed:
+- events: only "Program data:" lines logged while pump is the executing program count (invoke stack tracked; a forged event from any other
+  program is ignored); an event whose reserves don't fit the curve's k (±2%, k read with the coin's facts) isn't used to price a sale;
+  events of other mints in the same tx are ignored (they were treated as buys of our coin). Preflight checks k on real events.
+- a sale that was signed never loses its sig: any error after serialization carries it (booked late, never sent on a second route);
+  expiry needs the confirmed height 32 past the blockhash's last valid height and two history misses in a row.
+- sniper tax only when the launch landing was seen in the last 2 min (else off — an arm long after launch would tax ordinary buyers);
+  an expired sale re-queues the share of the buy it answered, not the whole buy; a sale in flight counts its tokens as gone until settled.
+- "never under cost +1%" is the on-chain min-out of sniper/initials sales (`below_cost`: not sent, no other route).
+- fast path only for captures (trims and close-out use the guarded route); `uneconomic` skips a sniper sale, other captures fall back.
+- capture lock watchdog (2 min); Sender fetch times out at 3 s; the dev cut is held during the sniper window and paid after.
+- a failed tx that landed books its fee (txDelta no longer returns 0 on error; late books of failed txs book the fee and skip the
+  success hook); one late-book settle at a time; the stream's seen-set trims oldest-first instead of clearing.
+- reserves()/coinFacts treat a completed curve as no fast path and forget the cached facts; pump Global prewarmed at arm; rebroadcasts go
+  through Sender too; a timed-out trim no longer debits the last buy's spend estimate.
+Open: a cashback coin's sell (the extra volume-accumulator account) is untested on mainnet — our launches aren't cashback coins.
+
 ## Handoff (2026-10-30 afternoon) — pump sniper tax on the fast path
 
 **Sniper tax (pump.fun launches).** pump has no sell tax; the chest stands in for one. For `MM_SNIPER_WINDOW_MS` (20 s) after the launch

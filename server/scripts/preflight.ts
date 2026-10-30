@@ -538,14 +538,18 @@ await step('tx guard: a fresh SOL-quoted coin — create + PumpPortal\'s wrapper
 await step('pump fast path: the trade event in real pump txs\' logs (what the processed-logs feed reads) matches the curve\'s own SOL move', async () => {
   const PF = await import('../src/pumpfast.ts'); const c = GUARDX.solCurve || await solCurveCoin(); if (!c) return 'skipped: no SOL-quoted curve coin this minute'
   GUARDX.solCurve = c; const curve = PF.curveOf(new PublicKey(c.mint))
+  const f = await PF.coinFacts(conn, c.mint, true); const bad: string[] = []   // the curve's k now: every honest event's reserves must fit it (PF.plausible)
   const sigs = await conn.getSignaturesForAddress(curve, { limit: 8 }); const notes: string[] = []; let checked = 0
   for (const x of sigs) { if (x.err || checked >= 3) continue
     const tx = await conn.getTransaction(x.signature, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }).catch(() => null); if (!tx?.meta) continue
     const evs = PF.tradesFromLogs(tx.meta.logMessages).filter((e) => e.mint === c.mint); if (!evs.length) { notes.push(`${x.signature.slice(0, 6)}: no event in logs`); continue }
     const keys = tx.transaction.message.getAccountKeys({ accountKeysFromLookups: tx.meta.loadedAddresses as any }).staticAccountKeys.map((k) => k.toBase58()); const i = keys.indexOf(curve.toBase58())
     const d = i >= 0 ? Math.abs(tx.meta.postBalances[i] - tx.meta.preBalances[i]) / 1e9 : NaN; const e = evs[0]; checked++
+    const kr = f?.k ? Number((e.vSol * e.vTok * 1_000_000n) / f.k) / 1e6 : NaN; if (f?.k && !PF.plausible(e)) bad.push(`${x.signature.slice(0, 6)} k ratio ${kr}`)
+    notes.push(`k vs curve ${kr.toFixed(6)}`)
     notes.push(`${e.isBuy ? 'buy' : 'sell'} ${e.sol.toFixed(4)} SOL (curve moved ${d.toFixed(4)}) · fees ${e.feeBps}+${e.creatorFeeBps} bps (buyback ${e.buybackFeeBps / 100}% of the protocol fee) · reserves ${(Number(e.vSol) / 1e9).toFixed(2)} SOL`) }
   if (!checked) throw new Error('no trade event decoded · ' + notes.join(' · '))
+  if (bad.length) throw new Error('events whose reserves do not fit the curve\'s k (the fast path would ignore them): ' + bad.join(', ') + ' · ' + notes.join(' · '))
   return `coin ${c.mint.slice(0, 6)}… · ` + notes.join(' · ')
 })
 await step('pump fast path: our own direct sell for a real holder → simulate (CU, min-out vs what pump pays) + this pool\'s priority fee', async () => {

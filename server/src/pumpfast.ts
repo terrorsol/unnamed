@@ -31,25 +31,41 @@ export function decodeTradeEvent(b64: string): TradeEvent | null {
   } catch {}
   return { mint, sol: Number(sol) / 1e9, tokens: Number(tokens), isBuy, user, ts: Number(ts), vSol, vTok, rSol, rTok, feeBps, creator, creatorFeeBps, buybackFeeBps }
 }
-/** every TradeEvent in a tx's logs */
+/** every TradeEvent pump itself emitted in a tx's logs. The runtime prefixes nothing to "Program data:" lines, so any program could log
+ *  bytes shaped like a TradeEvent (a forged buy to sell into): the invoke stack is tracked and a line only counts while pump is the program
+ *  executing. Truncated logs stop the read (the stack can't be trusted past that point). */
+const PUMP_ID = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'
 export function tradesFromLogs(logs: string[] | null | undefined): TradeEvent[] {
-  const out: TradeEvent[] = []; for (const l of logs || []) { if (!l.startsWith('Program data: ')) continue; const e = decodeTradeEvent(l.slice(14).trim()); if (e) out.push(e) } return out
+  const out: TradeEvent[] = []; const stack: string[] = []
+  for (const l of logs || []) {
+    if (l.startsWith('Log truncated')) break
+    let m = /^Program (\w{32,44}) invoke \[\d+\]$/.exec(l); if (m) { stack.push(m[1]); continue }
+    m = /^Program (\w{32,44}) (success|failed)/.exec(l); if (m) { if (stack.at(-1) === m[1]) stack.pop(); continue }
+    if (!l.startsWith('Program data: ') || stack.at(-1) !== PUMP_ID) continue
+    const e = decodeTradeEvent(l.slice(14).trim()); if (e) out.push(e)
+  } return out
+}
+/** pump's curve is constant-product on its virtual reserves: an honest event's vSol × vTok equals the curve's k (rounding only grows it a hair).
+ *  A decoded event whose k is off by more than 2% from the coin's k (read with its facts) is not used to price a sale. */
+export function plausible(ev: TradeEvent): boolean {
+  const f = facts.get(ev.mint); if (!f?.k || ev.vSol <= 0n || ev.vTok <= 0n) return ev.vSol > 0n && ev.vTok > 0n
+  const k = ev.vSol * ev.vTok; const d = k > f.k ? k - f.k : f.k - k; return d * 50n <= f.k
 }
 
 /** what a coin needs for a direct sell, read once from its curve account (+ the mint's owner program). null = not a fast-path coin. */
-export type CoinFacts = { mint: string; curve: string; creator: string; tokenProgram: string; cashback: boolean; t: number }
+export type CoinFacts = { mint: string; curve: string; creator: string; tokenProgram: string; cashback: boolean; t: number; k?: bigint }
 const facts = new Map<string, CoinFacts>()
 export async function coinFacts(conn: Connection, mint: string, fresh = false): Promise<CoinFacts | null> {
   const c = facts.get(mint); if (c && !fresh && Date.now() - c.t < 600_000) return c
   const M = new PublicKey(mint); const curve = curveOf(M)
   const [ci, mi] = await conn.getMultipleAccountsInfo([curve, M], 'confirmed')
   if (!ci || !mi || !ci.owner.equals(PUMP) || ci.data.length < 81) return null
-  const d = ci.data; if (d[48] === 1) return null                                   // complete: migrated to the AMM
+  const d = ci.data; if (d[48] === 1) { facts.delete(mint); return null }           // complete: migrated to the AMM
   if (d.length > 81 && d[81] === 1) return null                                      // mayhem coin: other fee recipients, other rules
   // quoted in another token (older curves predate the field: SOL)
   if (d.length >= 115) { const quote = new PublicKey(d.subarray(83, 115)); if (!quote.equals(PublicKey.default) && quote.toBase58() !== 'So11111111111111111111111111111111111111112') return null }
   const tp = mi.owner.toBase58(); if (tp !== TOKEN_PROGRAM_ID.toBase58() && tp !== TOKEN_2022_PROGRAM_ID.toBase58()) return null
-  const f = { mint, curve: curve.toBase58(), creator: new PublicKey(d.subarray(49, 81)).toBase58(), tokenProgram: tp, cashback: d.length > 82 && d[82] === 1, t: Date.now() }
+  const f = { mint, curve: curve.toBase58(), creator: new PublicKey(d.subarray(49, 81)).toBase58(), tokenProgram: tp, cashback: d.length > 82 && d[82] === 1, t: Date.now(), k: d.readBigUInt64LE(8) * d.readBigUInt64LE(16) }
   facts.set(mint, f); return f
 }
 export const forget = (mint: string) => facts.delete(mint)
@@ -87,7 +103,8 @@ export function sellOut(vSol: bigint, vTok: bigint, amountRaw: bigint, feeBps: n
 }
 /** reserves now, from the curve account (when no fresh trade event is at hand) */
 export async function reserves(conn: Connection, curve: string): Promise<{ vSol: bigint; vTok: bigint } | null> {
-  const ci = await conn.getAccountInfo(new PublicKey(curve), 'processed'); if (!ci || ci.data.length < 24) return null
+  const ci = await conn.getAccountInfo(new PublicKey(curve), 'processed'); if (!ci || ci.data.length < 49) return null
+  if (ci.data[48] === 1) { for (const [m, f] of facts) if (f.curve === curve) facts.delete(m); return null }   // complete: no curve to sell into
   return { vTok: ci.data.readBigUInt64LE(8), vSol: ci.data.readBigUInt64LE(16) }
 }
 
@@ -126,7 +143,7 @@ export type FastSell = { sig: string; minSol: number; expectSol: number; amountR
  *    is not sent (code 'uneconomic')
  *  - the same signed bytes are rebroadcast until they land or the blockhash dies; a tx whose blockhash died without landing rejects with
  *    `expired: true` and NO sig (it can never land, nothing to book) — anything else that times out rejects with `e.sig` so it can be booked late */
-export async function fastSell(conn: Connection, rpc: string, owner: PublicKey, mint: string, amountRaw: bigint, opts: { vSol?: bigint; vTok?: bigint; feeBps?: number; slipBps?: number; tipLamports?: number; cuPrice?: number },
+export async function fastSell(conn: Connection, rpc: string, owner: PublicKey, mint: string, amountRaw: bigint, opts: { vSol?: bigint; vTok?: bigint; feeBps?: number; slipBps?: number; tipLamports?: number; cuPrice?: number; floorLamports?: bigint },
   signer: (tx: VersionedTransaction) => VersionedTransaction): Promise<FastSell> {
   const t0 = Date.now()
   const [f, g] = await Promise.all([coinFacts(conn, mint), pumpGlobal(conn)]); if (!f) throw new Error('not a fast-path pump coin')
@@ -134,34 +151,40 @@ export async function fastSell(conn: Connection, rpc: string, owner: PublicKey, 
   const [rs, fee0, b] = await Promise.all([opts.vSol !== undefined && opts.vTok !== undefined ? Promise.resolve({ vSol: opts.vSol, vTok: opts.vTok }) : reserves(conn, f.curve), opts.cuPrice !== undefined ? Promise.resolve(opts.cuPrice) : poolPriorityFee(conn, [curve]), blockhash(conn)])
   if (!rs) throw new Error('curve unreadable')
   const expect = sellOut(rs.vSol, rs.vTok, amountRaw, opts.feeBps ?? 125)
-  const minSol = (expect * BigInt(10000 - Math.max(0, Math.min(5000, opts.slipBps ?? 300)))) / 10000n
+  let minSol = (expect * BigInt(10000 - Math.max(0, Math.min(5000, opts.slipBps ?? 300)))) / 10000n
   if (minSol <= 0n) { const e: any = new Error('sale too small'); e.code = 'uneconomic'; throw e }
+  // a cost floor (sniper tax / initials: never under cost +1%) is the min-out itself — the chain refuses a fill below it, whatever moved in between
+  if (opts.floorLamports && opts.floorLamports > 0n) { if (opts.floorLamports > expect) { const e: any = new Error(`sale would fill under cost (${(Number(expect) / 1e9).toFixed(4)} < ${(Number(opts.floorLamports) / 1e9).toFixed(4)} SOL)`); e.code = 'below_cost'; throw e } if (minSol < opts.floorLamports) minSol = opts.floorLamports }
   // fee guard: base fee + priority (CU price × limit) + tip ≤ maxFeeFrac of the expected proceeds
   const tip = Math.max(MIN_TIP_LAMPORTS, opts.tipLamports ?? MIN_TIP_LAMPORTS); const budget = Number(expect) * +(process.env.FAST_MAX_FEE_FRAC || 0.04) - 5000 - tip
   if (budget <= 0) { const e: any = new Error(`sale of ${(Number(expect) / 1e9).toFixed(4)} SOL can't carry the tip`); e.code = 'uneconomic'; throw e }
   const cuPrice = Math.max(0, Math.min(fee0, Math.floor((budget * 1e6) / CU_LIMIT)))
   let tx = buildSellTx(owner, f, g, amountRaw, minSol, cuPrice, tip, b.hash)
   selfCheck(tx, owner); tx = signer(tx); const raw = tx.serialize(); const sig = bs58.encode(tx.signatures[0])
-  await sendFast(conn, raw, rpc).catch(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }))
-  const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 1200)
+  // from here on the signed bytes exist and may land: every error carries the sig (booked late, never retried by another route) unless the
+  // blockhash is provably dead with the tx nowhere (expired). A failed first send is not an error: the rebroadcast and the confirm loop decide.
+  await sendFast(conn, raw, rpc).catch(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 })).catch(() => {})
+  const rb = setInterval(() => { sendFast(conn, raw, rpc).catch(() => {}) }, 1200)
   const done = (): FastSell => ({ sig, minSol: Number(minSol) / 1e9, expectSol: Number(expect) / 1e9, amountRaw, ms: Date.now() - t0, feeLamports: 5000 + Math.ceil(CU_LIMIT * cuPrice / 1e6) + tip, cuPrice })
   try {
-    let lastHeightCheck = 0
-    for (const tEnd = Date.now() + 90_000; Date.now() < tEnd;) {
+    let lastHeightCheck = 0, deadMisses = 0
+    for (const tEnd = Date.now() + 120_000; Date.now() < tEnd;) {
       const st = (await conn.getSignatureStatuses([sig]).catch(() => null))?.value?.[0]
-      if (st?.err) { const e: any = new Error('sell failed: ' + JSON.stringify(st.err)); e.sig = sig; e.landedErr = true; throw e }
+      if (st?.err) { forget(mint); const e: any = new Error('sell failed: ' + JSON.stringify(st.err)); e.sig = sig; e.landedErr = true; throw e }
       if (st && (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized')) return done()
       if (Date.now() - lastHeightCheck > 1500) { lastHeightCheck = Date.now()
         const h = await conn.getBlockHeight('confirmed').catch(() => 0)
-        if (h > b.lvh) { // the blockhash is dead: one last look (it may have landed in the final slots), then it can never land
-          const st2 = (await conn.getSignatureStatuses([sig], { searchTransactionHistory: true }).catch(() => null))?.value?.[0]
+        // the blockhash is dead well past its last valid height (a margin for a lagging node and forks), and the tx was not found twice in a
+        // row with history searched: it can never land. One miss alone is not proof (a node behind the cluster answers null).
+        if (h > b.lvh + 32) {
+          const st2 = (await conn.getSignatureStatuses([sig], { searchTransactionHistory: true }).catch(() => undefined))?.value?.[0]
           if (st2 && !st2.err) return done()
-          if (st2?.err) { const e: any = new Error('sell failed: ' + JSON.stringify(st2.err)); e.sig = sig; e.landedErr = true; throw e }
-          const e: any = new Error('sell expired unlanded (blockhash died)'); e.expired = true; throw e } }
+          if (st2?.err) { forget(mint); const e: any = new Error('sell failed: ' + JSON.stringify(st2.err)); e.sig = sig; e.landedErr = true; throw e }
+          if (st2 === null && ++deadMisses >= 2) { const e: any = new Error('sell expired unlanded (blockhash died)'); e.expired = true; throw e } } }
       await new Promise((r) => setTimeout(r, 300))
     }
     const e: any = new Error('confirm timeout ' + sig); e.sig = sig; throw e
-  } finally { clearInterval(rb) }
+  } catch (e: any) { if (!e?.expired && !e?.sig) { try { e.sig = sig } catch {} } throw e } finally { clearInterval(rb) }
 }
 /** the vault's keypair-free check of its own fast sell: one signer (the vault, paying), only compute budget + pump sell + one tip transfer */
 export function selfCheck(tx: VersionedTransaction, owner: PublicKey): void {

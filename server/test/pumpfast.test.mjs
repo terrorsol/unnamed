@@ -24,7 +24,7 @@ test('the trade event pump writes into its logs gives the exact buy and the curv
   assert.equal(e.vSol, 45_000_000_000n); assert.equal(e.vTok, 700_000_000_000_000n); assert.equal(e.feeBps, 95); assert.equal(e.creatorFeeBps, 30); assert.equal(e.buybackFeeBps, 5); assert.equal(e.creator, creator.toBase58())
   const short = PF.decodeTradeEvent(eventB64({ full: false })); assert.equal(short.vSol, 45_000_000_000n); assert.equal(short.feeBps, 95)   // an older, shorter event still reads
   assert.equal(PF.decodeTradeEvent(Buffer.from('0011223344556677', 'hex').toString('base64')), null)
-  const evs = PF.tradesFromLogs(['Program log: Instruction: Buy', 'Program data: ' + eventB64(), 'Program data: AAAA', 'Program data: ' + eventB64({ isBuy: false })])
+  const P6 = PUMP.toBase58(); const evs = PF.tradesFromLogs([`Program ${P6} invoke [1]`, 'Program log: Instruction: Buy', 'Program data: ' + eventB64(), 'Program data: AAAA', 'Program data: ' + eventB64({ isBuy: false }), `Program ${P6} consumed 40000 of 200000 compute units`, `Program ${P6} success`])
   assert.equal(evs.length, 2); assert.equal(evs[1].isBuy, false)
 })
 test('sellOut matches the curve and rounds against us (never promises a lamport the program will not pay)', () => {
@@ -104,4 +104,46 @@ test('sniper tax: half of every buy in the window sold straight back, never unde
   assert.equal(MM.capture(s, m, 3.9 / 100_000_000, 2, 5_000, P), 0)                          // under cost +1%: nothing
   assert.equal(MM.capture(s, m, p, 0.02, 5_000, P), 0)                                       // too small to be worth the fees
   assert.ok(MM.perBuyOn(s, P, 5_000))
+})
+
+// review fixes, Oct 30
+const logsFor = (b64, prog) => [`Program ${prog} invoke [1]`, `Program data: ${b64}`, `Program ${prog} success`]
+test('trade events: only lines pump itself logs count (a forged event from another program is ignored; pump called by a wrapper counts)', () => {
+  const ev = eventB64(); const other = Keypair.generate().publicKey.toBase58(); const wrap = 'FAdo9NCw1ssek6Z6yeWzWjhLVsr8uiCwcWNUnKgzTnHe'
+  assert.equal(PF.tradesFromLogs(logsFor(ev, other)).length, 0)
+  assert.equal(PF.tradesFromLogs(logsFor(ev, PUMP.toBase58())).length, 1)
+  const cpi = [`Program ${wrap} invoke [1]`, `Program ${PUMP.toBase58()} invoke [2]`, `Program data: ${ev}`, `Program ${PUMP.toBase58()} success`, `Program data: ${ev}`, `Program ${wrap} success`]
+  assert.equal(PF.tradesFromLogs(cpi).length, 1)   // the second line is the wrapper's own: not counted
+  assert.equal(PF.tradesFromLogs(['Log truncated', ...logsFor(ev, PUMP.toBase58())]).length, 0)
+})
+test('trade events: reserves that do not fit the curve\'s k are not used to price a sale', async () => {
+  await PF.coinFacts(fakeConn().conn, mint.toBase58(), true)   // k = 45 SOL × 700M tokens
+  assert.equal(PF.plausible(PF.decodeTradeEvent(eventB64())), true)
+  assert.equal(PF.plausible(PF.decodeTradeEvent(eventB64({ vSol: 60_000_000_000n, vTok: 525_000_000_000_000n }))), true)   // same k, later on the curve
+  assert.equal(PF.plausible(PF.decodeTradeEvent(eventB64({ vSol: 90_000_000_000n }))), false)
+})
+test('fastSell: a cost floor is the on-chain min-out; a sale that would fill under it is never sent', async () => {
+  const { conn, sent } = fakeConn(); const m2 = Keypair.generate().publicKey.toBase58(); const o = { vSol: 45_000_000_000n, vTok: 700_000_000_000_000n, feeBps: 125 }
+  const r = await PF.fastSell(conn, 'http://localhost:1', KP.publicKey, m2, 10_000_000_000_000n, { ...o, floorLamports: 620_000_000n }, sign)
+  assert.ok(Math.abs(r.minSol - 0.62) < 1e-9, String(r.minSol))
+  const n = sent.length
+  await assert.rejects(PF.fastSell(conn, 'http://localhost:1', KP.publicKey, m2, 10_000_000_000_000n, { ...o, floorLamports: 700_000_000n }, sign), (e) => e.code === 'below_cost' && !e.sig)
+  assert.equal(sent.length, n)
+})
+test('fastSell: one missed lookup after the blockhash died is not proof — the sale that shows up next is the sale', async () => {
+  const { conn } = fakeConn({ statuses: [null, null, 'confirmed'], height: 2000, lvh: 1000 })
+  const r = await PF.fastSell(conn, 'http://localhost:1', KP.publicKey, Keypair.generate().publicKey.toBase58(), 10_000_000_000_000n, { vSol: 45_000_000_000n, vTok: 700_000_000_000_000n }, sign)
+  assert.ok(r.sig)
+})
+test('fastSell: a sale that landed and failed carries its signature (its fee gets booked; it is never retried on another route)', async () => {
+  const { conn } = fakeConn(); conn.getSignatureStatuses = async () => ({ value: [{ confirmationStatus: 'confirmed', err: { InstructionError: [2, { Custom: 6003 }] } }] })
+  await assert.rejects(PF.fastSell(conn, 'http://localhost:1', KP.publicKey, Keypair.generate().publicKey.toBase58(), 10_000_000_000_000n, { vSol: 45_000_000_000n, vTok: 700_000_000_000_000n }, sign), (e) => !!e.sig && e.landedErr === true)
+})
+test('fastSell: a send that fails everywhere still returns through the confirm loop with the signature (never a sig-less error)', async () => {
+  const { conn } = fakeConn({ statuses: [null] }); conn.sendRawTransaction = async () => { throw new Error('rpc down') }; let calls = 0
+  conn.getSignatureStatuses = async () => { if (++calls > 3) throw new Error('status rpc down'); return { value: [null] } }
+  conn.getBlockHeight = async () => { throw new Error('height rpc down') }
+  const real = Date.now; let t = real(); Date.now = () => (t += 5_000)   // the 120 s confirm budget runs out in a few iterations
+  try { await assert.rejects(PF.fastSell(conn, 'http://localhost:1', KP.publicKey, Keypair.generate().publicKey.toBase58(), 10_000_000_000_000n, { vSol: 45_000_000_000n, vTok: 700_000_000_000_000n }, sign), (e) => !!e.sig && !e.expired) }
+  finally { Date.now = real }
 })

@@ -12,6 +12,9 @@ const subs = new Map<string, { id: number | null; subId: number | null; handlers
 const pending = new Map<number, string>() // request id → pool
 const wsUrl = () => process.env.WS_URL || RPC.replace(/^http/, 'ws')   // WS_URL: a websocket endpoint when the RPC's own ws is refused (seen on Render: closed before established)
 const seen = new Set<string>()
+// oldest-first trim, not clear(): clearing forgot every recent signature at once, so the poller's next pass could hand a buy the websocket
+// had already delivered back to the vault as new — one buy sold into twice (review, Oct 30)
+function markSeen(sig: string) { seen.add(sig); if (seen.size > 5000) { let n = seen.size - 4000; for (const k of seen) { if (n-- <= 0) break; seen.delete(k) } } }
 
 function send(o: any) { if (ws?.readyState === 1) ws.send(JSON.stringify(o)) }
 // a pump.fun curve the chest sells into (fast: true) is watched at 'processed' and read from pump's own trade event in the logs — no
@@ -25,7 +28,7 @@ function connect() {
     let m: any; try { m = JSON.parse(ev.data) } catch { return }
     if (m.id && pending.has(m.id)) { const pool = pending.get(m.id)!; pending.delete(m.id); const s = subs.get(pool); if (s) s.subId = m.result; return }
     if (m.method !== 'logsNotification') return
-    const { value, context } = m.params.result; const sig: string = value.signature; if (value.err || seen.has(sig)) return; seen.add(sig); if (seen.size > 5000) seen.clear()
+    const { value, context } = m.params.result; const sig: string = value.signature; if (value.err || seen.has(sig)) return; markSeen(sig)
     const subId = m.params.subscription; const entry = [...subs.entries()].find(([, s]) => s.subId === subId); if (!entry) return
     const [pool, s] = entry
     if (s.fast) {
@@ -52,7 +55,7 @@ function startPoll(pool: string) {
       const sigs = await conn.getSignaturesForAddress(new PublicKey(pool), { limit: 15, until: lastSig.get(pool) }, 'confirmed')
       if (!sigs.length) return; if (!lastSig.has(pool)) { lastSig.set(pool, sigs[0].signature); return } // first poll just sets the cursor
       lastSig.set(pool, sigs[0].signature)
-      for (const x of sigs.reverse()) { if (x.err || seen.has(x.signature)) continue; seen.add(x.signature); const sw = await decode(conn, pool, x.signature, x.slot).catch(() => null); if (sw) s.handlers.forEach((h) => h(sw)) }
+      for (const x of sigs.reverse()) { if (x.err || seen.has(x.signature)) continue; markSeen(x.signature); const sw = await decode(conn, pool, x.signature, x.slot).catch(() => null); if (sw) s.handlers.forEach((h) => h(sw)) }
     } catch {}
   }, +(process.env.POLL_MS || 2000)))
 }

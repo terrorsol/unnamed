@@ -14,9 +14,13 @@ p, li { font-size: 27px; line-height: 1.4; color: #cfcfcf }
 .foot { position: absolute; left: 120px; right: 120px; bottom: 44px; display: flex; justify-content: space-between; font-size: 17px; color: #555; letter-spacing: .06em }
 .foot b { color: #fff; font-weight: 800; letter-spacing: .16em }
 .green { color: #2bd46a } .gold { color: #d4af37 } .red { color: #ff4d5e } .dim { color: #8a8a8a }
-.grid { display: grid; gap: 28px } .g3 { grid-template-columns: 1fr 1fr 1fr } .g4 { grid-template-columns: repeat(4, 1fr) }
+.grid { display: grid; gap: 28px } .g3 { grid-template-columns: 1fr 1fr 1fr } .g4 { grid-template-columns: repeat(4, 1fr) } .g2 { grid-template-columns: 1fr 1fr }
+.pill { display: inline-block; font-size: 17px; letter-spacing: .14em; text-transform: uppercase; color: #2bd46a; font-weight: 700; border: 1px solid #1f5a35; background: #07160d; border-radius: 999px; padding: 8px 16px }
+.pill.new { background: #2bd46a; color: #000; border-color: #2bd46a }
+table.tight td { padding: 13px 20px; font-size: 23px } table.tight th { padding: 12px 20px }
+.big { font-family: 'Inter Display', 'Inter', sans-serif; font-weight: 800; letter-spacing: -0.04em; line-height: .95 }
 .card { background: #0d0d0d; border: 1px solid #262626; border-radius: 16px; padding: 36px }
-.card p { font-size: 23px }
+.card p { font-size: 23px } .card h3 + p { margin-top: 12px }
 .stat { font-family: 'Inter Display', 'Inter', sans-serif; font-size: 120px; font-weight: 700; letter-spacing: -0.035em; line-height: 1; margin-bottom: 18px }
 .stat.small { font-size: 72px }
 .src { font-size: 16px; color: #555; margin-top: 12px }
@@ -41,12 +45,13 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
 <section class="s" style="display:flex;flex-direction:column;justify-content:center">
   <div class="kick">banker.cash</div>
   <h2 style="font-size:72px;max-width:1500px">A bank behind every coin.</h2>
-  <div class="grid g3" style="margin-top:72px">
-    <div class="card" style="padding:48px;min-height:380px"><div class="pill">01 · Vault</div><h3 style="margin-top:26px;font-size:36px">Market maker</h3><p style="margin-top:12px;font-size:25px">Holder-owned. Sells into pumps, buys dips, never withdraws.</p></div>
-    <div class="card" style="padding:48px;min-height:380px"><div class="pill">02 · Desk</div><h3 style="margin-top:26px;font-size:36px">OTC, off-chart</h3><p style="margin-top:12px;font-size:25px">Sell or buy a block in one on-chain transaction. No candle.</p></div>
-    <div class="card" style="padding:48px;min-height:380px"><div class="pill">03 · Vamp defense</div><h3 style="margin-top:26px;font-size:36px">Copies pay the original</h3><p style="margin-top:12px;font-size:25px">Clones are detected and their tax streams to the coin they copied.</p></div>
+  <div class="grid g4" style="margin-top:72px">
+    <div class="card" style="padding:40px;min-height:400px"><div class="pill">01 · Vault</div><h3 style="margin-top:26px;font-size:34px">A market maker the holders own</h3><p style="margin-top:12px;font-size:23px">The first buy in the launch block. Sells into pumps, buys dips, never withdraws.</p></div>
+    <div class="card" style="padding:40px;min-height:400px;border-color:#2bd46a"><div class="pill new">02 · Sniper tax</div><h3 style="margin-top:26px;font-size:34px">Snipers pay the chest</h3><p style="margin-top:12px;font-size:23px">For the first 20 seconds, half of every sniper buy is sold straight back into it.</p></div>
+    <div class="card" style="padding:40px;min-height:400px"><div class="pill">03 · Desk</div><h3 style="margin-top:26px;font-size:34px">OTC, off-chart</h3><p style="margin-top:12px;font-size:23px">Sell or buy a block in one on-chain transaction. No candle.</p></div>
+    <div class="card" style="padding:40px;min-height:400px"><div class="pill">04 · Vamp defense</div><h3 style="margin-top:26px;font-size:34px">Copies pay the original</h3><p style="margin-top:12px;font-size:23px">Clones are detected and their tax streams to the coin they copied.</p></div>
   </div>
-  <p style="margin-top:56px;font-size:28px;color:#fff">Funded by 2% of every trade. Live from block zero. The dev pays 0.1 SOL.</p>
+  <p style="margin-top:56px;font-size:28px;color:#fff">On LaunchLab, 2% of every trade funds the chest. On pump.fun, the snipers do. One signature to launch either.</p>
   <div class="foot"><b>BANKER</b><span>2</span></div>
 </section>
 
@@ -60,6 +65,76 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
   <div class="foot"><b>BANKER</b><span>3</span></div>
 </section>
 
+
+<!-- block zero -->
+<section class="s" style="display:flex;flex-direction:column;justify-content:center">
+  <div class="kick">Block zero</div>
+  <h2 style="font-size:60px;max-width:1500px">The coin's own chest is the first buy. Not a sniper.</h2>
+  <div class="flow" style="margin-top:70px">
+    <div class="box">You create the coin<small>one signature</small></div><div class="arr">→</div>
+    <div class="box" style="border-color:#2bd46a;color:#2bd46a">Chest buys first<small>same Jito bundle, same block</small></div><div class="arr">→</div>
+    <div class="box" style="border-color:#ff4d5e;color:#ff4d5e">Snipers buy<small>at a higher price</small></div><div class="arr">→</div>
+    <div class="box" style="border-color:#d4af37;color:#d4af37">Chest sells into them<small>half of every buy, first 20 s</small></div>
+  </div>
+  <div class="grid g3" style="margin-top:72px">
+    <div class="card"><div class="stat small green">1 bundle</div><p>Coin, your buy and the chest's buy go out together. The chest's buy goes straight into pump's own program: no wrapper, no 0.5% fee.</p></div>
+    <div class="card"><div class="stat small">0 launches</div><p>go live without the chest. The bundle is resent up to 3×, rebuilt if its blockhash ages; if it can't land, nothing launches and the stake stays put.</p></div>
+    <div class="card"><div class="stat small gold">10%</div><p>of supply by default (≈3.3 SOL), bought at the lowest price the curve will ever have.</p></div>
+  </div>
+  <div class="foot"><b>BANKER</b><span>4</span></div>
+</section>
+
+<!-- sniper tax -->
+<section class="s" style="display:flex;flex-direction:column;justify-content:center">
+  <div class="kick">Sniper tax · new</div>
+  <h2 style="font-size:60px">pump.fun has no sell tax. We built one.</h2>
+  <div style="display:grid;grid-template-columns:1.05fr 1fr;gap:72px;margin-top:56px;align-items:start">
+    <div>
+      <div class="big green" style="font-size:260px">50%</div>
+      <p style="margin-top:22px;font-size:30px;color:#fff;max-width:760px">of every sniper buy in the first 20 seconds, sold straight back into that buy by the chest. The SOL stays in the chest.</p>
+      <p style="margin-top:26px;font-size:24px;max-width:760px">Snipers usually take the launch. Here they pay for the coin's floor.</p>
+    </div>
+    <div style="display:grid;gap:24px">
+      <div class="card" style="padding:34px"><div class="stat small">42–48%</div><p>of all the SOL snipers put in during the first 10–30 s was captured by the chest, replayed on our two real launch tapes with a 7.3 SOL block-zero buy.</p></div>
+      <div class="card" style="padding:34px"><h3>Guardrails, in code</h3><p style="margin-top:10px">Never sells under cost +1%. At most 10% of the pool per sale. 15% of the launch tokens kept for market making after the window.</p></div>
+      <div class="card" style="padding:34px"><h3>Sniper report</h3><p style="margin-top:10px">Who bought in the first minute, how much landed in the launch block, what the chest sold into them. One tap posts it to X.</p></div>
+    </div>
+  </div>
+  <div class="foot"><b>BANKER</b><span>5</span></div>
+</section>
+
+<!-- execution -->
+<section class="s" style="display:flex;flex-direction:column;justify-content:center">
+  <div class="kick">Execution</div>
+  <h2 style="font-size:60px">Faster than the snipers it taxes.</h2>
+  <div class="grid g3" style="margin-top:52px">
+    <div class="card" style="padding:44px"><div class="stat small green">processed</div><p>Buys are seen the moment they're processed and read from pump's own trade event: exact SOL and the curve after the buy. No extra RPC read.</p><div class="src">websocket · pump TradeEvent</div></div>
+    <div class="card" style="padding:44px"><div class="stat small">54.5k CU</div><p>The sale is built locally in pump's own format: no HTTP round trip, no third-party program. 793 bytes, measured on mainnet.</p><div class="src">mainnet preflight · Oct 30</div></div>
+    <div class="card" style="padding:44px"><div class="stat small">≤ 4%</div><p>of a sale ever goes to fees. The priority fee is priced from this pool's own recent fees, not the network average.</p><div class="src">getRecentPrioritizationFees · per curve</div></div>
+  </div>
+  <p style="margin-top:44px;font-size:24px;max-width:1650px">Every tipped transaction carries Jito's do-not-front-run marker. Sent through Helius Sender and RPC at once, rebroadcast every 1.2 s, confirmation checked every 300 ms. A sale that can no longer land is re-queued, never sold twice. <span style="color:#fff">77 of 77 real coins replayed tick by tick through the live market-maker code: zero invariant violations.</span></p>
+  <div class="foot"><b>BANKER</b><span>6</span></div>
+</section>
+
+<!-- security -->
+<section class="s" style="display:flex;flex-direction:column;justify-content:center">
+  <div class="kick">Security</div>
+  <h2 style="font-size:60px">Every signature is checked before it's signed.</h2>
+  <div style="display:grid;grid-template-columns:1fr 600px;gap:72px;margin-top:52px;align-items:start">
+    <ul>
+      <li><b>Simulated first.</b> The exact transaction is simulated and every transfer it would make, inside every program it calls, is walked before the keeper signs.</li>
+      <li><b>Hard limits.</b> Allowlisted programs only. The vault is the only signer. SOL out is bounded by the trade. A buy has to show the coin arriving.</li>
+      <li><b>No withdraw path.</b> Keeper caps per transaction and per hour. The dev is paid from realized profit only.</li>
+      <li><b>Attacks refused on mainnet.</b> A hidden 0.5 SOL drain, a token delegate, a foreign-token transfer and an oversized sell, each slipped into a real trade, were all refused.</li>
+    </ul>
+    <div style="display:grid;gap:24px">
+      <div class="card" style="padding:34px"><div class="stat small green">3</div><p>independent reviews of the money path. Every finding fixed, each with a test.</p></div>
+      <div class="card" style="padding:34px"><div class="stat small">48</div><p>checks against mainnet on every deploy: real bundles, real buys and sells, real attacks.</p></div>
+      <div class="card" style="padding:34px"><div class="stat small">212</div><p>automated tests: 100 on the server, 112 end-to-end.</p></div>
+    </div>
+  </div>
+  <div class="foot"><b>BANKER</b><span>7</span></div>
+</section>
 
 <!-- phone app -->
 <section class="s" style="padding:72px 120px">
@@ -80,7 +155,7 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
       <div class="phone"><img src="m-home.png"></div><div class="phone"><img src="m-buy.png"></div><div class="phone"><img src="m-done.png"></div>
     </div>
   </div>
-  <div class="foot"><b>BANKER</b><span>4</span></div>
+  <div class="foot"><b>BANKER</b><span>8</span></div>
 </section>
 
 <!-- 5 vault -->
@@ -90,20 +165,21 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
       <div class="kick">The Vault</div>
       <h2 style="font-size:54px;margin-bottom:34px">A market maker the holders own.</h2>
       <ul>
+        <li><b>Buys in block zero</b>, before any sniper.</li>
+        <li><b>Taxes the snipers:</b> half of every early buy sold back into it.</li>
         <li><b>Sells into pumps</b> when price stretches over VWAP.</li>
         <li><b>Buys dips</b> in tranches, only under VWAP, from its own chest.</li>
         <li><b>Stands on the desk</b> as buyer of last resort and no-fee seller at spot.</li>
         <li><b>Never withdraws.</b> The dev is paid a cut of realized profit only.</li>
-        <li><b>Funded by the 2% tax</b>, not by the dev.</li>
       </ul>
     </div>
     <div class="shot"><img src="c-vault.png"></div>
   </div>
-  <div class="foot"><b>BANKER</b><span>5</span></div>
+  <div class="foot"><b>BANKER</b><span>9</span></div>
 </section>
 
 <!-- 6 why it holds -->
-<section class="s">
+<section class="s" style="display:flex;flex-direction:column;justify-content:center">
   <div class="kick">Why it holds</div>
   <h2 style="font-size:54px">Simulated against the people who will try to farm it.</h2>
   <table style="margin-top:40px">
@@ -115,22 +191,9 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
   </table>
   <p style="margin-top:36px;font-size:24px">Naive policy → shipped policy. Crash budgets anchor to the crash, not a rolling window. Dips above VWAP aren’t dips. One wallet behind the selling halves the budget. Toxic desk flow pulls the bid and bans the seller. Every signature passes a keeper with hard caps and no withdraw path.</p>
   <div class="src">The simulator runs the same policy file the live bot runs.</div>
-  <div class="foot"><b>BANKER</b><span>6</span></div>
+  <div class="foot"><b>BANKER</b><span>10</span></div>
 </section>
 
-
-<!-- execution -->
-<section class="s">
-  <div class="kick">Execution</div>
-  <h2 style="font-size:54px">Fast, hard to front-run, replayed on real coins.</h2>
-  <div class="grid g3" style="margin-top:48px">
-    <div class="card" style="padding:44px"><div class="stat small green">77 / 77</div><p>real coins replayed tick by tick through the live market-maker code. Zero invariant violations, the chest never ended below its start.</p><div class="src">BACKTEST.md · pump.fun, pumpswap, LaunchLab · 4 seeds</div></div>
-    <div class="card" style="padding:44px"><div class="stat small">1.5% / 1%</div><p>max slippage on the vault's buys / sells (was 10%). Every tipped transaction carries Jito's do-not-front-run marker.</p><div class="src">VAULT_SLIP_BUY_BPS · jitodontfront</div></div>
-    <div class="card" style="padding:44px"><div class="stat small">25 SOL</div><p>most the vault spends in one buy, whatever the chest holds. Desk bids only rest at or under VWAP, after a 10-minute warmup.</p><div class="src">src/mm.ts · same file the live bot runs</div></div>
-  </div>
-  <p style="margin-top:44px;font-size:24px">User trades land through Helius Sender with a priority tip (validators + SWQOS), so a $10 buy doesn't sit in the public queue. The app shows the slippage cap and fast-lane state under every ticket.</p>
-  <div class="foot"><b>BANKER</b><span>7</span></div>
-</section>
 
 <!-- 7 desk -->
 <section class="s" style="padding:72px 120px">
@@ -147,11 +210,11 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
       </ul>
     </div>
   </div>
-  <div class="foot"><b>BANKER</b><span>8</span></div>
+  <div class="foot"><b>BANKER</b><span>11</span></div>
 </section>
 
 <!-- 8 vamp -->
-<section class="s">
+<section class="s" style="display:flex;flex-direction:column;justify-content:center">
   <div class="kick">Vamp defense</div>
   <h2 style="font-size:54px">Copies feed the original.</h2>
   <div class="flow" style="margin-top:90px">
@@ -161,7 +224,7 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
     <div class="box" style="border-color:#2bd46a;color:#2bd46a">Holders switch back at spot<small>off-chart, no fee</small></div>
   </div>
   <p style="margin-top:80px;font-size:28px;max-width:1500px">On every other platform the clone wins the attention and the original bleeds. Here the clone works for the original, and anyone who bought the clone has a way back that doesn’t touch the chart.</p>
-  <div class="foot"><b>BANKER</b><span>9</span></div>
+  <div class="foot"><b>BANKER</b><span>12</span></div>
 </section>
 
 <!-- 9 launch -->
@@ -170,20 +233,21 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
     <div class="shot"><img src="c-coin.png"></div>
     <div>
       <div class="kick">Launching</div>
-      <h2 style="font-size:54px;margin-bottom:34px">Name, ticker, image.</h2>
+      <h2 style="font-size:54px;margin-bottom:34px">Two venues. One signature.</h2>
       <ul>
-        <li><b>Raydium LaunchLab</b> under the BANKER platform config. The 2% is enforced by Raydium’s program.</li>
-        <li><b>Price and chart from the pool</b>, from the first block. No indexer.</li>
-        <li><b>The vault is free.</b> Pick a supply target; the tax builds it. Or buy it in the launch block.</li>
-        <li><b>Every terminal already lists LaunchLab pools.</b> Launching here costs no eyes.</li>
+        <li><b>pump.fun or Raydium LaunchLab.</b> On LaunchLab the 2% is enforced by Raydium’s program under the BANKER config.</li>
+        <li><b>One signature</b> covers the coin, your buy and the chest’s buy.</li>
+        <li><b>Every coin’s address ends in …BANK.</b></li>
+        <li><b>Price and chart from the pool</b>, from the first block, in 15-second bars. No indexer.</li>
+        <li><b>Every terminal already lists both.</b> Launching here costs no eyes.</li>
       </ul>
     </div>
   </div>
-  <div class="foot"><b>BANKER</b><span>10</span></div>
+  <div class="foot"><b>BANKER</b><span>13</span></div>
 </section>
 
 <!-- why -->
-<section class="s">
+<section class="s" style="display:flex;flex-direction:column;justify-content:center">
   <div class="kick">Why it is needed</div>
   <h2>Memecoins die by design. The numbers:</h2>
   <div class="grid g3" style="margin-top:56px">
@@ -196,27 +260,27 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
     <h3>Every exit is a red candle on the chart.</h3>
     <h3>Copycats drain the original within minutes.</h3>
   </div>
-  <div class="foot"><b>BANKER</b><span>11</span></div>
+  <div class="foot"><b>BANKER</b><span>14</span></div>
 </section>
 
 <!-- more -->
-<section class="s">
+<section class="s" style="display:flex;flex-direction:column;justify-content:center">
   <div class="kick">Also shipping</div>
   <h2 style="font-size:54px">The same machinery, more ways in.</h2>
   <div class="grid g3" style="margin-top:44px">
     <div class="card"><h3>Import any coin</h3><p>A vault for a coin launched elsewhere: pay the fee, or let the community crowd-fund a takeover.</p></div>
     <div class="card"><h3>Burn-to-redeem</h3><p>Any holder can burn tokens for their pro-rata share of the chest. The floor is real, not implied.</p></div>
-    <div class="card"><h3>Block requests</h3><p>Name a size and a max loss; resting bids sweep it and every holder gets pinged for two minutes.</p></div>
-    <div class="card"><h3>Vault deposits</h3><p>Holders add SOL or tokens to the chest. Bigger bid, bigger dip buys, same rules.</p></div>
+    <div class="card"><h3>Sniper report</h3><p>Every launch's first minute, read off the chain: who bought, how much in the launch block, what the chest took back.</p></div>
+    <div class="card"><h3>Chest after launch</h3><p>A coin launched without a chest gets one, free, from its coin page. Holders can add SOL or tokens to it.</p></div>
     <div class="card"><h3>Dev cut, renounceable</h3><p>The creator earns a % of realized vault profit and can renounce it on chain in one click.</p></div>
     <div class="card"><h3>Terminal built in</h3><p>In-app wallet, quick buy, charts from the pool, runner signals, phone-first. Phantom and Solflare too.</p></div>
   </div>
-  <div class="foot"><b>BANKER</b><span>12</span></div>
+  <div class="foot"><b>BANKER</b><span>15</span></div>
 </section>
 
 
 <!-- creator rewards -->
-<section class="s">
+<section class="s" style="display:flex;flex-direction:column;justify-content:center">
   <div class="kick">Creator rewards</div>
   <h2 style="font-size:54px">Devs earn more by putting skin in, and only when the coin proves itself.</h2>
   <div class="flow" style="margin-top:80px">
@@ -226,11 +290,11 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
     <div class="box" style="border-color:#2bd46a;color:#2bd46a">Paid every hour<small>on their dashboard</small></div>
   </div>
   <p style="margin-top:72px;font-size:27px;max-width:1550px">Anything still locked 30 days after launch goes to the chest, so if the coin dies the holders get it. The way to earn is to back your coin, not to dump it. Built and tested, switches on after the beta.</p>
-  <div class="foot"><b>BANKER</b><span>13</span></div>
+  <div class="foot"><b>BANKER</b><span>16</span></div>
 </section>
 
 <!-- revenue -->
-<section class="s">
+<section class="s" style="display:flex;flex-direction:column;justify-content:center">
   <div class="kick">Revenue · SOL at $180</div>
   <h2 style="font-size:54px">Every stream, at three sizes.</h2>
   <table style="margin-top:28px">
@@ -243,16 +307,18 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
     <tr style="background:#0d0d0d"><td><b style="color:#fff">Total</b></td><td></td><td class="c num green" style="font-weight:700;font-size:30px">$1.6M</td><td class="c num green" style="font-weight:700;font-size:30px">$16M</td><td class="c num green" style="font-weight:700;font-size:30px">$81M</td></tr>
   </table>
   <div class="src">Volume = trades on BANKER-launched coins. For scale: all Solana launchpads together clear ~$100M/day; pump.fun alone books ~$1M/day in fees (The Block, Oct 2025). Tax share, desk and import fees are live today; graduation LP and vault performance fee are switches in the config.</div>
-  <div class="foot"><b>BANKER</b><span>14</span></div>
+  <div class="foot"><b>BANKER</b><span>17</span></div>
 </section>
 
 <!-- 10 comparison -->
-<section class="s">
+<section class="s" style="display:flex;flex-direction:column;justify-content:center">
   <div class="kick">Nobody ships this</div>
   <h2 style="font-size:54px">What a coin gets, automatically.</h2>
-  <table style="margin-top:36px">
+  <table class="tight" style="margin-top:30px">
     <tr><th></th><th class="c">BANKER</th><th class="c">pump.fun</th><th class="c">LaunchLab pads</th><th class="c">Meteora DBC pads</th></tr>
     <tr><td>Holder-owned market maker with a chest</td><td class="c yes">●</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
+    <tr><td>The coin's own chest is the first buy in the launch block</td><td class="c yes">●</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
+    <tr><td>Snipers taxed back into the coin</td><td class="c yes">● 50%</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
     <tr><td>Off-chart OTC desk, non-custodial</td><td class="c yes">●</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
     <tr><td>Copycat detection that pays the original</td><td class="c yes">●</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
     <tr><td>Trade fee into the coin’s own treasury</td><td class="c yes">● 2%</td><td class="c no">to creator</td><td class="c no">to platform / burn</td><td class="c no">to creator / platform</td></tr>
@@ -262,22 +328,22 @@ table { border-collapse: collapse; width: 100% } th, td { text-align: left; padd
     <tr><td>Creator paid by stake, unlocked by milestones</td><td class="c yes">●</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
     <tr><td>Bring an existing coin</td><td class="c yes">●</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
   </table>
-  <div class="foot"><b>BANKER</b><span>15</span></div>
+  <div class="foot"><b>BANKER</b><span>18</span></div>
 </section>
 
 
 <!-- roadmap -->
-<section class="s">
+<section class="s" style="display:flex;flex-direction:column;justify-content:center">
   <div class="kick">Next</div>
   <h2 style="font-size:54px">From beta to the App Store.</h2>
   <table style="margin-top:36px">
     <tr><th>Now</th><th>Next</th><th>After</th></tr>
-    <tr><td>Mainnet terminal at app.banker.cash</td><td>First real launches with testers, 0.5 SOL chests</td><td>Creator rewards on</td></tr>
-    <tr><td>Phone app (same code) compiles for iPhone</td><td>TestFlight, then App Store review</td><td>Push alerts when your chest buys a dip</td></tr>
-    <tr><td>Phantom + Solflare connect inside the app</td><td>Higher-liquidity launch curve (built, behind a switch)</td><td>Token-2022 sell-only tax and vamp refusal</td></tr>
-    <tr><td>Vault, desk, vamp defense live</td><td>Vault worker closer to the validators (Frankfurt)</td><td>One-signature escrow OTC fills (program + audit)</td></tr>
+    <tr><td>pump.fun + LaunchLab launches, one signature</td><td>First launches with testers</td><td>Creator rewards on</td></tr>
+    <tr><td>Chest buys block zero, sniper tax on</td><td>Chests spread across many wallets (no shared lock)</td><td>Push alerts when your chest buys a dip</td></tr>
+    <tr><td>Tx guard on every vault trade, 48 mainnet checks per deploy</td><td>Vault worker closer to the validators (Frankfurt)</td><td>Token-2022 sell-only tax and vamp refusal</td></tr>
+    <tr><td>Vault, desk, vamp defense live · phone app compiles for iPhone</td><td>TestFlight, then App Store review</td><td>One-signature escrow OTC fills (program + audit)</td></tr>
   </table>
-  <div class="foot"><b>BANKER</b><span>16</span></div>
+  <div class="foot"><b>BANKER</b><span>19</span></div>
 </section>
 
 <!-- 12 close -->
