@@ -517,14 +517,18 @@ async function tickOne(v: Vault) {
       if (!v.score) v.score = { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: v.supply ? v.chest / v.supply : 0 }
       // graduated coins: exact per-swap buys from the pool websocket; reserve-delta only while the stream isn't attached
       // graduated coins AND our launchlab pools (the quote vault is WSOL, same decode): exact per-swap buys from the pool websocket
-      if ((!m.onCurve || (m as any).venue === 'launchlab') && m.pair && !watched.has(v.id)) { watched.set(v.id, watchPool(m.pair, async (sw) => { D.broadcast({ type: 'swap', mint: v.mint, symbol: v.symbol, ...sw }); tape(v.mint!, { t: sw.t, side: sw.side, sol: sw.sol, trader: sw.trader, sig: sw.sig }); if (sw.side !== 'buy' || sw.trader === v.pub) return; try { const mm = await market(v.mint!); if (mm) { await onBuy(v, sw.sol, mm, mm.priceSol, Date.now()); save() } } catch {} })) }
+      if ((!m.onCurve || (m as any).venue === 'launchlab') && m.pair && !watched.has(v.id)) { watched.set(v.id, watchPool(m.pair, async (sw) => { D.broadcast({ type: 'swap', mint: v.mint, symbol: v.symbol, ...sw }); tape(v.mint!, { t: sw.t, side: sw.side, sol: sw.sol, trader: sw.trader, sig: sw.sig }); (v as any)._lastSwapAt = Date.now(); if (sw.side !== 'buy' || sw.trader === v.pub) return; try { const mm = await market(v.mint!); if (mm) { await onBuy(v, sw.sol, mm, mm.priceSol, Date.now()); save() } } catch {} })) }
       // reserve-delta fallback when the pool websocket is not delivering (not connected, or no subscription yet)
-      const llStreaming = (m as any).venue === 'launchlab' && watched.has(v.id) && streamStats().connected
+      // …and a subscription that is 'connected' but silent while the pool's SOL moved counts as not delivering (backstop: the pool read catches the buys)
+      const liqMoved = !!v.lastLiq && !!m.liqSol && Math.abs(m.liqSol - v.lastLiq) >= 0.05; const swapSeen = ((v as any)._lastSwapAt || 0) > (v.lastLiqT || 0)
+      const llStreaming = (m as any).venue === 'launchlab' && watched.has(v.id) && streamStats().connected && (!liqMoved || swapSeen)
       // launchlab coins without the websocket: every tick compares the pool's real SOL; a change is a swap (buy if up, sell if down) → tape + live ticker
       if ((m as any).venue === 'launchlab' && !llStreaming && m.liqSol) { const d = m.liqSol - (v.lastLiq || m.liqSol); if (v.lastLiq && Math.abs(d) >= 0.01) { const sw = { t: now, side: d > 0 ? 'buy' as const : 'sell' as const, sol: Math.abs(d), trader: '' }; tape(v.mint!, sw); D.broadcast({ type: 'swap', mint: v.mint, symbol: v.symbol, ...sw }) } }
       // pump curve coins without the PumpPortal stream, and launchlab coins until the websocket attaches: the pool read every tick is the buy detector
-      const curveNoStream = m.onCurve && (!process.env.PUMPPORTAL_KEY || ((m as any).venue === 'launchlab' && !llStreaming))
-      if (m.liqSol && ((!m.onCurve && (!watched.has(v.id) || !streamStats().connected)) || curveNoStream)) { if (v.lastLiq && now - v.lastLiqT < 20000) { const inflow = m.liqSol - v.lastLiq; if (inflow >= R.MM_MIN_BUY_SOL) await onBuy(v, inflow, m, p, now) } v.lastLiq = m.liqSol; v.lastLiqT = now }
+      // (launchlab coins: only while their websocket is not delivering — never both, or one buy would be sold into twice)
+      const curveNoStream = m.onCurve && ((m as any).venue === 'launchlab' ? !llStreaming : !process.env.PUMPPORTAL_KEY)
+      if (m.liqSol && ((!m.onCurve && (!watched.has(v.id) || !streamStats().connected)) || curveNoStream)) { if (v.lastLiq && now - v.lastLiqT < 20000) { const inflow = m.liqSol - v.lastLiq; if (inflow >= (MM.perBuyOn(v) ? MM.P.initialsMinBuy : R.MM_MIN_BUY_SOL)) await onBuy(v, inflow, m, p, now) } v.lastLiq = m.liqSol; v.lastLiqT = now }
+      else if ((m as any).venue === 'launchlab' && m.liqSol) { v.lastLiq = m.liqSol; v.lastLiqT = now }   // keep the baseline current while the stream delivers
       // a failed trade (rpc down, pumpportal unreachable) must not skip the quoting below: the action block has its own catch
       try {
       // defense: tranches at −20 / −35 / −50 from the high the crash started at (mm.ts: episode anchor, day cap, pool-impact cap, seller-concentration check, cooldown)
