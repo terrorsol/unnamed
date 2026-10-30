@@ -593,8 +593,8 @@ await step('tx guard: real sells pass for a real holder (pumpportal + jupiter), 
   const G = await import('../src/txguard.ts'); const { jupBuild, tokenBalance } = await import('../src/chain.ts'); const notes: string[] = []; let passed = 0
   for (const [label, mint] of [['curve', ctx.curveMint], ['amm', ctx.ammMint]] as const) {
     if (!mint) continue; const h = await holderOf(mint); if (!h) { notes.push(`${label}: no wallet holder found`); continue }
-    const bal = await tokenBalance(h.owner.toBase58(), mint); const { curveSpot } = await import('../src/pool.ts'); const sp = label === 'curve' ? await curveSpot(mint).catch(() => null) : null
-    const px = sp?.priceSol || 0; const expectSol = bal.ui * 0.1 * px
+    const bal = await tokenBalance(h.owner.toBase58(), mint); const { curveSpot, pumpswapSpot } = await import('../src/pool.ts'); const sp = label === 'curve' ? await curveSpot(mint).catch(() => null) : (ctx.ammPool ? await pumpswapSpot(ctx.ammPool, mint).catch(() => null) : null)
+    const px = sp?.priceSol || 0; const expectSol = bal.ui * 0.1 * px   // what production passes: the sale at the pool's price (bounds the fees it may pay)
     const lim = G.limitsFor('sell', mint, '10%', { slippageBps: 1500, expectSol: expectSol || 1, balanceRaw: bal.raw })
     for (const [route, build] of [['pumpportal', () => ppBuild(h.owner, 'sell', mint, '10%')], ['jupiter', () => jupBuild(h.owner, 'sell', mint, '10%', false, 1500)]] as const) {
       try { const r = await G.guardTx(conn, await build(), h.owner, lim); passed++; notes.push(`${label}/${route} ok · tokens ${r.tokOut} ≤ ${lim.maxTokOutRaw} · sol out ${r.solOut.toFixed(4)}`) }

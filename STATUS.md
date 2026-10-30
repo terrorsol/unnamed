@@ -16,6 +16,24 @@
 - Live: server on Render (`unnamed-server.onrender.com`, helius, gate on, 2 SOL chest cap, 1 SOL import tier), app at `app.banker.cash`, landing at `banker.cash`. One brand wallet `BANKY…` is every vault (top holder on every coin) with per-vault chest ledgers booked from tx deltas; launched mints end in `…BANK` from a pre-ground pool; launch metadata self-hosted. Drawdown stop on the mm leg. Paper vault runs on CI against live coins (`paper.yml`).
 - Tests: server 35/35, app 20/20, e2e launch 21 (+21 in shared-wallet mode) · gate 15 · desk 50 · app 22 · import 16 · mm 10; mainnet: platform config created, platform fee claim (1.16 SOL) landed, a holder sell simulates clean. See POSTMORTEM.md for the first live launch.
 
+## Handoff (2026-10-30 afternoon) — pump sniper tax on the fast path
+
+**Sniper tax (pump.fun launches).** pump has no sell tax; the chest stands in for one. For `MM_SNIPER_WINDOW_MS` (20 s) after the launch
+lands, every buy ≥ 0.03 SOL gets `MM_SNIPER_FRAC` (50%) of its SOL sold straight back into it by the chest that bought block zero. Never
+under cost +1%, ≤10% of the pool per sale (the uncovered part re-queued for the next sale), 15% of the block-zero tokens kept for market
+making after (`MM_SNIPER_KEEP`). Our launchpad only with `MM_SNIPER_LL=1`. Replays on the two real tapes: with a 7.3 SOL block-zero buy the
+chest sold back 42–48% of the first 10–30 s of buys; at 4 SOL 29–44% (inventory runs out first).
+**Fast path (pumpfast.ts).** Feed: pump curves watched at 'processed', each trade read from pump's own TradeEvent in the logs (exact SOL,
+the curve's reserves after it) — no getTransaction, no market read. Sale: a direct pump `sell` built locally (IDL order + bonding_curve_v2
++ Global's recipients; cashback coins add the volume accumulator), self-checked (compute budget + sell + one ≤0.005 tip only), CU limit
+75k (whole tx measured 54.5k on mainnet), CU price = p75 of THIS curve's recent write-lock fees ×1.1 (clamped 20k–2M µlamports), total
+fees ≤4% of the sale or the CU price is cut / the sale skipped, jitodontfront marker, Sender + RPC, same bytes rebroadcast every 1.2 s,
+confirmation polled every 300 ms, a dead blockhash = never landed (re-queued, never double-sold). Anything the fast path can't do falls
+back to the guarded PumpPortal/Jupiter route — but a sale that was sent never falls back. Mainnet preflight: events decoded from real
+pump txs; our direct sell simulated for a real holder (min-out from our math 1.3% under pump's gross, i.e. its fees). `PUMP_FAST=0` off.
+Known bottleneck: every chest signs and pays from the one shared wallet, so all chest sales write-lock that account — fine at today's
+volume; sharding chests across several wallets is the fix if many pump launches run at once.
+
 ## Handoff (2026-10-30 early morning, third pass) — read this first
 
 **Third independent review → fixed (245d81f3).** Payouts: never to the vault's own wallet; one payout in flight per vault, persisted

@@ -149,6 +149,8 @@ export function checkIxs(ixs: Ix[], owner: string, lim: GuardLimits, sigs = 1): 
       }
       if (x.type === 'closeAccount') { if ((i.owner ?? i.multisigOwner) === V) { if (i.destination !== V) refuse('closes a vault account to someone else'); closed.add(i.account) } continue }
       if (/^initializeAccount|^syncNative$|^getAccountDataSize$|^initializeImmutableOwner$|^revoke$|^amountToUiAmount$|^uiAmountToAmount$/.test(x.type)) continue
+      // p-token's unwrapLamports (Jupiter uses it): wrapped SOL back out of a vault wSOL account — fine to the vault itself, never to anyone else
+      if (x.type === 'unwrapLamports') { const dst = i.destination ?? i.recipient ?? i.account; if (!mentions(i, V) || dst === V) continue; refuse('unwraps a vault account to someone else') }
       if (/^approve|^setAuthority$|^burn|^mintTo|^freezeAccount$|^thawAccount$/.test(x.type)) { if (mentions(i, V)) refuse(`token ${x.type} signed by the vault`); continue }
       if (mentions(i, V) || x.accounts.includes(V)) refuse(`token ${x.type || 'instruction'} with the vault as a party`)
       continue

@@ -183,3 +183,8 @@ test('review: a buy that brings none of the coin in is refused (post-state of th
   await assert.rejects(G.guardTx(fakeConn({ err: null, logs: [], innerInstructions: [], accounts: [null] }), t, V, lim), /brings none of the coin/)
   const ok = await G.guardTx(fakeConn({ err: null, logs: [], innerInstructions: [], accounts: [acct(9500n)] }), t, V, lim); assert.equal(ok.tokIn, 9000n)
 })
+
+test('p-token unwrapLamports: back to the vault is fine, to anyone else is refused (mainnet Jupiter route, Oct 30)', () => {
+  assert.doesNotThrow(() => G.checkIxs([tok('unwrapLamports', { source: wsol, destination: VS, authority: VS, amount: '1000' })], VS, buyLim))
+  assert.throws(() => G.checkIxs([tok('unwrapLamports', { source: wsol, destination: X, authority: VS, amount: '1000' })], VS, buyLim), /unwraps a vault account/)
+})
