@@ -30,11 +30,13 @@ jobs:
       - name: Grind and push in small batches (each batch reaches the server before the next starts; secrets never leave the runner otherwise)
         working-directory: server
         run: |
-          { test -n "$ADMIN_KEY" && echo "admin key: present" || echo "admin key: MISSING"; } > /tmp/mints.txt
+          { test -n "$ADMIN_KEY" && echo "admin key: present" || echo "admin key: MISSING"; echo "cores: $(nproc)"; echo "start $(date -u +%H:%M)"; } > /tmp/mints.txt
           want=${{ github.event.inputs.n || '30' }}; got=0; end=$(( $(date +%s) + 65*60 ))
           while [ $got -lt $want ] && [ $(date +%s) -lt $end ]; do
             out=$(npm run --silent mints -- grind 2 push "$SERVER" "$ADMIN_KEY" 2>&1 | grep -E "^pushed|nothing to push|Error|failed" | tail -2)
             echo "$(date -u +%H:%M) $out" >> /tmp/mints.txt; got=$((got + 2))
+            # progress out after every batch (counts only)
+            ( R=https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git; rm -rf /tmp/pub && mkdir -p /tmp/pub && cd /tmp/pub && git init -q && git checkout -qb reports-mints && git config user.name unnamed-ci && git config user.email ci@unnamed.local && cp /tmp/mints.txt mints.txt && git add -A && git commit -qm progress && git push -qf $R reports-mints ) || true
           done
           rm -rf mints; cat /tmp/mints.txt
       - name: Publish the result (counts only, no keys)
