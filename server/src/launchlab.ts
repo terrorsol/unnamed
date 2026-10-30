@@ -109,8 +109,9 @@ export async function buildLaunch(dev: PublicKey, meta: { name: string; symbol: 
   const txs: VersionedTransaction[] = r.transactions
   // a fresh blockhash on every launch tx: Jito refused bundles as 'expired blockhash' when the SDK's own was already old (Oct 29)
   // only when the dev and the mint are the sole signers (both sign after this): any other pre-signed key would be invalidated
-  // 'finalized': every Jito block engine already knows it (a fresh 'confirmed' one can be ahead of a lagging engine → 'expired blockhash'); still ~45 s to sign and send
-  { const bh = (await conn.getLatestBlockhash('finalized')).blockhash; for (const t of txs) if (t.message.header.numRequiredSignatures <= 2) t.message.recentBlockhash = bh }
+  // stamp EVERY launch tx with one fresh blockhash (the SDK's own was found already expired at send, Oct 29), then re-sign the mint; the dev signs after
+  { const lb = await conn.getLatestBlockhash('confirmed'); for (const t of txs) t.message.recentBlockhash = lb.blockhash
+    const ok = (await conn.isBlockhashValid(lb.blockhash, { commitment: 'processed' }).catch(() => ({ value: true }))).value; if (!ok) throw new Error('RPC returned a stale blockhash — try again') }
   for (const t of txs) { const keys = t.message.staticAccountKeys.map((k) => k.toBase58()); if (keys.includes(mintKp.publicKey.toBase58()) && t.message.header.numRequiredSignatures > 1) t.sign([mintKp]) }
   const z = quoteFresh(devBuySol)
   return { mint: mintKp.publicKey.toBase58(), poolId: poolIdOf(mintKp.publicKey.toBase58()).toBase58(), txs: txs.map((t) => Buffer.from(t.serialize()).toString('base64')), devTokens: z.tokens, devCostSol: z.cost, afterDev: z.after, permTax: permTax ? PERM_TAX_BPS : 0 }
@@ -164,7 +165,7 @@ export async function buildTrade(owner: PublicKey, action: 'buy' | 'sell', mint:
   const r: any = await withOwner(owner, (r) => action === 'buy'
     ? r.launchpad.buyToken({ ...base, buyAmount: new BN(Math.floor(+amount * 1e9)), poolInfo, fromCreate: !!opts.fromCreate, skipCheckMintA: !!opts.poolState })
     : r.launchpad.sellToken({ ...base, sellAmount: new BN(typeof amount === 'string' && amount.endsWith('%') ? 0 : Math.floor(+amount * 1e6)), poolInfo }))
-  { const t = r.transaction as VersionedTransaction; if (t.message.header.numRequiredSignatures === 1) t.message.recentBlockhash = (await conn.getLatestBlockhash(opts.fromCreate ? 'finalized' : 'confirmed')).blockhash; return t }   // fresh blockhash; only the owner signs, after this
+  { const t = r.transaction as VersionedTransaction; if (t.message.header.numRequiredSignatures === 1) t.message.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash; return t }   // fresh blockhash; only the owner signs, after this   // fresh blockhash; only the owner signs, after this
 }
 /** sell a percentage of the owner's balance (vault sells are expressed as 'NN%') */
 export async function sellPct(owner: PublicKey, mint: string, pct: number, slippageBps = 1000, feePayer?: PublicKey): Promise<VersionedTransaction> {
