@@ -179,6 +179,9 @@ export const MAX_CHEST_SOL = +(process.env.TEST_MAX_CHEST_SOL ?? process.env.MAX
 const capCheck = (sol: number) => { if (MAX_CHEST_SOL > 0 && sol > MAX_CHEST_SOL) throw new Error(`beta cap: a vault chest holds at most ${MAX_CHEST_SOL} SOL right now (custodial keys) — the on-chain program lifts this`) }
 export function create(dev: string, stakeSol: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = R.MM_MAX_CAPTURE, venue: 'pump' | 'launchlab' = 'pump', vaultBuySol?: number, targetPct?: number) {
   if (!Number.isFinite(stakeSol) || stakeSol < 0) throw new Error('bad stake')
+  // the vault wallet can't be its own dev: a stake sent from the shared wallet to itself moves nothing, yet the new chest's ledger would be
+  // credited with it — every chest's SOL is in that one wallet, so the books would claim it twice (live, Oct 30: three launches from it)
+  if (SHARED && dev === SHARED.publicKey.toBase58()) throw new Error('launch from your own wallet, not the vault wallet — the vault wallet holds every chest, so a stake from it would be counted twice')
   // stake = block-zero buy + chest. Without an explicit buy, half of the stake buys supply (legacy / pump launches).
   // A launchpad vault may start with no buy at all: the 2% tax fills the chest and the bot accumulates toward targetPct under VWAP.
   const buy = vaultBuySol != null && Number.isFinite(vaultBuySol) ? Math.min(Math.max(0, vaultBuySol), stakeSol) : stakeSol * 0.5
