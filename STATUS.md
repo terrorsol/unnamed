@@ -16,6 +16,41 @@
 - Live: server on Render (`unnamed-server.onrender.com`, helius, gate on, 2 SOL chest cap, 1 SOL import tier), app at `app.banker.cash`, landing at `banker.cash`. One brand wallet `BANKY…` is every vault (top holder on every coin) with per-vault chest ledgers booked from tx deltas; launched mints end in `…BANK` from a pre-ground pool; launch metadata self-hosted. Drawdown stop on the mm leg. Paper vault runs on CI against live coins (`paper.yml`).
 - Tests: server 35/35, app 20/20, e2e launch 21 (+21 in shared-wallet mode) · gate 15 · desk 50 · app 22 · import 16 · mm 10; mainnet: platform config created, platform fee claim (1.16 SOL) landed, a holder sell simulates clean. See POSTMORTEM.md for the first live launch.
 
+## Handoff (2026-10-30 overnight, second pass) — read this first
+
+**One-signature launches (both venues).** The stake no longer goes out ahead of the launch. The server appends the dev → vault transfer
+to the create tx it mint-signs, so the wallet signs once and the Jito bundle [create + stake, vault buy] is all-or-nothing: a launch
+that doesn't land costs nothing and leaves nothing in a vault. Arm books the stake from the create tx (the app passes the signature;
+the server also finds it on chain). Mainnet preflight: real SDK creates with the stake inside simulate clean (LaunchLab 1061–1128 B,
+pump 1139–1199 B of 1232), Jito accepts both bundle shapes, and the whole route (/vault/create → build → simulate) passes on both venues.
+
+| Was | Now |
+|---|---|
+| Two wallet prompts; stake sent and confirmed first; a failed bundle left the stake in a vault ("drained?") | one prompt; nothing moves unless the launch lands; fallback to stake-first only if the transfer doesn't fit |
+| pump.fun launches built in the browser (random mint, client-held mint key) | built on the server like ours: …BANK mint we hold, PumpPortal txs, keeper-checked vault buy (max_sol_cost tightened to cost +5%), same guards |
+| pump coins: the vault saw nothing until DexScreener indexed the coin; no per-buy feed without a PumpPortal key; never auto-armed | read straight off the bonding curve; per-swap feed on the curve account; auto-arm + build guards via `onChain()` |
+| a retry after a late landing could put a second coin out for one chest | server refuses with `already live: <mint>`; the app opens that coin |
+| snipers who bought before arm were invisible (feed starts at arm) | the pool's SOL right after the bundle is known at build; the first tick sells into everything above it |
+| per-buy mode dropped buys that landed during a sale | queued and sold into right after |
+| arm waited ~18 s on each dead block-zero buy from earlier attempts | only the armed coin's buy is waited for |
+| app's arm + autoArm racing could book the vault buy twice | one arm at a time per vault |
+| autoArm re-armed a vault 3 s after its chest was withdrawn | arm refuses closed vaults; closed + empty vaults switch off; withdrawn vaults get no fee share |
+| a fee claim confirming after its timeout was never credited | rebroadcast, 75 s, then kept on disk and credited when it lands; CU price 50k → 300k |
+| a hung tick froze its vault forever | lock taken back after 3 min |
+| websocket down → poller and pool read both fired on one buy | the poller counts as the feed; dedupe on backstop vs stream |
+| Sell button missing/dead until the 15 s wallet sweep | the open coin's balance polls every 4 s; Sell asks the chain again before giving up, then says why |
+| a coin launched without a chest had no way to get one | creator switches it on from the coin page, free; the 2% fee fills it from the next trade |
+
+New on the coin page: launch progress row (chest → upload → build → sign → land, with a clock), "launch buy paid back" bar,
+the chest's last moves, and a **sniper report** (first-minute buys/wallets/launch-block SOL and what the chest sold into them).
+Tests: server 61 (incl. a faked-chain money-path test: build → land → arm books stake + vault buy exactly once, racing arms),
+app 23, e2e launch 37 (one signature, already-live retry, pump path, switch-on chest, chest card), app 22, desk 40, gate 15, import 16, mm 10.
+Mainnet preflight 39/39. Read-only probe workflow: push to the `probe` branch → `reports-probe`.
+
+State seen tonight: BANKY wallet 0.56 SOL, ledgers 0.03, **0.53 SOL unattributed** = 2% fees from m9GE…BANK after its chest was
+withdrawn (no chest → platform revenue, by design). XYZ's vault is closed but still holds 2.75M XYZ (reclaim again to sell + withdraw).
+The dead-mint BANKER vault switched itself off.
+
 ## Handoff (2026-10-30 morning) — read this first
 
 What broke on Oct 29's launches and what's fixed (all pushed, live on Render at `846ccc31`+, unit + e2e green, mainnet preflight green):
