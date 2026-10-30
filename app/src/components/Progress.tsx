@@ -81,6 +81,10 @@ export function ProgressCard({ coin, vault, solPrice, held = 0, simple = false }
       return <div className="prog-back"><div className="row" style={{ gap: 6 }}><span className="lbl" style={{ margin: 0 }}>Launch buy paid back</span><span className="sp" /><b className="num">{S(back, 2)} / {S(vault.vaultBuySol!, 2)} SOL</b></div>
         <div className="prog-fill back"><i style={{ width: `${Math.max(2, f * 100)}%` }} /></div>
         <div className="nm">{f >= 0.999 ? 'All of it — every coin the chest still holds is free' : 'sold into incoming buys, a slice of each, never into a dump'}</div></div> })()}
+    {vault?.sniper && vault.sniper.buys > 0 && <div className="prog-snipe">
+      <div className="row" style={{ gap: 6 }}><span className="lbl" style={{ margin: 0 }}>Sniper report · first minute</span><span className="sp" /><b className="num">{S(vault.sniper.buySol, 2)} SOL in</b></div>
+      <div className="nm">{vault.sniper.buys} buys from {vault.sniper.wallets} wallet{vault.sniper.wallets === 1 ? '' : 's'}{vault.sniper.blockZeroSol > 0 ? ` · ${S(vault.sniper.blockZeroSol, 2)} SOL in the launch block` : ''}{vault.sniper.sellSol > 0 ? ` · ${S(vault.sniper.sellSol, 2)} SOL sold back` : ''} · <b className="up">the chest sold {S(vault.sniper.soldInto, 3)} SOL into them</b></div>
+    </div>}
     {vault && myFloorSol > 0 && <div className="kv" style={{ marginTop: 6 }}><span>Your coins at the floor</span><b className="num up">≈ {S(myFloorSol, 4)} SOL (${S(myFloorSol * solPrice, 2)})</b></div>}
     {vault && feed.length >= 2 && (() => { const moves = feed
       return <div className="prog-feed"><span className="lbl" style={{ margin: 0 }}>What the chest did</span>{moves.map((a, i) => <div key={i} className="prog-fi"><span className="prog-mv">{MOVE[a.kind]?.[0]}</span><span className="pf-t">{a.kind === 'capture' ? (a.msg?.match(/sold into a ([\d.]+) SOL buy/) ? `sold into a ${a.msg!.match(/sold into a ([\d.]+) SOL buy/)![1]} SOL buy` : 'took profit on a pump') : MOVE[a.kind]?.[1]}</span><span className="sp" /><b className="num">{a.kind === 'buy' ? '−' : '+'}{S(a.sol || 0, 3)}</b><span className="nm">{ago(a.t)}</span></div>)}</div> })()}

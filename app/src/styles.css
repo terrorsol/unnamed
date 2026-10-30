@@ -477,3 +477,4 @@ tbody tr{transition:background .12s,transform .12s}tbody tr:hover{transform:tran
 .prog-fill.back i{background:linear-gradient(90deg,var(--up),#8ff0b4)}
 .prog-feed{margin-top:10px;display:flex;flex-direction:column;gap:4px}
 .prog-fi{display:flex;align-items:center;gap:8px;font-size:12px;min-width:0}.prog-fi .pf-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg2)}.prog-fi b{font-size:12px}.prog-fi .nm{min-width:44px;text-align:right}
+.prog-snipe{margin-top:10px;display:flex;flex-direction:column;gap:4px;padding:8px 10px;border-radius:10px;background:rgba(43,212,106,.06);border:1px solid rgba(43,212,106,.18)}

@@ -9,7 +9,7 @@ import { market } from './market.ts'
 import { balanceSol, tokenBalance, pumpTrade, conn, confirm, decimals, TREASURY, holderStats } from './chain.ts'
 import * as C from './chain.ts'
 import * as D from './desk.ts'
-import { watchPool, streamStats, delivering } from './stream.ts'
+import { watchPool, streamStats, delivering, decode as decodeSwap } from './stream.ts'
 import { curvePda } from './pool.ts'
 import * as KEEP from './keeper.ts'
 import * as VM from './vamp.ts'
@@ -97,7 +97,7 @@ export async function settleLateBooks() {
 }
 /** SOL in the shared wallet that no ledger claims (dust, fees paid by the platform, unattributed deposits). Never spent. */
 export async function sharedAudit() { if (!SHARED) return null; const bal = await balanceSol(SHARED.publicKey.toBase58()); const ledgers = Object.values(vaults).filter((v) => v.shared && !v.paper).reduce((a, v) => a + (v.chest || 0), 0); if (bal - ledgers < -0.01) EV.log('error', `ledger drift: wallet ${bal.toFixed(4)} < ledgers ${ledgers.toFixed(4)} — a spend was not booked`, { bal, ledgers }); return { wallet: SHARED.publicKey.toBase58(), balanceSol: +bal.toFixed(6), ledgersSol: +ledgers.toFixed(6), unattributedSol: +(bal - ledgers).toFixed(6), vaults: Object.values(vaults).filter((v) => v.shared && v.armed).length } }
-const pub = (v: Vault) => ({ id: v.id, pub: v.pub, paper: !!v.paper, venue: v.venue || 'pump', taxClaimed: v.taxClaimed || 0, image: v.image, uri: v.uri, vampFlag: !!v.vampFlag, permTax: v.permTax || 0, crowd: v.crowd ? { goalSol: v.crowd.goalSol, raised: +v.crowd.raised.toFixed(3), backers: Object.keys(v.crowd.contributors).length, expiresAt: v.crowd.expiresAt, refunded: !!v.crowd.refunded } : undefined, mint: v.mint, symbol: v.symbol, name: v.name, dev: v.dev, stakeSol: v.stakeSol, pct: v.pct, cut: v.cut, armed: v.armed, renounced: v.renounced, avgCost: v.avgCost, tokens: v.tokens, chest: v.chest, devPaid: v.devPaid, activity: v.activity.slice(0, 50), createdAt: v.createdAt, copyOf: v.copyOf, imported: !!v.imported, mode: v.mode || 'floor', ceiling: v.ceiling ?? R.MM_MAX_CAPTURE, score: v.score || { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: 0 }, floor: v.supply ? v.chest / v.supply : 0, live: liveReadout(v), holders: v.holders || null, feePaid: v.feePaid || 0, depositedTokens: v.depositedTokens || 0, funders: v.funders || {}, streamed: v.streamed || 0, redeemed: v.redeemed || 0, supply: v.supply || 1e9, deskBid: v.deskBid || 0, shared: !!v.shared, vaultBuySol: v.vaultBuySol ?? null, mm: { spent: v.mmSpent || 0, got: v.mmGot || 0, tok: v.mmTok || 0, cost: v.mmCost || 0, inv: v.invGot || 0, stopped: !!v.stoppedAt }, copies: Object.values(vaults).filter((c) => c.copyOf === v.mint && c.armed).map((c) => ({ mint: c.mint, symbol: c.symbol, pub: c.pub })) })
+const pub = (v: Vault) => ({ sniper: (v as any).sniper || null, id: v.id, pub: v.pub, paper: !!v.paper, venue: v.venue || 'pump', taxClaimed: v.taxClaimed || 0, image: v.image, uri: v.uri, vampFlag: !!v.vampFlag, permTax: v.permTax || 0, crowd: v.crowd ? { goalSol: v.crowd.goalSol, raised: +v.crowd.raised.toFixed(3), backers: Object.keys(v.crowd.contributors).length, expiresAt: v.crowd.expiresAt, refunded: !!v.crowd.refunded } : undefined, mint: v.mint, symbol: v.symbol, name: v.name, dev: v.dev, stakeSol: v.stakeSol, pct: v.pct, cut: v.cut, armed: v.armed, renounced: v.renounced, avgCost: v.avgCost, tokens: v.tokens, chest: v.chest, devPaid: v.devPaid, activity: v.activity.slice(0, 50), createdAt: v.createdAt, copyOf: v.copyOf, imported: !!v.imported, mode: v.mode || 'floor', ceiling: v.ceiling ?? R.MM_MAX_CAPTURE, score: v.score || { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: 0 }, floor: v.supply ? v.chest / v.supply : 0, live: liveReadout(v), holders: v.holders || null, feePaid: v.feePaid || 0, depositedTokens: v.depositedTokens || 0, funders: v.funders || {}, streamed: v.streamed || 0, redeemed: v.redeemed || 0, supply: v.supply || 1e9, deskBid: v.deskBid || 0, shared: !!v.shared, vaultBuySol: v.vaultBuySol ?? null, mm: { spent: v.mmSpent || 0, got: v.mmGot || 0, tok: v.mmTok || 0, cost: v.mmCost || 0, inv: v.invGot || 0, stopped: !!v.stoppedAt }, copies: Object.values(vaults).filter((c) => c.copyOf === v.mint && c.armed).map((c) => ({ mint: c.mint, symbol: c.symbol, pub: c.pub })) })
 export const vaultPct = (buySol: number) => Math.min(50, L.blockZero(0, buySol).vaultPct) // real curve: what the block-zero buy takes of supply (20–50% is the launch range)
 /** SOL the block-zero buy needs for `pct` of supply (binary search on the curve) */
 export function solForPct(pct: number, devSol = 0) { let lo = 0, hi = 500; for (let i = 0; i < 50; i++) { const mid = (lo + hi) / 2; if (L.blockZero(devSol, mid).vaultPct > pct) hi = mid; else lo = mid } return +hi.toFixed(4) }
@@ -200,6 +200,20 @@ export async function bookCreateFunding(v: Vault, mint: string): Promise<boolean
   const slot = oldest[oldest.length - 1].slot; const first = oldest.filter((x) => x.slot === slot && !x.err).reverse()
   for (const x of first) { const before = fundedSol(v); try { await fund(v.id, x.signature); if (fundedSol(v) <= before) continue; EV.log('vault', `${v.symbol || v.id} stake booked from the create tx (one-signature launch)`, { id: v.id, sig: x.signature }); return true } catch {} }
   return false
+}
+/** Sniper report, once per launch, ~75 s after arm: who bought in the first minute (read off the chain, not our feed — the feed starts at arm),
+ *  how much of it landed in the launch block itself, and what the chest sold into them. Shown on the coin page. */
+export async function sniperReport(v: Vault) {
+  if (!v.mint || PAPER) return null
+  const pool = v.venue === 'launchlab' ? LL.poolIdOf(v.mint) : curvePda(v.mint); const poolB58 = pool.toBase58()
+  const sigs = (await conn.getSignaturesForAddress(pool, { limit: 1000 })).filter((x) => !x.err).reverse(); if (!sigs.length) return null
+  const t0 = sigs[0].blockTime || 0, slot0 = sigs[0].slot; const first = sigs.filter((x) => (x.blockTime || 0) <= t0 + 60).slice(0, 150)
+  let buys = 0, buySol = 0, sells = 0, sellSol = 0, blockZero = 0; const wallets = new Set<string>()
+  for (const x of first) { const sw = await decodeSwap(conn, poolB58, x.signature, x.slot).catch(() => null); if (!sw || sw.trader === v.pub || sw.trader === v.dev) continue
+    if (sw.side === 'buy') { buys++; buySol += sw.sol; wallets.add(sw.trader); if (x.slot <= slot0 + 1) blockZero += sw.sol } else { sells++; sellSol += sw.sol } }
+  const t1 = (v.armedAt || Date.now()) + 120_000; const sold = v.activity.filter((a) => a.kind === 'capture' && a.t <= t1).reduce((a, x) => a + (x.sol || 0), 0)
+  const r = { buys, buySol: +buySol.toFixed(4), wallets: wallets.size, sells, sellSol: +sellSol.toFixed(4), blockZeroSol: +blockZero.toFixed(4), soldInto: +sold.toFixed(4), at: Date.now() }
+  ;(v as any).sniper = r; save(); EV.log('vault', `${v.symbol} sniper report: ${buys} buys · ${buySol.toFixed(2)} SOL from ${wallets.size} wallets in the first minute · chest sold ${sold.toFixed(3)} SOL into them`, { mint: v.mint }); return r
 }
 /** A coin launched on our launchpad without a chest (or whose chest was withdrawn) gets one afterwards: its creator attaches a vault. It arms at
  *  once and is fee-funded — the coin's 2% platform fee fills it from the next trade — and takes deposits like any chest. Free: the coin is ours.
@@ -572,6 +586,7 @@ async function tickOne(v: Vault) {
       { const st = MM.stopped(v, p, now); if (st && !v.stopNoted) { v.stopNoted = true; v.activity.unshift({ t: now, kind: 'note', msg: `drawdown stop: mm leg ${(MM.mmPnl(v, p) / Math.max(v.mmSpent || 0, 1e-9) * 100).toFixed(0)}% on ${(v.mmSpent || 0).toFixed(2)} SOL deployed — no new buys, desk bid halved at −15%, resumes at break-even` }); EV.log('vault', `${v.symbol} drawdown stop`, { mint: v.mint, pnl: MM.mmPnl(v, p), spent: v.mmSpent }) } else if (!st && v.stopNoted) { v.stopNoted = false; v.activity.unshift({ t: now, kind: 'note', msg: 'drawdown stop cleared: mm leg back at break-even' }) } }
       if (!v.holders || now - v.holders.t > 60_000) { holderStats(v.mint, v.pub).then((h) => { v.holders = h }).catch(() => {}) }
       if (!v.score) v.score = { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: v.supply ? v.chest / v.supply : 0 }
+      if (!(v as any).sniper && !(v as any).sniperTried && !v.imported && (v.vaultBuySol || 0) > 0 && v.armedAt && now - v.armedAt > 75_000 && now - v.armedAt < 6 * 3600_000) { (v as any).sniperTried = true; sniperReport(v).catch(() => {}) }
       { const cu = (v as any).catchUp; if (cu != null) { (v as any).catchUp = undefined
         if (m.liqSol && now - (v.armedAt || 0) < 180_000) { const inflow = +(m.liqSol - cu).toFixed(6); v.lastLiq = m.liqSol; v.lastLiqT = now
           if (inflow >= MM.P.initialsMinBuy) { EV.log('vault', `${v.symbol} ${inflow.toFixed(2)} SOL of sniper buys landed before the chest switched on — selling into them`, { mint: v.mint }); await onBuy(v, inflow, m, p, now) } } } }
