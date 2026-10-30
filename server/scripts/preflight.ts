@@ -385,6 +385,30 @@ await step('launchlab: HTTP routes on a live server (/ll/platform, /ll/pool, /ll
   } finally { proc.kill() }
 })
 
+await step('one-signature launch through the real server routes: /vault/create → /ll/launch/build + /pump/launch/build (fundInBundle) → simulate the creates', async () => {
+  // the whole server path the app takes, against mainnet: a shared-wallet vault (a throwaway VAULT_KEY), the build with the stake inside the create,
+  // and the create simulated as a funded dev. Nothing is signed by a real key and nothing is sent.
+  const { spawn } = await import('node:child_process'); const { LAUNCHPAD_PLATFORM } = await import('@raydium-io/raydium-sdk-v2'); const { Keypair, SystemProgram: SPx } = await import('@solana/web3.js')
+  const port = 4900 + Math.floor(Math.random() * 300); const vk = Keypair.generate()
+  const proc = spawn(process.execPath, ['--experimental-strip-types', 'src/index.ts'], { env: { ...process.env, PORT: String(port), DATA_DIR: `/tmp/pf1-${port}`, PLATFORM_ID: LAUNCHPAD_PLATFORM.toBase58(), VAMPS: '0', DEV_AUTH: '0', VAULT_KEY: bs58.encode(vk.secretKey), PROFIT_ONLY: '0' }, stdio: ['ignore', 'pipe', 'pipe'] })
+  let log = ''; proc.stdout.on('data', (d) => { log += d }); proc.stderr.on('data', (d) => { log += d })
+  try {
+    const base = `http://127.0.0.1:${port}`; let up = false
+    for (let i = 0; i < 40 && !up; i++) { await sleep(500); up = await fetch(base + '/health').then((r) => r.ok).catch(() => false) }
+    if (!up) throw new Error('server did not start: ' + log.slice(-300))
+    const post = (p: string, b: any) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) }).then((r) => r.json())
+    const out: string[] = []
+    for (const venue of ['launchlab', 'pump']) {
+      const v: any = await post('/vault/create', { dev: PAYER.toBase58(), stakeSol: 0.6, vaultBuySol: 0.4, venue, mode: 'mm' }); if (!v.id) throw new Error(venue + ' /vault/create: ' + JSON.stringify(v).slice(0, 160))
+      const b: any = await post(venue === 'pump' ? '/pump/launch/build' : '/ll/launch/build', { dev: PAYER.toBase58(), name: 'Preflight', symbol: 'PRE', uri: 'https://ipfs.io/ipfs/bafkreigh2akiscaildc', devBuySol: 0.05, vaultId: v.id, vaultBuySol: 0.4, fundInBundle: true })
+      if (!b.txs?.length) throw new Error(venue + ' build: ' + JSON.stringify(b).slice(0, 200))
+      const ct = VersionedTransaction.deserialize(Buffer.from(b.txs[0], 'base64')); const keys = await (await import('../src/launch.ts')).resolveKeys(ct, conn)
+      if (!keys.includes(v.pub)) throw new Error(venue + ': the vault wallet is not in the create — no stake inside')
+      out.push(`${venue}: fundSol ${b.fundSol} · vault buy ${b.vaultTx ? 'signed' : 'none'} ${(+b.vaultSpend || 0).toFixed(3)} · ${ct.serialize().length} B · ` + (await sim(ct, venue + ' create+stake')).slice(0, 50))
+    }
+    return out.join(' · ')
+  } finally { proc.kill() }
+})
 // ---------- jupiter ----------
 await step('jupiter: api.jup.ag quote + swap → simulate', async () => {
   const h: Record<string, string> = process.env.JUP_KEY ? { 'x-api-key': process.env.JUP_KEY } : {}
