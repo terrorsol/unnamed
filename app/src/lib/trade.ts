@@ -142,7 +142,10 @@ async function confirmOrDropped(conn: Connection, tx: VersionedTransaction, bund
   while (Date.now() - t0 < ms) {
     const st = (await conn.getSignatureStatuses([sig]).catch(() => null))?.value?.[0]
     if (st) { if (st.err) throw new Error('Transaction failed on-chain: ' + JSON.stringify(st.err)); if (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized') return }
-    if (bundleId && Date.now() - t0 > 2500) { const b = await K.bundleStatus(bundleId).catch(() => null); if (b && /failed|invalid/i.test(b.status)) throw new Error(`bundle dropped by Jito (${b.status}) — rebuilding`) }
+    // only Jito's explicit 'Failed' (never forwarded) after a few seconds counts as dropped — 'Invalid'/unknown can just mean another region has it.
+    // One last look at the create's signature first, so a bundle that did land is never rebuilt into a second coin.
+    if (bundleId && Date.now() - t0 > 6000) { const b = await K.bundleStatus(bundleId).catch(() => null)
+      if (b && /^failed$/i.test(b.status)) { const again = (await conn.getSignatureStatuses([sig]).catch(() => null))?.value?.[0]; if (!again) throw new Error('bundle dropped by Jito (Failed) — rebuilding') } }
     await new Promise((r) => setTimeout(r, 1200))
   }
   throw new Error('Confirmation timed out')

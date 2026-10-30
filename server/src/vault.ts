@@ -15,6 +15,7 @@ import * as VM from './vamp.ts'
 import * as MM from './mm.ts'
 import * as EV from './events.ts'
 import { taxWeights } from './tax.ts'
+import * as MP from './mintpool.ts'
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import { PublicKey, SystemProgram, Transaction, ComputeBudgetProgram } from '@solana/web3.js'
 
@@ -172,9 +173,11 @@ export async function arm(id: string, mint: string, symbol: string, name = '', a
  *  the dev already authorized the launch; arm needs no second signature. Unfunded vaults older than 2h are dropped. */
 let armingNow = false
 const AUTOARM_SINCE = Date.parse('2026-10-28T18:00:00Z') // vaults from before this feature (the first live launch, refunded by hand) are left alone
+let nextReclaimAt = 0
 export async function autoArm() {
   if (armingNow || PAPER) return; armingNow = true
   try {
+    if (Date.now() > nextReclaimAt) { nextReclaimAt = Date.now() + 120_000; MP.reclaim(async (pub) => !!(await conn.getAccountInfo(new PublicKey(pub)))).then((n) => { if (n) EV.log('vault', `${n} unused …${MP.SUFFIX} mint(s) back in the pool (their launches never went live)`) }).catch(() => {}) }
     for (const v of Object.values(vaults)) {
       if (v.armed || v.imported || v.paper || v.createdAt < AUTOARM_SINCE || (v as any).closedAt) continue
       const funded = v.activity.filter((a) => a.kind === 'stake').reduce((a, x) => a + (x.sol || 0), 0)

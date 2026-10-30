@@ -1,0 +1,35 @@
+name: Refill …BANK mints (grind + push to the server)
+# Grinds vanity mint keypairs ending in BANK on the runner and pushes them straight into the live server's pool over /admin/mints.
+# The secrets never touch the repo or the logs: they go from the runner's disk to the server (encrypted there with VAULT_SECRET) and are deleted.
+on:
+  workflow_dispatch:
+    inputs:
+      n: { description: 'how many', default: '30' }
+  push:
+    branches: [main]
+    paths: ['.github/workflows/mints.yml']
+permissions:
+  contents: read
+jobs:
+  mints:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      SERVER: ${{ vars.SERVER_URL || 'https://unnamed-server.onrender.com' }}
+      ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+        working-directory: server
+      - name: Install solana-keygen
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)" >/dev/null
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+      - name: Grind and push (secrets stay on the runner until the server accepts them)
+        working-directory: server
+        run: |
+          test -n "$ADMIN_KEY" || { echo "ADMIN_KEY secret missing"; exit 1; }
+          npm run mints -- grind ${{ github.event.inputs.n || '30' }} push "$SERVER" "$ADMIN_KEY" 2>&1 | grep -v -i "secret\|wrote" || true
+          rm -rf mints

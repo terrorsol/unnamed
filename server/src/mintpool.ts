@@ -13,7 +13,7 @@ const key = scryptSync(process.env.VAULT_SECRET || 'dev-only-secret-change-me', 
 const enc = (u: Uint8Array) => { const iv = randomBytes(12); const c = createCipheriv('aes-256-gcm', key, iv); const ct = Buffer.concat([c.update(u), c.final()]); return Buffer.concat([iv, c.getAuthTag(), ct]).toString('base64') }
 const dec = (s: string) => { const b = Buffer.from(s, 'base64'); const d = createDecipheriv('aes-256-gcm', key, b.subarray(0, 12)); d.setAuthTag(b.subarray(12, 28)); return new Uint8Array(Buffer.concat([d.update(b.subarray(28)), d.final()])) }
 
-type Store = { keys: { pub: string; sk: string; addedAt: number }[]; used: { pub: string; usedAt: number }[] }
+type Store = { keys: { pub: string; sk: string; addedAt: number }[]; used: { pub: string; usedAt: number; sk?: string }[] }
 let st: Store | null = null
 const load = (): Store => {
   if (st) return st
@@ -35,9 +35,18 @@ export function add(secret: string | number[], persist = true): string {
 /** next branded mint, or a random keypair when the pool is empty (the launch still works, it just isn't branded) */
 export function next(): { kp: Keypair; branded: boolean } {
   const s = load(); const k = s.keys.shift(); if (!k) return { kp: Keypair.generate(), branded: false }
-  s.used.push({ pub: k.pub, usedAt: Date.now() }); if (s.used.length > 5000) s.used.splice(0, 1000); save()
+  s.used.push({ pub: k.pub, usedAt: Date.now(), sk: k.sk }); if (s.used.length > 5000) s.used.splice(0, 1000); save()   // the secret is kept until the mint is seen on chain (see reclaim)
   return { kp: Keypair.fromSecretKey(dec(k.sk)), branded: true }
 }
 /** a mint that was popped but whose launch never went out (build failed) goes back on top */
 export function unuse(kp: Keypair) { const s = load(); const pub = kp.publicKey.toBase58(); if (!pub.endsWith(SUFFIX)) return; const i = s.used.findIndex((u) => u.pub === pub); if (i >= 0) s.used.splice(i, 1); if (!s.keys.some((k) => k.pub === pub)) s.keys.unshift({ pub, sk: enc(kp.secretKey), addedAt: Date.now() }); save() }
+/** popped mints whose coin never went live (no account on chain after minAgeMs — its launch tx can no longer land) go back to the pool;
+ *  ones that went live drop their secret. Oct 29: failed launch attempts burned the whole …BANK pool. */
+export async function reclaim(exists: (pub: string) => Promise<boolean>, minAgeMs = 5 * 60_000) {
+  const s = load(); const now = Date.now(); let back = 0
+  for (const u of [...s.used]) { if (!u.sk || now - u.usedAt < minAgeMs) continue
+    let live: boolean; try { live = await exists(u.pub) } catch { continue }
+    if (live) { delete u.sk } else { s.used.splice(s.used.indexOf(u), 1); if (!s.keys.some((k) => k.pub === u.pub)) { s.keys.push({ pub: u.pub, sk: u.sk, addedAt: now }); back++ } } }
+  save(); return back
+}
 export const stats = () => { const s = load(); return { suffix: SUFFIX, available: s.keys.length, used: s.used.length } }
