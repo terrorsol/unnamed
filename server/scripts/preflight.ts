@@ -191,6 +191,21 @@ await step('pumpportal: create + dev buy (random mint) → shape only', async ()
   const signers = tx.message.header.numRequiredSignatures
   return `${tx.message.compiledInstructions.length} ix · ${signers} signers (dev + mint) · mint signature applied=${tx.signatures.some((s) => s.some((b) => b))} · ` + (await sim(tx, 'create').catch((e) => 'simulate: ' + String(e.message).slice(0, 120)))
 })
+await step('pump buy with max_sol_cost tightened to our curve cost +5% → simulate (the margin the server now signs launch buys with)', async () => {
+  // a live curve coin: our cost for the tokens PumpPortal asks for, from the curve account itself; then the ceiling at +5%, +1% and +0% → which still pass
+  const L = await import('../src/launch.ts'); const { curveSpot } = await import('../src/pool.ts')
+  const r = await timeout(fetch(PP, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify([{ publicKey: PAYER.toBase58(), action: 'buy', mint: ctx.curveMint, denominatedInSol: 'true', amount: 0.2, slippage: 10, priorityFee: 0.0005, pool: 'pump' }]) }), 15000)
+  if (!r.ok) throw new Error(`HTTP ${r.status}`); const enc: string[] = await r.json()
+  const out: string[] = []
+  for (const m of [1.05, 1.01, 1.0]) {
+    const t = VersionedTransaction.deserialize(bs58.decode(enc[0])); const keys = await L.resolveKeys(t, conn); const b = L.inspectBuy(t, PAYER.toBase58(), ctx.curveMint!, 6, keys)
+    const cs: any = await curveSpot(ctx.curveMint!); const st = { vSol: cs.liqSol, vTok: cs.liqSol / cs.priceSol }; const cost = L.costForTokens(st, b.tokens).cost
+    L.setMaxSolCost(t, cost * m, keys)
+    const res = await conn.simulateTransaction(t, { sigVerify: false, replaceRecentBlockhash: true }); out.push(`×${m}: ${res.value.err ? 'FAILS ' + JSON.stringify(res.value.err).slice(0, 60) : 'ok'}`)
+  }
+  if (!out[0].includes('ok')) throw new Error('the +5% ceiling is too tight: ' + out.join(' · '))
+  return out.join(' · ')
+})
 await step('launch bundle: [create+dev buy, vault buy] → decode + math check', async () => {
   // the exact 2-tx bundle the app sends at launch, built by PumpPortal for a random mint. Dev and vault are both PAYER here (same wallet twice is allowed).
   const { Keypair } = await import('@solana/web3.js'); const L = await import('../src/launch.ts')
