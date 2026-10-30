@@ -804,28 +804,57 @@ let claiming = false; let nextClaimAt = 0
 /** Every few minutes: claim the platform fee vault (all pools at once) into the platform wallet and credit each coin's chest by its share of
  *  observed taxed volume. Vamp routing on top: a flagged copy's share goes to the original, a declared copy's half. Runs from the tick loop. */
 export async function claimPlatformFees(force = false): Promise<number> {
-  if (PAPER || claiming || !LL.PLATFORM_ID) return 0; if (!force && Date.now() < nextClaimAt) return 0
+  if (PAPER || claiming || !LL.PLATFORM_ID) return 0
+  // a claim that timed out may still land: settle it first — when it lands, its SOL is credited with the weights from when it was sent
+  if (pendingClaim) { claiming = true; try { await settlePendingClaim() } finally { claiming = false } if (pendingClaim) return 0 }
+  if (!force && Date.now() < nextClaimAt) return 0
   claiming = true; nextClaimAt = Date.now() + 180_000 + Math.random() * 60_000
   try {
     const pending = await LL.platformVaultSol(); if (pending < 0.005) return 0
-    const pk = LL.platformKeypair(); const pkB58 = pk.publicKey.toBase58()
-    const tx = await LL.buildClaimVault(); const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 }); await confirm(sig)
-    const got = Math.max(0, await txDelta(sig, pkB58).catch(() => pending)); if (got < 0.0005) return 0
+    const pkB58 = LL.platformKeypair().publicKey.toBase58()
+    const tx = await LL.buildClaimVault(); const raw = tx.serialize(); const sig = await conn.sendRawTransaction(raw, { skipPreflight: false, maxRetries: 3 })
     const ours = Object.values(vaults).filter((v) => v.armed && v.venue === 'launchlab' && !v.paper && !(v as any).closedAt)   // a withdrawn vault earns nothing more
-    const W = taxWeights(ours); const total = W.reduce((a, w) => a + w, 0)
-    const credits: { v: Vault; sol: number; why: string }[] = []
-    for (const [i, v] of ours.entries()) { const share = total > 0 ? got * W[i] / total : 0; v.taxAccrued = 0; if (share < 0.0001) continue
-      const orig = v.copyOf ? ours.find((x) => x.mint === v.copyOf) : null; const toOrig = orig ? (v.vampFlag ? share : share / 2) : 0
-      if (share - toOrig > 0) credits.push({ v, sol: share - toOrig, why: toOrig ? `tax → chest (${v.vampFlag ? 'all' : 'half'} of it to original ${orig!.symbol})` : 'tax → chest' })
-      if (orig && toOrig > 0) credits.push({ v: orig, sol: toOrig, why: `tax from ${v.vampFlag ? 'flagged copy' : 'copy'} ${v.symbol}` }) }
-    // the platform wallet IS the shared vault wallet: crediting a shared chest is a ledger move. A per-key vault gets a real transfer.
-    const fwd = new TX(); let fwdAny = false
-    for (const c of credits) { if (c.v.shared && c.v.pub === pkB58) { c.v.chest = +(c.v.chest + c.sol).toFixed(9) } else { fwd.add(SP.transfer({ fromPubkey: pk.publicKey, toPubkey: new PK(c.v.pub), lamports: Math.floor(c.sol * 1e9) })); fwdAny = true } }
-    let sig2 = sig; if (fwdAny) { fwd.feePayer = pk.publicKey; fwd.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash; fwd.sign(pk); sig2 = await conn.sendRawTransaction(fwd.serialize(), { maxRetries: 3 }); await confirm(sig2); for (const c of credits) if (!(c.v.shared && c.v.pub === pkB58)) await book(c.v, sig2, c.sol) }
-    for (const c of credits) { c.v.taxClaimed = (c.v.taxClaimed || 0) + c.sol; c.v.activity.unshift({ t: Date.now(), kind: 'tax', sol: c.sol, sig: sig2, msg: c.why }) }
-    const credited = credits.reduce((a, c) => a + c.sol, 0); EV.log('vault', `platform fees claimed ${got.toFixed(4)} SOL → ${credits.length} chest(s) ${credited.toFixed(4)} SOL${got - credited > 0.0005 ? ` (${(got - credited).toFixed(4)} unattributed → treasury)` : ''}`, { sig })
-    save(); return got
+    const snap = { ids: ours.map((v) => v.id), w: taxWeights(ours) }; for (const v of ours) v.taxAccrued = 0
+    const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 2500)
+    try { await confirm(sig, 75_000) } catch (e: any) {
+      if (!/timeout/i.test(String(e.message))) throw e
+      pendingClaim = { sig, at: Date.now(), pending, ...snap }; EV.log('vault', `platform fee claim ${sig.slice(0, 8)}… not confirmed yet — it will be credited when it lands`, { sig }); savePending(); save(); return 0
+    } finally { clearInterval(rb) }
+    const got = Math.max(0, await txDelta(sig, pkB58).catch(() => pending)); if (got < 0.0005) return 0
+    await distributeFees(sig, got, snap); return got
   } catch (e: any) { EV.log('error', 'platform fee claim: ' + String(e.message || e).slice(0, 140)); return 0 } finally { claiming = false }
+}
+/** the claim that timed out, kept across restarts in the vault file's sidecar */
+let pendingClaim: { sig: string; at: number; pending: number; ids: string[]; w: number[] } | null = (() => { try { return JSON.parse(readFileSync(DIR + '/pending-claim.json', 'utf8')) } catch { return null } })()
+const savePending = () => { try { mkdirSync(DIR, { recursive: true }); writeFileSync(DIR + '/pending-claim.json', JSON.stringify(pendingClaim)) } catch {} }
+async function settlePendingClaim() {
+  const pc = pendingClaim!; const st = (await conn.getSignatureStatuses([pc.sig], { searchTransactionHistory: true }).catch(() => null))?.value?.[0]
+  if (st && !st.err && (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized')) {
+    pendingClaim = null; savePending(); const got = Math.max(0, await txDelta(pc.sig, LL.platformKeypair().publicKey.toBase58()).catch(() => pc.pending))
+    EV.log('vault', `late platform fee claim landed: ${got.toFixed(4)} SOL`, { sig: pc.sig }); if (got >= 0.0005) await distributeFees(pc.sig, got, pc); return
+  }
+  if (st?.err || Date.now() - pc.at > 180_000) { // failed, or its blockhash is long gone: it never landed — put the weights back for the next claim
+    for (const [i, id] of pc.ids.entries()) { const v = vaults[id]; if (v) v.taxAccrued = +((v.taxAccrued || 0) + (pc.w[i] || 0)).toFixed(9) }
+    pendingClaim = null; savePending(); nextClaimAt = 0
+  }
+}
+/** credit one landed claim to the chests by the weights captured when it was sent */
+async function distributeFees(sig: string, got: number, snap: { ids: string[]; w: number[] }) {
+  const pk = LL.platformKeypair(); const pkB58 = pk.publicKey.toBase58()
+  const ours = snap.ids.map((id) => vaults[id]).filter(Boolean) as Vault[]; const W = snap.ids.map((id, i) => vaults[id] ? snap.w[i] : 0).filter((_, i) => vaults[snap.ids[i]])
+  const total = W.reduce((a, w) => a + w, 0)
+  const credits: { v: Vault; sol: number; why: string }[] = []
+  for (const [i, v] of ours.entries()) { const share = total > 0 ? got * W[i] / total : 0; if (share < 0.0001) continue
+    const orig = v.copyOf ? ours.find((x) => x.mint === v.copyOf) : null; const toOrig = orig ? (v.vampFlag ? share : share / 2) : 0
+    if (share - toOrig > 0) credits.push({ v, sol: share - toOrig, why: toOrig ? `tax → chest (${v.vampFlag ? 'all' : 'half'} of it to original ${orig!.symbol})` : 'tax → chest' })
+    if (orig && toOrig > 0) credits.push({ v: orig, sol: toOrig, why: `tax from ${v.vampFlag ? 'flagged copy' : 'copy'} ${v.symbol}` }) }
+  // the platform wallet IS the shared vault wallet: crediting a shared chest is a ledger move. A per-key vault gets a real transfer.
+  const fwd = new TX(); let fwdAny = false
+  for (const c of credits) { if (c.v.shared && c.v.pub === pkB58) { c.v.chest = +(c.v.chest + c.sol).toFixed(9) } else { fwd.add(SP.transfer({ fromPubkey: pk.publicKey, toPubkey: new PK(c.v.pub), lamports: Math.floor(c.sol * 1e9) })); fwdAny = true } }
+  let sig2 = sig; if (fwdAny) { fwd.feePayer = pk.publicKey; fwd.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash; fwd.sign(pk); sig2 = await conn.sendRawTransaction(fwd.serialize(), { maxRetries: 3 }); await confirm(sig2); for (const c of credits) if (!(c.v.shared && c.v.pub === pkB58)) await book(c.v, sig2, c.sol) }
+  for (const c of credits) { c.v.taxClaimed = (c.v.taxClaimed || 0) + c.sol; c.v.activity.unshift({ t: Date.now(), kind: 'tax', sol: c.sol, sig: sig2, msg: c.why }) }
+  const credited = credits.reduce((a, c) => a + c.sol, 0); EV.log('vault', `platform fees claimed ${got.toFixed(4)} SOL → ${credits.length} chest(s) ${credited.toFixed(4)} SOL${got - credited > 0.0005 ? ` (${(got - credited).toFixed(4)} unattributed → treasury)` : ''}`, { sig })
+  save()
 }
 /** kept for callers: per-coin claim is now the platform-wide one */
 export async function claimTax(_v: Vault): Promise<number> { return claimPlatformFees() }

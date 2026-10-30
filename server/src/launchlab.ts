@@ -213,7 +213,7 @@ export async function buildClaimVault(payer?: PublicKey): Promise<VersionedTrans
   const { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, createCloseAccountInstruction, TOKEN_PROGRAM_ID } = await import('@solana/spl-token')
   const { TransactionMessage, ComputeBudgetProgram } = await import('@solana/web3.js')
   const kp = platformKeypair(); const pk = { publicKey: payer || kp.publicKey }; const ata = getAssociatedTokenAddressSync(WSOL, pk.publicKey)
-  const ixs = [ComputeBudgetProgram.setComputeUnitLimit({ units: 120_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
+  const ixs = [ComputeBudgetProgram.setComputeUnitLimit({ units: 120_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: +(process.env.CLAIM_CU_PRICE || 300_000) }),   // was 50k: claims kept timing out
     createAssociatedTokenAccountIdempotentInstruction(pk.publicKey, ata, pk.publicKey, WSOL),
     claimPlatformFeeFromVault(PROGRAM, PLATFORM_ID!, pk.publicKey, getPdaPlatformFeeVaultAuth(PROGRAM).publicKey, platformVault(), ata, WSOL, TOKEN_PROGRAM_ID),
     createCloseAccountInstruction(ata, pk.publicKey, pk.publicKey)]
