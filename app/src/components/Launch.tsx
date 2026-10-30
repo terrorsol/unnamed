@@ -23,7 +23,7 @@ function Progress({ busy }: { busy: string }) {
 export default function Launch(p: Props) {
   const [name, setName] = useState(''); const [symbol, setSymbol] = useState(''); const [desc, setDesc] = useState(''); const [file, setFile] = useState<File | undefined>()
   const [tw, setTw] = useState(''); const [tg, setTg] = useState(''); const [web, setWeb] = useState('')
-  const [dev, setDev] = useState(0.5); const [pct, setPct] = useState(20); const [buyNow, setBuyNow] = useState(true); const [chest, setChest] = useState(0.5); const [mode, setMode] = useState<'floor' | 'mm'>('mm'); const [ceiling, setCeiling] = useState(0.3); const [adv, setAdv] = useState(false)
+  const [dev, setDev] = useState(0.5); const [pct, setPct] = useState(10); const [buyNow, setBuyNow] = useState(true); const [chest, setChest] = useState(0.5); const [mode, setMode] = useState<'floor' | 'mm'>('mm'); const [ceiling, setCeiling] = useState(0.3); const [adv, setAdv] = useState(false)
   const [cq, setCq] = useState(''); const [cres, setCres] = useState<D.Coin[]>([]); const [copyOf, setCopyOf] = useState<D.Coin | null>(null); const [venue, setVenue] = useState<Venue>('launchlab'); const [permTax, setPermTax] = useState(false)
   React.useEffect(() => { if (!cq.trim() || copyOf) { setCres([]); return } const t = setTimeout(() => D.search(cq).then((r) => setCres(r.slice(0, 5))).catch(() => {}), 300); return () => clearTimeout(t) }, [cq, copyOf])
   const ok = name.trim().length > 1 && symbol.trim().length > 0 && symbol.length <= 10 && !!file
