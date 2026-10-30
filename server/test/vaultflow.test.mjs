@@ -186,3 +186,16 @@ test('the full withdrawal (TEST_RECLAIM) is only for the owner\'s wallets', () =
   assert.equal(V.reclaimAllowed(DEVPK), true)
   assert.equal(V.reclaimAllowed(Keypair.generate().publicKey.toBase58()), false)
 })
+
+test('the vault wallet cannot be a vault\'s own dev (a stake from it to itself would be booked as new money)', () => {
+  assert.throws(() => V.create(BANKY, 1, undefined, 'mm', 0.3, 'launchlab', 0.5, 15), /own wallet/)
+})
+test('books never above the wallet: chests are scaled down to what the shared wallet holds (outside spends), never up', async () => {
+  const a = await V.sharedAudit(); assert.ok(a.ledgersSol > 0.2, 'some chest booked by the earlier tests')
+  const real = C.conn.getBalance; C.conn.getBalance = async () => Math.round(a.ledgersSol / 2 * 1e9)
+  try {
+    const r = await V.fitLedgers(true); assert.equal(r.fitted, true, JSON.stringify(r))
+    const b = await V.sharedAudit(); assert.ok(b.ledgersSol <= a.ledgersSol / 2 + 1e-6 && b.ledgersSol > a.ledgersSol / 2 - 0.02, `${b.ledgersSol} vs ${a.ledgersSol / 2}`)
+    C.conn.getBalance = async () => Math.round(a.ledgersSol * 3 * 1e9); const r2 = await V.fitLedgers(true); assert.equal(r2.fitted, false, 'a wallet above the books never raises a chest')
+  } finally { C.conn.getBalance = real }
+})

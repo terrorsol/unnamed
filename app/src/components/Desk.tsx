@@ -207,7 +207,7 @@ export function CoinVault({ mint, v, isDev, onRenounce, solPrice, onMode, onAtta
         <div className="tile" title="you can always trade your coins in for your share of the chest"><div className="l">Floor price</div><div className="v num"><Live v={floorUsd}>{floorUsd ? px(floorUsd) : '—'}</Live></div><div className="s">what the chest pays per {v.symbol} if you cash out</div></div>
         <div className="tile"><div className="l">In the chest</div><div className="v num"><Live v={v.chest}>{S(v.chest, 1)} SOL</Live></div><div className="s">${S(v.chest * solPrice, 0)} · nobody can withdraw it</div></div>
         {v.venue === 'launchlab' && <div className="tile"><div className="l">Fees added</div><div className="v num"><Live v={v.taxClaimed || 0}>{S(v.taxClaimed || 0, 3)} SOL</Live></div><div className="s">2% of every trade goes into the chest</div></div>}
-        <div className="tile"><div className="l">Last move</div><div className="v" style={{ fontSize: 14 }}>{last ? (last.kind === 'buy' ? 'bought the dip' : last.kind === 'capture' ? 'took profit on a pump' : last.kind === 'bid' ? 'offering to buy big sells' : last.kind === 'redeem' ? 'paid someone cashing out' : 'took profit') : 'watching the price'}</div><div className="s">{last ? ago(last.t) + ' ago' : v.mode === 'mm' ? 'buys dips · takes profit' : 'only defends the floor'}</div></div>
+        <div className="tile"><div className="l">Last move</div><div className="v" style={{ fontSize: 14 }}>{last ? (last.kind === 'buy' ? 'bought the dip' : last.kind === 'capture' ? 'sold into a buy' : last.kind === 'bid' ? 'offering to buy big sells' : last.kind === 'redeem' ? 'paid someone cashing out' : 'took profit') : 'watching the price'}</div><div className="s">{last ? ago(last.t) + ' ago' : v.mode === 'mm' ? 'buys dips · takes profit' : 'only defends the floor'}</div></div>
       </div>
       <div className="row" style={{ marginTop: 8 }}><span className="sp" /><button className="btn sm" onClick={() => setMore(!more)}>{more ? 'Less' : 'Details'}</button></div>
     </div>
@@ -242,7 +242,7 @@ export function VaultPage({ go, solPrice, onLaunch }: { go: (p: string) => void;
       <div className="tile"><div className="l">Coins with vaults</div><div className="v num">{list ? list.length : '—'}</div>{err ? <div className="s dn">reconnecting</div> : null}</div>
       <div className="tile"><div className="l">In chests</div><div className="v num"><Live v={chest}>{S(chest, 2)} SOL</Live></div><div className="s">${S(chest * solPrice, 0)}</div></div>
     </div>
-    <div className="card"><table><thead><tr><th>Coin</th><th className="r">Mode</th><th className="r">Chest</th><th className="r">Profit taken</th><th className="r">Dips bought</th><th className="r">Floor price</th><th className="r">Last move</th></tr></thead><tbody>
+    <div className="card"><table><thead><tr><th>Coin</th><th className="r">Mode</th><th className="r">Chest</th><th className="r">Sold</th><th className="r">Dips bought</th><th className="r">Floor price</th><th className="r">Last move</th></tr></thead><tbody>
       {(!list || !list.length) && <tr><td colSpan={7} className="empty">{err ? 'Reconnecting…' : 'No chests yet.'}</td></tr>}
       {list?.map((v) => <tr key={v.id} onClick={() => v.mint && go('coin/' + v.mint)}><td className="tk">{v.symbol || '—'} <span className="nm">{v.mint ? short(v.mint, 4) : ''}</span></td><td className="r"><span className={'tag ' + (v.mode === 'mm' ? 'live' : '')}>{v.mode === 'mm' ? 'PROTECTED' : 'FLOOR ONLY'}</span></td><td className="r num"><Live v={v.chest}>{S(v.chest, 2)} SOL</Live></td><td className="r num">{S(v.score?.captured || 0, 2)}</td><td className="r num">{S((v.score?.deskBought || 0) + (v.score?.dipBought || 0), 2)}</td><td className="r num">{v.floor && solPrice ? px(v.floor * solPrice) : '—'}</td><td className="r dim">{v.activity?.[0] ? ago(v.activity[0].t) : '—'}</td></tr>)}
     </tbody></table></div>
@@ -473,10 +473,10 @@ export function VaultScore({ v, solPrice }: { v: K.VaultPub; solPrice: number })
       <span className="sp" /><span className="dim" style={{ fontSize: 11 }}>dip buys this drop: {l.tranchesFired.length} of 3</span>
     </div>
     <div className="tiles" style={{ gridTemplateColumns: 'repeat(5,1fr)', marginTop: 8 }}>
-      <div className="tile"><div className="l">Profit taken</div><div className="v num">{S(sc.captured, 2)} SOL</div><div className="s">{sc.captures} times</div></div>
+      <div className="tile" title="SOL the chest got for coins it sold into buys — before what those coins cost"><div className="l">Sold into buys</div><div className="v num">{S(sc.captured, 2)} SOL</div><div className="s">{sc.captures} sales</div></div>
       <div className="tile"><div className="l">Spent buying</div><div className="v num">{S(sc.redeployed, 2)} SOL</div><div className="s">{sc.dips} dips · {sc.deskFills} big sells</div></div>
       <div className="tile"><div className="l">Big sells caught</div><div className="v num">{S(sc.deskBought, 2)} SOL</div><div className="s">bought off the chart, price didn't drop</div></div>
-      <div className="tile"><div className="l">Floor price</div><div className="v num" style={{ fontSize: 13 }}>{floorUsd ? px(floorUsd) : '—'}</div><div className="s">{sc.floor0 && v.floor ? ((v.floor / sc.floor0 - 1) * 100).toFixed(0) + '% since start' : 'chest ÷ all coins'}</div></div>
+      {(() => { const worth = v.chest + v.tokens * (l.price || 0); const res = worth - (v.stakeSol || 0); return <div className="tile" title="what the chest holds now (SOL + its coins at today's price) minus what was put in"><div className="l">Result</div><div className={'v num ' + (res >= 0 ? 'up' : 'down')}>{res >= 0 ? '+' : ''}{S(res, 2)} SOL</div><div className="s">worth {S(worth, 2)} vs {S(v.stakeSol || 0, 2)} in</div></div> })()}
       <div className="tile"><div className="l">Creator paid</div><div className="v num gold">{S(v.devPaid, 3)}</div><div className="s">{v.renounced ? 'gave it up' : v.cut + '% of profit'}</div></div>
     </div>
   </>

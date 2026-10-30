@@ -20,6 +20,10 @@ export const P = {
   minBuySol: 0.05,
   maxBuySol: +(process.env.MM_MAX_BUY_SOL ?? 25),
   maxLegSol: +(process.env.MM_MAX_LEG_SOL ?? 0),
+  // a chest that bought its supply at launch has had its bag: rebuilding toward the supply target after selling into the run buys back into the
+  // dump (live Oct 30: 0.2 + 0.15 + 0.2 SOL of accumulation on two coins already −40–60% from the high). Off unless MM_ACCUM_AFTER_LAUNCH=1;
+  // the capped dip tranches still run. Tax-funded vaults (no launch buy) accumulate as before.
+  accumAfterLaunch: process.env.MM_ACCUM_AFTER_LAUNCH === '1',
   // initials (tests): until the launch buy is paid back, every buy that comes in (snipers) gets a slice of the vault sold into it at once —
   // initialsFrac of that buy's size, never more than what is left to recover, never under cost +1%. 0 = off.
   initialsFrac: +(process.env.MM_INITIALS_FRAC ?? 0),
@@ -168,6 +172,7 @@ export function defense(s: State, m: Market, p: number, now: number, dd: number,
 }
 /** Accumulation for a vault that started with less supply than its target (tax-funded launch): buy under VWAP, small, slow. null = nothing. */
 export function accumulate(s: State, m: Market, p: number, now: number, p_: Params = P, rnd = Math.random()): number | null {
+  if (((s as any).launchSpend || 0) > 0 && !p_.accumAfterLaunch) return null
   if (s.chest < p_.accumulateMinChest || now - s.lastBuy < p_.accumulateEveryMs || now < (s.cooldownUntil || 0) || stopped(s, p, now, p_) || (s.armedAt && now - s.armedAt < p_.warmupMs)) return null
   const target = s.pct || 0; if (target <= 0 || vaultedPct(s) >= target * 0.98) return null
   const ref = Math.min(R.vwap(s.samples), R.vwap(s.samplesLong || s.samples)); if (!ref || p > ref * p_.defendBelowVwap) return null

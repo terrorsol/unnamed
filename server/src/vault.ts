@@ -166,6 +166,28 @@ async function settleLateOnce() {
     else if (Date.now() > lb.until) { lateBooks.splice(lateBooks.indexOf(lb), 1); await sync(v).catch(() => {}) }   // gave up on it: re-read the coin balance (a sale in flight counted its tokens as gone)
   }
 }
+/** The books never claim more SOL than the shared wallet holds. Spends made outside the server (Oct 30: the owner's own market maker and
+ *  three launches made FROM the vault wallet — the books ended ~41 SOL above the wallet, and every coin page showed it as its chest) are
+ *  found when the wallet sits more than 0.05 SOL under the booked chests on 3 checks a minute apart with nothing in flight; every shared
+ *  chest is then scaled down to fit (under, never over — a chest is only ever reduced here). Logged on each vault and in the event log. */
+let driftN = 0, lastFit = 0
+export async function fitLedgers(force = false) {
+  if (!SHARED || PAPER || (!force && Date.now() - lastFit < 60_000)) return null; lastFit = Date.now()
+  const shared = Object.values(vaults).filter((v) => v.shared && !v.paper)
+  // in flight = a booking the wallet already shows but the books don't yet: a buy or a payout (a sale in flight only raises the wallet)
+  // (every trade — capture or tick buy/trim — holds the vault's trade lock while it runs; a payout is marked _payPending)
+  const why = shared.filter((v) => ((v as any)._capBusy && Date.now() - ((v as any)._capBusyAt || 0) < 120_000) || (v as any)._payPending).map((v) => v.id + ':' + ((v as any)._payPending ? 'payout' : 'trade')).concat(lateBooks.length ? ['lateBooks'] : [], lateCredits.length ? ['lateCredits'] : [], pendingClaim ? ['claim'] : [], claiming ? ['claiming'] : [])
+  const busy = why.length > 0
+  const bal = await balanceSol(SHARED.publicKey.toBase58()); const led = shared.reduce((a, v) => a + Math.max(0, v.chest || 0), 0)
+  if (led - bal <= 0.05) { driftN = 0; return { bal, led, fitted: false } }
+  if (busy) return { bal, led, fitted: false, busy: why.join(',') }
+  if (++driftN < (force ? 1 : 3)) return { bal, led, fitted: false, driftN }
+  const f = Math.max(0, bal - 0.01) / led
+  for (const v of shared) { const before = v.chest; if (!(before > 0)) continue; v.chest = +(before * f).toFixed(9); v.ledgerDirty = false
+    v.activity.unshift({ t: Date.now(), kind: 'note', msg: `books fitted to the wallet: chest ${before.toFixed(4)} → ${v.chest.toFixed(4)} SOL (the wallet held ${bal.toFixed(4)} SOL against ${led.toFixed(4)} booked — spends made outside the server)` }) }
+  driftN = 0; EV.log('error', `chests fitted to the wallet: ${led.toFixed(4)} SOL booked → ${bal.toFixed(4)} held (×${f.toFixed(4)})`, { bal, led, f }); save()
+  return { bal, led, fitted: true, f }
+}
 /** SOL in the shared wallet that no ledger claims (dust, fees paid by the platform, unattributed deposits). Never spent. */
 export async function sharedAudit() { if (!SHARED) return null; const bal = await balanceSol(SHARED.publicKey.toBase58()); const ledgers = Object.values(vaults).filter((v) => v.shared && !v.paper).reduce((a, v) => a + (v.chest || 0), 0); if (bal - ledgers < -0.01) EV.log('error', `ledger drift: wallet ${bal.toFixed(4)} < ledgers ${ledgers.toFixed(4)} — a spend was not booked`, { bal, ledgers }); return { wallet: SHARED.publicKey.toBase58(), balanceSol: +bal.toFixed(6), ledgersSol: +ledgers.toFixed(6), unattributedSol: +(bal - ledgers).toFixed(6), vaults: Object.values(vaults).filter((v) => v.shared && v.armed).length } }
 const pub = (v: Vault) => ({ sniper: (v as any).sniper || null, id: v.id, pub: v.pub, paper: !!v.paper, venue: v.venue || 'pump', taxClaimed: v.taxClaimed || 0, image: v.image, uri: v.uri, vampFlag: !!v.vampFlag, permTax: v.permTax || 0, crowd: v.crowd ? { goalSol: v.crowd.goalSol, raised: +v.crowd.raised.toFixed(3), backers: Object.keys(v.crowd.contributors).length, expiresAt: v.crowd.expiresAt, refunded: !!v.crowd.refunded } : undefined, mint: v.mint, symbol: v.symbol, name: v.name, dev: v.dev, stakeSol: v.stakeSol, pct: v.pct, cut: v.cut, armed: v.armed, renounced: v.renounced, avgCost: v.avgCost, tokens: v.tokens, chest: v.chest, devPaid: v.devPaid, activity: v.activity.slice(0, 50), createdAt: v.createdAt, copyOf: v.copyOf, imported: !!v.imported, mode: v.mode || 'floor', ceiling: v.ceiling ?? R.MM_MAX_CAPTURE, score: v.score || { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: 0 }, floor: v.supply ? v.chest / v.supply : 0, live: liveReadout(v), holders: v.holders || null, feePaid: v.feePaid || 0, depositedTokens: v.depositedTokens || 0, funders: v.funders || {}, streamed: v.streamed || 0, redeemed: v.redeemed || 0, supply: v.supply || 1e9, deskBid: v.deskBid || 0, shared: !!v.shared, vaultBuySol: v.vaultBuySol ?? null, mm: { spent: v.mmSpent || 0, got: v.mmGot || 0, tok: v.mmTok || 0, cost: v.mmCost || 0, inv: v.invGot || 0, stopped: !!v.stoppedAt }, copies: Object.values(vaults).filter((c) => c.copyOf === v.mint && c.armed).map((c) => ({ mint: c.mint, symbol: c.symbol, pub: c.pub })) })
@@ -695,13 +717,18 @@ function liveReadout(v: Vault) {
 export function setMode(id: string, dev: string, mode: 'floor' | 'mm', ceiling?: number) { const v = vaults[id]; if (!v || v.dev !== dev) throw new Error('not yours'); v.mode = mode; if (ceiling != null) v.ceiling = Math.min(R.MM_MAX_CAPTURE, Math.max(0.05, ceiling)); v.activity.unshift({ t: Date.now(), kind: 'note', msg: `mode → ${mode}${mode === 'mm' ? ` · capture ceiling ${Math.round((v.ceiling) * 100)}%` : ''}` }); save(); return pub(v) }
 /** A buy was observed (stream or inferred). MM mode may counter it. */
 export async function onBuy(v: Vault, solIn: number, m: any, p: number, now: number, hint?: SellHint) {
-  if ((v as any).closing || (v as any).closedAt || vaultOps.get(v.id) === 'withdrawing') return
+  if ((v as any).closing || (v as any).closedAt || vaultOps.get(v.id) === 'withdrawing' || foreignPaused(v)) return
   // one sale at a time — but a buy that lands while a sale is in flight is queued, not dropped (a sniper wave is ten buys in two seconds)
   // the lock has a watchdog: a sale stuck on a hung call (RPC, keeper) longer than 2 min no longer blocks every later buy (review, Oct 30)
   const initials = MM.initialsOn(v); const perBuy = MM.perBuyOn(v, MM.P, now)
   if ((v as any)._capBusy) { if (Date.now() - ((v as any)._capBusyAt || 0) < 120_000) { if (perBuy) (v as any)._pendIn = +(((v as any)._pendIn || 0) + solIn).toFixed(9); return } EV.log('error', `${v.symbol} capture lock held > 2 min — taken back`, { mint: v.mint }) }
   const sniper = MM.sniperOn(v, now)
-  const tokens = MM.capture(v, m, p, solIn, now); if (tokens <= 0) return
+  let tokens = MM.capture(v, m, p, solIn, now); if (tokens <= 0) return
+  // a sale worth less than MIN_SALE_SOL pays more of itself in tip + priority + base fee than it is worth (live Oct 30: 0.005–0.015 SOL sales
+  // paying ~0.0012 each). Small buys are pooled (for a minute) and answered together once the pooled sale is worth it.
+  if (tokens * p < MIN_SALE_SOL) { const sv = v as any; if (now - (sv._smallAt || 0) > 60_000) sv._smallIn = 0
+    sv._smallIn = +((sv._smallIn || 0) + solIn).toFixed(9); sv._smallAt = now; if (sv._smallIn * (tokens * p / solIn) < MIN_SALE_SOL) return
+    solIn = sv._smallIn; sv._smallIn = 0; tokens = MM.capture(v, m, p, solIn, now); if (tokens <= 0 || tokens * p < MIN_SALE_SOL) return }
   // sniper tax: a sale capped by the pool-impact limit leaves part of the buy untaxed — that part goes back in the queue for the next sale
   const covered = sniper ? Math.min(solIn, (tokens * p) / Math.max(MM.P.sniperFrac, 1e-9)) : solIn
   if (sniper) { const left = +(solIn - covered).toFixed(9); if (left >= MM.P.sniperMinBuy && tokens < v.tokens - ((v as any).launchTok || 0) * MM.P.sniperKeep - 1e-6) (v as any)._pendIn = +(((v as any)._pendIn || 0) + left).toFixed(9) }
@@ -733,6 +760,19 @@ export async function onBuy(v: Vault, solIn: number, m: any, p: number, now: num
     else if (e?.expired && sniper) (v as any)._pendIn = +(((v as any)._pendIn || 0) + covered).toFixed(9) }
   finally { if ((v as any)._capBusyAt === lockAt) { (v as any)._capBusy = false; drainPending(v) } }
 }
+/** A swap from the vault's own wallet that the keeper never signed: someone else holding the key traded (Oct 30 — the owner ran his own
+ *  market maker from the shared wallet; the chest then sold his tokens as its own and the books lost ~28 SOL of his buys). The chest stops
+ *  trading this coin for FOREIGN_PAUSE_MS after the last such trade (every new one restarts the clock) and the event is logged loudly.
+ *  The books are refit to the wallet by fitLedgers(). */
+const FOREIGN_PAUSE_MS = +(process.env.FOREIGN_PAUSE_MS || 15 * 60_000)
+const BOOT_AT = Date.now()
+function foreignTrade(v: Vault, sw: { sig: string; side: string; sol: number }) {
+  const sv = v as any; const first = !(sv._foreignUntil > Date.now()); sv._foreignUntil = Date.now() + FOREIGN_PAUSE_MS; sv._foreignN = (sv._foreignN || 0) + 1; v.ledgerDirty = true
+  EV.log('error', `${v.symbol} a ${sw.side} of ${sw.sol.toFixed(3)} SOL from the vault wallet that the server did not sign (${sw.sig.slice(0, 10)}…) — chest paused ${Math.round(FOREIGN_PAUSE_MS / 60000)} min; trade from another wallet`, { mint: v.mint, sig: sw.sig })
+  if (first) v.activity.unshift({ t: Date.now(), kind: 'note', sig: sw.sig, msg: `paused: someone else traded from the vault wallet (${sw.side} ${sw.sol.toFixed(2)} SOL) — the chest won't trade this coin until 15 min after the last such trade` })
+}
+export const foreignPaused = (v: Vault) => ((v as any)._foreignUntil || 0) > Date.now()
+const MIN_SALE_SOL = +(process.env.MM_MIN_SALE_SOL || 0.03)
 /** buys that arrived while the vault was trading (per-buy policies only): sold into as one, right after the lock frees */
 function drainPending(v: Vault) {
   const pend = (v as any)._pendIn || 0; (v as any)._pendIn = 0
@@ -761,7 +801,7 @@ export const PAPER = process.env.PAPER === '1'
 const jitter = (base: number, pct: number) => base * (1 + (Math.random() * 2 - 1) * pct)
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 /** vault slippage: the min-out is computed from the pool state read at build time, so this only has to cover 1–2 slots of other flow. It was 10% — a free 10% for any sandwich bot. A trade that misses fails (fee only, no fill) and the next tick re-decides. */
-const SLIP_BUY_BPS = Math.max(10, +(process.env.VAULT_SLIP_BUY_BPS || 150)), SLIP_SELL_BPS = Math.max(10, +(process.env.VAULT_SLIP_SELL_BPS || 100))
+const SLIP_BUY_BPS = Math.max(10, +(process.env.VAULT_SLIP_BUY_BPS || 150)), SLIP_SELL_BPS = Math.max(10, +(process.env.VAULT_SLIP_SELL_BPS || 100)), CAPTURE_SLIP_BPS = Math.max(10, +(process.env.CAPTURE_SLIP_BPS || 250))
 export type SellHint = { vSol?: bigint; vTok?: bigint; feeBps?: number; tokens?: number; sniper?: boolean; floorSol?: number }
 /** a pump curve coin's market straight off its curve account (no indexer): what a queued sniper sale needs, fast. Falls back to market(). */
 async function pumpMarket(v: Vault): Promise<any> {
@@ -780,12 +820,20 @@ async function trade(v: Vault, action: 'buy' | 'sell', amount: number | string, 
     if (raw > 0n) {
       try { const r = await PF.fastSell(conn, C.RPC, kp(v).publicKey, v.mint, raw, { vSol: hint?.vSol, vTok: hint?.vTok, feeBps: hint?.feeBps, slipBps: hint?.sniper ? +(process.env.SNIPER_SELL_SLIP_BPS || 300) : Math.max(SLIP_SELL_BPS, 300), floorLamports: hint?.floorSol ? BigInt(Math.ceil(hint.floorSol * 1e9)) : undefined }, (tx) => KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'trade', 0))
         ;(v as any)._lastFastMs = r.ms; return r.sig }
-      // sent (sig) or provably dead (expired): never a second route. Under cost: no route may fill it. Too small for the tip: a sniper sale is
-      // skipped (the guarded route is slower and dearer); any other capture tries the guarded route
-      catch (e: any) { if (e?.sig || e?.expired || e?.code === 'below_cost' || (e?.code === 'uneconomic' && hint?.sniper)) throw e; if (!/not a fast-path/.test(String(e?.message))) EV.log('vault', `${v.symbol} fast sell not sent (${String(e?.message || e).slice(0, 80)}) — guarded route instead`, { mint: v.mint }) }
+      // sent (sig) or provably dead (expired): never a second route. Under cost: no route may fill it. Too small for its fees: skipped —
+      // the guarded route (PumpPortal: 0.5% + its own priority fee) is dearer still
+      catch (e: any) { if (e?.sig || e?.expired || e?.code === 'below_cost' || e?.code === 'uneconomic') throw e; if (!/not a fast-path/.test(String(e?.message))) EV.log('vault', `${v.symbol} fast sell not sent (${String(e?.message || e).slice(0, 80)}) — guarded route instead`, { mint: v.mint }) }
     }
   }
-  if (!PAPER) { const signer = (tx: any) => KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'trade', action === 'buy' ? +amount : 0); const onLL = v.venue === 'launchlab' && !!(await LL.pool(v.mint!).catch(() => null))?.migrated === false; const slip = action === 'buy' ? SLIP_BUY_BPS : SLIP_SELL_BPS
+  if (!PAPER) { const signer = (tx: any) => KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'trade', action === 'buy' ? +amount : 0); const onLL = v.venue === 'launchlab' && !!(await LL.pool(v.mint!).catch(() => null))?.migrated === false
+    // a capture sells into a buy that just moved the price: other flow lands in the same slots, and 1% failed ~1 in 8 launch sales live (Oct 30,
+    // LaunchLab 6004) — each failure a fee for nothing. Captures get CAPTURE_SLIP_BPS (2.5%); their price checks are made at cost +1% or more,
+    // so the worst fill still sits around cost. Trims and dip buys keep the tight 1–1.5%.
+    const capture = action === 'sell' && hint?.tokens != null
+    const slip = action === 'buy' ? SLIP_BUY_BPS : capture ? CAPTURE_SLIP_BPS : SLIP_SELL_BPS
+    // a capture sells the exact token count the decision made, clamped to what the wallet holds right now — not a % of a balance read again by
+    // the builder (the two reads disagreed live and the tx guard refused: "sells 1417599631728 raw, asked for at most 938679442893")
+    if (capture) { const bal = (await tokenBalance(v.pub, v.mint!)).ui; const tok = Math.min(hint!.tokens!, bal * 0.9999); if (!(tok > 0)) throw new Error('nothing to sell'); amount = +tok.toFixed(6) }
     // what a sell should bring at the price this tick decided on: the tx guard lets it pay fees out of that, nothing more
     const expectSol = action === 'sell' ? (typeof amount === 'string' && amount.trim().endsWith('%') ? v.tokens * parseFloat(amount) / 100 : +amount) * (price || 0) : undefined
     return onLL ? C.llTrade(kp(v), action, v.mint!, amount, slip, signer, { expectSol }) : pumpTrade(kp(v), action, v.mint!, amount, denominatedInSol, slip / 100, undefined, signer, { expectSol }) }
@@ -857,6 +905,7 @@ export async function tick() {
   await moveChests().catch(() => {})
   await Promise.all(Object.values(vaults).map((v) => tickOne(v)))
   await settleLateBooks().catch(() => {})
+  await fitLedgers().catch(() => {})
   save()
 }
 async function tickOne(v: Vault) {
@@ -895,7 +944,10 @@ async function tickOne(v: Vault) {
       const fastFeed = !!target && m.onCurve && (m as any).venue !== 'launchlab' && process.env.PUMP_FAST !== '0'
       if (target && cur?.pool !== target) { cur?.off(); watched.set(v.id, { pool: target, off: watchPool(target, async (sw) => { const { ev, ...plain } = sw
         if (ev && ev.mint !== v.mint) return   // a tx that also trades another coin: its events are not this coin's buys (review, Oct 30)
-        D.broadcast({ type: 'swap', mint: v.mint, symbol: v.symbol, ...plain }); tape(v.mint!, { t: sw.t, side: sw.side, sol: sw.sol, trader: sw.trader, sig: sw.sig }); (v as any)._lastSwapAt = Date.now(); if (sw.side !== 'buy' || sw.trader === v.pub) return
+        D.broadcast({ type: 'swap', mint: v.mint, symbol: v.symbol, ...plain }); tape(v.mint!, { t: sw.t, side: sw.side, sol: sw.sol, trader: sw.trader, sig: sw.sig }); (v as any)._lastSwapAt = Date.now()
+        // (the keeper's memory of its own signatures starts empty at boot: a sale sent just before a restart can land just after it — not foreign)
+        if (sw.trader === v.pub && sw.sig && !KEEP.isOwn(sw.sig) && Date.now() - BOOT_AT > 120_000) foreignTrade(v, sw)
+        if (sw.side !== 'buy' || sw.trader === v.pub) return
         // the pool-read backstop may have caught this very buy a moment earlier (the websocket lagged the tick): never sell into one buy twice
         const bs = (v as any)._bs; if (bs && Date.now() - bs.t < 15000 && Math.abs(sw.sol - bs.sol) <= Math.max(0.02, bs.sol * 0.2)) { (v as any)._bs = null; return }
         try {
@@ -923,8 +975,8 @@ async function tickOne(v: Vault) {
       // defense: tranches at −20 / −35 / −50 from the high the crash started at (mm.ts: episode anchor, day cap, pool-impact cap, seller-concentration check, cooldown)
       // MM_BUYS=0 (beta knob): the vault never buys from the pool — no dip tranches, no accumulation; captures, the standing ask and a capped desk bid still run
       const NOBUY = process.env.MM_BUYS === '0' && process.env.MM_ON !== '1'
-      const capBusy = (v as any)._capBusy && Date.now() - ((v as any)._capBusyAt || 0) < 120_000
-      if (!capBusy) { (v as any)._capBusy = true; (v as any)._capBusyAt = Date.now() }
+      const capBusy = ((v as any)._capBusy && Date.now() - ((v as any)._capBusyAt || 0) < 120_000) || foreignPaused(v)
+      const ownLock = !capBusy; if (ownLock) { (v as any)._capBusy = true; (v as any)._capBusyAt = Date.now() }
       const tLock = capBusy ? -1 : (v as any)._capBusyAt
       try {
       const dec = capBusy ? null : NOBUY ? null : MM.defense(v, m, p, now, dd, MM.sellerShare(recent(v.mint), now))

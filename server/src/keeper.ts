@@ -3,6 +3,7 @@
 // Today the key is decrypted in-process; the interface is what lets a remote signer (enclave/KMS with the same policy) replace it
 // without touching the rules (KEEPER=remote later). Caps are deliberately generous: they stop a runaway or a bug, not the rules.
 import { Keypair, Transaction, VersionedTransaction } from '@solana/web3.js'
+import bs58 from 'bs58'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 export type Purpose = 'trade' | 'desk_fill' | 'redeem' | 'payout' | 'refund' | 'treasury' | 'launch'   // launch = the one block-zero buy, bounded by the funded stake, before the vault is armed
@@ -15,6 +16,15 @@ try { if (existsSync(FILE)) for (const [k, v] of Object.entries(JSON.parse(readF
 let saveT: any = null
 function persist() { if (saveT) return; saveT = setTimeout(() => { saveT = null; try { mkdirSync(process.env.DATA_DIR || 'data', { recursive: true }); const now = Date.now(); const o: any = {}; for (const [k, v] of ledger) { const l = v.filter((x) => now - x.t < 3.6e6); if (l.length) o[k] = l } writeFileSync(FILE, JSON.stringify(o)) } catch {} }, 500) }
 export const log = (vaultId: string) => (ledger.get(vaultId) || []).slice(-50)
+// every transaction the keeper signs, by its signatures (2 h): a swap from a vault wallet whose signature is not here was signed by someone
+// else holding the key — the owner trading from the shared wallet (Oct 30) — and the vault must not treat its tokens as its own
+const own = new Map<string, number>()
+function remember(tx: Transaction | VersionedTransaction) {
+  const now = Date.now(); const sigs = tx instanceof VersionedTransaction ? tx.signatures.map((x) => Buffer.from(x)) : tx.signatures.map((x) => x.signature).filter(Boolean).map((x) => Buffer.from(x!))
+  for (const b of sigs) if (b.some((x) => x !== 0)) own.set(bs58.encode(b), now)
+  if (own.size > 20_000) for (const [k, t] of own) if (now - t > 2 * 3.6e6) own.delete(k)
+}
+export const isOwn = (sig: string) => own.has(sig)
 export function outLastHour(vaultId: string) { const now = Date.now(); const l = (ledger.get(vaultId) || []).filter((x) => now - x.t < 3.6e6); ledger.set(vaultId, l); return l.reduce((a, x) => a + x.sol, 0) }
 /** Throws when the signature would breach policy; otherwise records it and signs. `solOut` is the SOL this tx may move out of the vault (0 for sells/captures). */
 export function sign<T extends Transaction | VersionedTransaction>(v: { id: string; chest: number; sk: Keypair }, tx: T, purpose: Purpose, solOut: number): T {
@@ -22,10 +32,10 @@ export function sign<T extends Transaction | VersionedTransaction>(v: { id: stri
   if (solOut < 0 || !Number.isFinite(solOut)) throw new Error('keeper: bad amount')
   const chest = Math.max(v.chest, 0.01)
   const exempt = purpose === 'refund' || purpose === 'treasury'
-  if (purpose === 'launch') { if (solOut > chest + 0.01) throw new Error('keeper: launch buy exceeds the funded stake'); if (tx instanceof VersionedTransaction) tx.sign([v.sk]); else tx.partialSign(v.sk); const l = ledger.get(v.id) || []; l.push({ t: Date.now(), sol: 0, purpose }); ledger.set(v.id, l); persist(); return tx }
+  if (purpose === 'launch') { if (solOut > chest + 0.01) throw new Error('keeper: launch buy exceeds the funded stake'); if (tx instanceof VersionedTransaction) tx.sign([v.sk]); else tx.partialSign(v.sk); remember(tx); const l = ledger.get(v.id) || []; l.push({ t: Date.now(), sol: 0, purpose }); ledger.set(v.id, l); persist(); return tx }
   if (!exempt && solOut > chest * (MAX_TX_OUT_PCT / 100) + 0.01) throw new Error(`keeper: ${solOut.toFixed(3)} SOL exceeds the per-tx cap (${MAX_TX_OUT_PCT}% of chest)`)
   if (!exempt && outLastHour(v.id) + solOut > chest * (HOURLY_OUT_PCT / 100) + 0.01) throw new Error(`keeper: hourly cap reached (${HOURLY_OUT_PCT}% of chest)`)
-  if (tx instanceof VersionedTransaction) tx.sign([v.sk]); else tx.partialSign(v.sk)
+  if (tx instanceof VersionedTransaction) tx.sign([v.sk]); else tx.partialSign(v.sk); remember(tx)
   const l = ledger.get(v.id) || []; l.push({ t: Date.now(), sol: exempt ? 0 : solOut, purpose }); ledger.set(v.id, l); persist()
   return tx
 }

@@ -250,7 +250,7 @@ export function SimpleChests({ byMint, vaults, solPrice, go, onLaunch }: { byMin
   const list = vaults.filter((v) => v.mint && v.armed).sort((a, b) => b.chest - a.chest)
   const total = list.reduce((a, v) => a + v.chest, 0)
   const day = chestDay(vaults)
-  const word = (k: string) => (k === 'buy' ? 'Bought a dip' : k === 'capture' ? 'Took profit' : k === 'tax' ? 'Fees added' : k === 'redeem' ? 'Paid a cash-out' : 'Got funded')
+  const word = (k: string) => (k === 'buy' ? 'Bought a dip' : k === 'capture' ? 'Sold into a buy' : k === 'tax' ? 'Fees added' : k === 'redeem' ? 'Paid a cash-out' : 'Got funded')
   return <div className="s-home">
     <header className="hh">
       <div className="hh-k">In chests</div>

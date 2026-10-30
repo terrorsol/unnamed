@@ -16,6 +16,31 @@
 - Live: server on Render (`unnamed-server.onrender.com`, helius, gate on, 2 SOL chest cap, 1 SOL import tier), app at `app.banker.cash`, landing at `banker.cash`. One brand wallet `BANKY…` is every vault (top holder on every coin) with per-vault chest ledgers booked from tx deltas; launched mints end in `…BANK` from a pre-ground pool; launch metadata self-hosted. Drawdown stop on the mm leg. Paper vault runs on CI against live coins (`paper.yml`).
 - Tests: server 35/35, app 20/20, e2e launch 21 (+21 in shared-wallet mode) · gate 15 · desk 50 · app 22 · import 16 · mm 10; mainnet: platform config created, platform fee claim (1.16 SOL) landed, a holder sell simulates clean. See POSTMORTEM.md for the first live launch.
 
+## Handoff (2026-10-30 night) — first live launches: what happened, what's fixed
+
+Three live launches from the BANKY wallet itself (#1 nUCi…BANK launchpad, pump oLMo…BANK, #3 6XnV…BANK launchpad). Real result read from
+chain: BANKY went 9.06 SOL (0.64 + an 8.42 deposit) → ~30 SOL in ~2 h, ~9 SOL of it the 2% tax. First live pump sniper tax: sold 49% of a
+1.13 SOL sniper buy, confirmed 1.2 s after the decision. Sniper reports: #1 37.2 SOL from 37 wallets in minute one (chest sold 6.4 into
+them), #3 38.2 SOL / 44 wallets (chest sold 8.1).
+What went wrong and the fixes (all live):
+- The owner ran his own market maker from the vault wallet (28 SOL of buys on #1, ~3 on pump) and launched all three coins FROM it (each
+  6.1 SOL stake went BANKY → BANKY). The server can't tell those apart from its own, so the books ran ~41 SOL above the wallet and the coin
+  pages showed it. Fixes: a launch whose dev is the vault wallet is refused; every tx the keeper signs is remembered, and a swap from the
+  vault wallet the keeper never signed pauses that chest 15 min (`FOREIGN_PAUSE_MS`) and is logged as an error; `fitLedgers` scales the
+  chests down whenever the wallet sits >0.05 SOL under them for 3 checks with nothing in flight (never up). Admin: `/admin/vault/reconcile`,
+  `/admin/vault/stop`.
+- A capture and a tick buy ran together and each measured its fill as a balance difference (a 0.2 SOL dip buy booked −got → false drawdown
+  stop, avg cost up): one trade lock per vault for captures and tick trades.
+- LaunchLab captures refused by the tx guard ("sells X raw, asked for at most Y": % of a balance read twice): captures sell an exact token
+  count clamped to the wallet. Capture slippage 1% → 2.5% (`CAPTURE_SLIP_BPS`; ~1 in 8 launch sales failed with 6004). A landed failure
+  books its fee at once.
+- Sales under 0.03 SOL (`MM_MIN_SALE_SOL`) paid 10–25% of themselves in fees: small buys are pooled for a minute and answered together.
+- A chest that bought at launch no longer rebuilds toward its supply target after selling (it was buying back into −40–60% dumps;
+  `MM_ACCUM_AFTER_LAUNCH=1` restores it); capped dip tranches stay.
+- Pre-arm sniper volume now accrues the chest's 2% (the first claim of #1 credited no chest).
+- Policy: capture slice 10–30% → 8–25% of each buy (replayed on all five real tapes: +9% SOL kept, no tape materially worse).
+- App: "Profit taken" (gross sales, not profit) → "Sold into buys"; a "Result" tile (chest + coins at today's price − what went in).
+
 ## Handoff (2026-10-30 evening) — independent review of the fast path, fixed
 
 The review found one blocker: on the sniper-tax handler `const priceSol` had ended up inside a `//` comment, so every fast-path capture threw

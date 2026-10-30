@@ -47,7 +47,7 @@ const IC = {
   lock: ic(<><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></>),
   chest: <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" aria-hidden><path d="M3 10a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v9H3v-9Z" /><path d="M3 12h18" /><rect x="10" y="10.5" width="4" height="4" rx="1" /></svg>,
 }
-const MOVE: Record<string, [React.ReactNode, string]> = { buy: [IC.shield, 'bought the dip'], capture: [IC.up, 'took profit on a pump'], tax: [IC.coin, 'fees added to the chest'], redeem: [IC.bank, 'someone cashed out at the floor'], bid: [IC.hand, 'ready to buy big sells'], stake: [IC.lock, 'got funded'], seed: [IC.lock, 'got funded'] }
+const MOVE: Record<string, [React.ReactNode, string]> = { buy: [IC.shield, 'bought the dip'], capture: [IC.up, 'sold into a buy'], tax: [IC.coin, 'fees added to the chest'], redeem: [IC.bank, 'someone cashed out at the floor'], bid: [IC.hand, 'ready to buy big sells'], stake: [IC.lock, 'got funded'], seed: [IC.lock, 'got funded'] }
 
 /** The one card a normal person needs: how close this coin is to its next milestone, how big its chest is, and what the chest just did. */
 export function ProgressCard({ coin, vault, solPrice, held = 0, simple = false }: { coin: Coin; vault?: K.VaultPub | null; solPrice: number; held?: number; simple?: boolean }) {

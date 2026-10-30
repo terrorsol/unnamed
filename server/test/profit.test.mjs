@@ -68,3 +68,9 @@ test('dynamic share: grows with the buy, ~10% small → 30% at 2 SOL+, never abo
   const t = MM.capture(s, mkt(4e-8, 50), 4e-8, 2, 1e6, D, 0.99, 0.5); assert.ok(Math.abs(t * 4e-8 - 0.6) < 1e-6, `initials sells 30% of a 2 SOL buy: ${t * 4e-8}`)
   s.invGot = 5; const t2 = MM.capture(s, mkt(4e-8, 50), 4e-8, 0.1, 1e6, D, 0.99, 0.5); assert.ok(Math.abs(t2 * 4e-8 - 0.1 * sh(0.1)) < 1e-6, 'take uses the same curve')
 })
+test('a chest that bought at launch does not buy its bag back toward the target (live Oct 30: accumulation into dumps); tax-funded chests still do', () => {
+  const base = { tokens: 0, pct: 5, samples: [{ t: 0, p: 1e-7, v: 1 }], samplesLong: [{ t: 0, p: 1e-7, v: 1 }] }
+  assert.ok(MM.accumulate(mk(base), mkt(1e-7, 200), 1e-7, 1e6, PO, 0.5) > 0, 'tax-funded: allowed')
+  assert.equal(MM.accumulate(mk({ ...base, launchSpend: 5.1 }), mkt(1e-7, 200), 1e-7, 1e6, PO, 0.5), null, 'bought at launch: no rebuild')
+  assert.ok(MM.accumulate(mk({ ...base, launchSpend: 5.1 }), mkt(1e-7, 200), 1e-7, 1e6, { ...PO, accumAfterLaunch: true }, 0.5) > 0, 'switch on: allowed')
+})

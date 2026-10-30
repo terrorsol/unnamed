@@ -120,7 +120,9 @@ export async function llTrade(kp: Keypair, action: 'buy' | 'sell', mint: string,
   const L = await import('./launchlab.ts')
   const lim = process.env.TX_GUARD !== '0' ? await tradeLimits(kp.publicKey, action, mint, amount, action === 'buy', slippageBps, opts.expectSol) : null
   const jup = () => jupBuild(kp.publicKey, action, mint, amount, action === 'buy', slippageBps)
-  let tx = action === 'buy' ? await L.buildTrade(kp.publicKey, 'buy', mint, amount, { slippageBps }) : await L.sellPct(kp.publicKey, mint, typeof amount === 'string' ? parseFloat(amount) : +amount, slippageBps)
+  // a sell of an exact token count (a number) is built for exactly that count; 'NN%' sells that share of the balance
+  let tx = action === 'buy' ? await L.buildTrade(kp.publicKey, 'buy', mint, amount, { slippageBps })
+    : typeof amount === 'number' ? await L.buildTrade(kp.publicKey, 'sell', mint, amount, { slippageBps }) : await L.sellPct(kp.publicKey, mint, parseFloat(amount), slippageBps)
   if (lim) tx = (await guardOrJupiter(tx, 'launchlab', kp, lim, jup)).tx
   else if (process.env.TRADE_SIM !== '0') {
     const simErr = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true }).then((x) => x?.value?.err ?? null, () => null)
