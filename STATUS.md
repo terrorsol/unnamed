@@ -16,6 +16,47 @@
 - Live: server on Render (`unnamed-server.onrender.com`, helius, gate on, 2 SOL chest cap, 1 SOL import tier), app at `app.banker.cash`, landing at `banker.cash`. One brand wallet `BANKY…` is every vault (top holder on every coin) with per-vault chest ledgers booked from tx deltas; launched mints end in `…BANK` from a pre-ground pool; launch metadata self-hosted. Drawdown stop on the mm leg. Paper vault runs on CI against live coins (`paper.yml`).
 - Tests: server 35/35, app 20/20, e2e launch 21 (+21 in shared-wallet mode) · gate 15 · desk 50 · app 22 · import 16 · mm 10; mainnet: platform config created, platform fee claim (1.16 SOL) landed, a holder sell simulates clean. See POSTMORTEM.md for the first live launch.
 
+## Handoff (2026-10-30 early morning, third pass) — read this first
+
+**Third independent review → fixed (245d81f3).** Payouts: never to the vault's own wallet; one payout in flight per vault, persisted
+before send (`_payPending`) and resolved from chain history on refund / sweep. Copy stream between two shared vaults is a ledger move.
+Refund: one at a time, refuses while a launch can still land or while a live coin's vault is unarmed, books in-bundle funding and
+launch buys first, cancels bid/ask while closing, waits for late books. `TEST_RECLAIM` (full withdraw) only for `TEST_RECLAIM_WALLETS`
+(the owner's three wallets, Dockerfile) and wallets on their beta key. Arm refuses imported/crowd vaults; redeem / buy / copy / desk
+fills refuse while closing. Crowd: fee paid once, one sweep at a time, per-backer paid map. A desk fill that confirms late is booked
+from its own tx; an unreadable credit waits for the tx (`lateCredits`) instead of booking an estimate. Transient flags cleared on boot.
+
+**Tx guard on every vault trade (txguard.ts).** The shared wallet signs trades other people build (PumpPortal, Jupiter, the Raydium
+SDK); whatever program a trade calls gets the wallet's signing power for that tx. Before signing, the server simulates the exact tx
+with inner instructions and walks every System / Token instruction it would run (top level + every CPI). Refused: SOL out beyond the
+trade's bound (buy: amount × (1+slippage) × 1.03 + 0.02; sell: 3% of the expected proceeds + 0.02), any token other than the traded
+coin or wSOL leaving the wallet, a sell larger than the share asked for, a buy sending the coin out, approve / setAuthority / burn /
+close-to-someone-else, assign / allocate of the wallet. No simulation or no inner instructions = not signed (the tick retries). A
+refused PumpPortal / LaunchLab build falls back to Jupiter, guarded the same way; refusals are logged as `guard` events.
+An independent review of the first version found real bypasses (a wSOL account closed and refilled, the priority fee, wrapped SOL
+spendable beyond what the simulation spent, a "buy" that just paid the builder, NaN, extra signers / durable nonce, an empty second token
+account zeroing the vault's balance). All fixed, each with a test: only the venues and the plumbing may be called at top level (pump,
+PumpSwap, PumpPortal's wrapper, Jupiter v6, LaunchLab, ComputeBudget, System, Token, ATA, memo); the vault must be the only signer and the
+fee payer; no nonce instructions; base + priority fee count as SOL out; a wrap only counts as the vault's own into the classic wSOL ATA or
+a Token account created and opened in the same tx (never after a close); everything wrapped and every buy's on-chain ceiling
+(max_sol_cost / max_quote_in) must fit the bound — padded PumpPortal ceilings are pulled down first (`capBuyCeilings`); a buy must show
+the coin arriving in the vault's coin account (simulation post-state); NaN fails closed; `tokenBalance` sums every account.
+What a simulation can't prove: a program that behaves differently on chain than in the simulation (slot-gated, or a flag flipped right
+after the build). The allowlist and the on-chain ceilings narrow it; an on-chain assertion instruction would close it (next step).
+Mainnet (probe runs Oct 30 11:20–11:50): Helius returns parsed inner instructions; real buys pass on PumpPortal (SOL-quoted curve coin
+0.0138 out, amm 0.0139) and Jupiter (0.0129) of a 0.0318 bound, LaunchLab SDK 0.0116; a fresh coin's create + PumpPortal buy passes;
+real holder sells pass on PumpPortal + Jupiter; a 10% sell under a 5% limit, a 0.5 SOL drain, a token delegate and a foreign-token
+transfer appended to a real buy are all refused. Note: most top pump curve coins today are quoted in another token (PumpPortal answers
+6063 UnsupportedQuoteMint on them); ours are SOL-quoted. `TX_GUARD=0` turns the guard off (don't). 
+**pump launches: the chest's block-zero buy no longer goes through PumpPortal's wrapper** (`directPumpBuy`, launch.ts). That buy can't be
+simulated before the coin exists, so the guard can't cover it; instead the server rewrites PumpPortal's wrapper buy into pump's own `buy`
+with the same accounts (pump's 16 IDL accounts + bonding_curve_v2 + a buyback fee recipient; PumpPortal's fee wallet dropped, so also
+no 0.5% on the chest's buy). Every derivable account is checked against our own PDAs; any other shape keeps the wrapper buy and logs it.
+Probe (Oct 30 11:28): the direct buy simulates clean right after a create_v2 in the same tx; without the two extra accounts pump answers
+`BuybackFeeRecipientMissing`. Preflight now checks this every push. `PUMP_DIRECT_BUY=0` goes back to the wrapper.
+`lateBooks` / `lateCredits` now persist to DATA_DIR/late-books.json across restarts.
+App: the launch checks the wallet can cover coin + your buy + chest (+~0.035 rent & tip) before anything, instead of a wallet error.
+
 ## Handoff (2026-10-30 overnight, second pass) — read this first
 
 **One-signature launches (both venues).** The stake no longer goes out ahead of the launch. The server appends the dev → vault transfer

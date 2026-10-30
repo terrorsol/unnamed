@@ -245,6 +245,10 @@ export default function App() {
   const onLaunch = async (meta: any, dev: number, stake: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = 0.3, venue: 'launchlab' | 'pump' = 'launchlab', permTax = false, vaultBuy?: number, targetPct?: number) => {
     const buy = +(vaultBuy ?? stake * 0.5).toFixed(4)
     const x = ctx(); if (!x) return needWallet()
+    // one prompt moves coin + your buy + the chest stake together: say up front when the wallet can't cover it, instead of a wallet
+    // simulation error (or a bundle that can't land). ~0.035 covers the create's rent, the Jito tip and fees.
+    { const need = dev * 1.02 + stake + 0.035; const have = await connection.getBalance(x.owner, 'confirmed').then((b) => b / 1e9).catch(() => null)
+      if (have != null && have < dev + stake + 0.02) { toast({ kind: 'err', title: 'Not enough SOL in this wallet', rows: [['Needs about', S(need) + ' SOL'], ['Has', S(have) + ' SOL'], ['Breakdown', `your buy ${S(dev)} + chest ${S(stake)} + ~0.035 rent & tip`]] }); return } }
     // the image + metadata upload starts now, alongside the vault, instead of after it
     const uriP = P.uploadMetadata(meta, K.SERVER); uriP.catch(() => {})
     // one-signature launch (both venues): the stake rides inside the create tx — one wallet prompt, nothing spent unless the launch lands

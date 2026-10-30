@@ -1,6 +1,9 @@
 import { Connection, Keypair, PublicKey, VersionedTransaction } from '@solana/web3.js'
 import bs58 from 'bs58'
 import { addTip, sendFast, MIN_TIP_LAMPORTS } from './fast.ts'
+import * as G from './txguard.ts'
+import { getAssociatedTokenAddressSync } from '@solana/spl-token'
+import * as EV from './events.ts'
 export const RPC = process.env.RPC_URL || 'https://api.mainnet-beta.solana.com'
 export const conn = new Connection(RPC, 'confirmed')
 export const TREASURY = process.env.TREASURY || '11111111111111111111111111111111'
@@ -22,9 +25,12 @@ export async function tokenProgram(mint: string): Promise<string> {
   const info = await conn.getAccountInfo(new PublicKey(mint)); if (!info) throw new Error('mint not found')
   const o = info.owner.toBase58(); progCache.set(mint, o); return o
 }
+/** every token account `owner` holds for `mint`, summed (review: anyone can open a second, empty account for the vault — reading only the
+ *  first one let that zero the vault's balance and freeze its exits) */
 export async function tokenBalance(owner: string, mint: string) {
   const r = await conn.getParsedTokenAccountsByOwner(new PublicKey(owner), { mint: new PublicKey(mint) })
-  const a = r.value[0]; return a ? { ui: +(a.account.data as any).parsed.info.tokenAmount.uiAmount, raw: BigInt((a.account.data as any).parsed.info.tokenAmount.amount) } : { ui: 0, raw: 0n }
+  let raw = 0n, dec = 0; for (const a of r.value) { const t = (a.account.data as any)?.parsed?.info?.tokenAmount; if (!t) continue; raw += BigInt(t.amount); dec = +t.decimals || dec }
+  return { ui: dec ? Number(raw) / 10 ** dec : r.value.reduce((s, a) => s + (+(a.account.data as any)?.parsed?.info?.tokenAmount?.uiAmount || 0), 0), raw }
 }
 export let lastRoute: 'pumpportal' | 'jupiter' | 'launchlab' = 'pumpportal'
 const WSOL = 'So11111111111111111111111111111111111111112'
@@ -40,28 +46,61 @@ export async function jupBuild(owner: PublicKey, action: 'buy' | 'sell', mint: s
     else { const dec = (await conn.getTokenSupply(new PublicKey(mint))).value.decimals; raw = BigInt(Math.floor(+amount * 10 ** dec)) }
     if (raw > bal.raw) raw = bal.raw; if (raw <= 0n) throw new Error('nothing to sell')
   }
-  const q: any = await (await fetch(`${JUP()}/quote?inputMint=${inMint}&outputMint=${outMint}&amount=${raw}&slippageBps=${Math.round(slippageBps)}&restrictIntermediateTokens=true`, { headers: h })).json()
+  const q: any = await (await fetch(`${JUP()}/quote?inputMint=${inMint}&outputMint=${outMint}&amount=${raw}&slippageBps=${Math.round(slippageBps)}&restrictIntermediateTokens=true`, { headers: h, signal: AbortSignal.timeout(15000) })).json()
   if (q.error || !q.outAmount) throw new Error('jupiter quote: ' + (q.error || 'no route'))
-  const sw: any = await (await fetch(`${JUP()}/swap`, { method: 'POST', headers: h, body: JSON.stringify({ quoteResponse: q, userPublicKey: owner.toBase58(), wrapAndUnwrapSol: true, dynamicComputeUnitLimit: true, prioritizationFeeLamports: { priorityLevelWithMaxLamports: { maxLamports: 1_000_000, priorityLevel: 'high' } } }) })).json()
+  const sw: any = await (await fetch(`${JUP()}/swap`, { method: 'POST', headers: h, body: JSON.stringify({ quoteResponse: q, userPublicKey: owner.toBase58(), wrapAndUnwrapSol: true, dynamicComputeUnitLimit: true, prioritizationFeeLamports: { priorityLevelWithMaxLamports: { maxLamports: 1_000_000, priorityLevel: 'high' } } }), signal: AbortSignal.timeout(15000) })).json()
   if (sw.error || !sw.swapTransaction) throw new Error('jupiter swap: ' + (sw.error || 'no tx'))
   return VersionedTransaction.deserialize(Buffer.from(sw.swapTransaction, 'base64'))
 }
-/** pump.fun / PumpSwap / Raydium trade signed by a server-held keypair (vault). PumpPortal builds; a failed dry-run falls back to Jupiter. */
-export async function pumpTrade(kp: Keypair, action: 'buy' | 'sell', mint: string, amount: number | string, denominatedInSol: boolean, slippage = 10, priorityFee = +(process.env.VAULT_PRIORITY_SOL || 0.001), signer?: (tx: VersionedTransaction) => VersionedTransaction) {
+/** The guard's bound for one vault trade (see txguard.ts). A sell reads the coin balance first: the tx may take at most the share asked for. */
+/** the coin's ATA for `owner` and what it holds now: a guarded buy must leave more in it than this */
+export async function buyWatch(owner: PublicKey, mint: string): Promise<{ coinAta: string; preTokRaw: bigint }> {
+  const prog = new PublicKey(await tokenProgram(mint)); const ata = getAssociatedTokenAddressSync(new PublicKey(mint), owner, true, prog)
+  const info = await conn.getAccountInfo(ata); return { coinAta: ata.toBase58(), preTokRaw: info && info.data.length >= 72 ? info.data.readBigUInt64LE(64) : 0n }
+}
+export async function tradeLimits(owner: PublicKey, action: 'buy' | 'sell', mint: string, amount: number | string, denominatedInSol: boolean, slippageBps: number, expectSol?: number): Promise<G.GuardLimits> {
+  if (action === 'buy') { if (!denominatedInSol) throw new Error('vault buys are sized in SOL'); const w = await buyWatch(owner, mint).catch(() => null); if (!w) throw new G.GuardError('tx guard: could not read the coin account — not signing blind', 'unavailable'); return { ...G.limitsFor('buy', mint, amount, { slippageBps }), ...w } }
+  const bal = await tokenBalance(owner.toBase58(), mint).catch(() => null); if (!bal) throw new G.GuardError('tx guard: could not read the coin balance — not signing blind', 'unavailable')
+  const pct = typeof amount === 'string' && amount.trim().endsWith('%'); const dec = pct ? undefined : await decimals(mint)
+  return G.limitsFor('sell', mint, amount, { slippageBps, expectSol, balanceRaw: bal.raw, decimals: dec })
+}
+/** Guard a built trade; a route the chain rejects (or a refused build) is rebuilt through Jupiter and guarded again. Returns the tx to sign. */
+async function guardOrJupiter(tx: VersionedTransaction, route: 'pumpportal' | 'launchlab', kp: Keypair, lim: G.GuardLimits, rebuild: () => Promise<VersionedTransaction>): Promise<{ tx: VersionedTransaction; route: 'pumpportal' | 'launchlab' | 'jupiter' }> {
+  const cap = BigInt(Math.max(0, Math.floor((lim.maxSolOut - 0.015) * 1e9)))
+  try { G.capBuyCeilings(tx, cap); await G.guardTx(conn, tx, kp.publicKey, lim); lastRoute = route; return { tx, route } }
+  catch (e: any) {
+    if (!(e instanceof G.GuardError) || e.kind === 'unavailable') throw e
+    if (e.kind === 'refused') EV.log('guard', `${route} ${lim.side} ${lim.mint.slice(0, 6)}… refused: ${e.message}`, { route, side: lim.side, mint: lim.mint, vault: kp.publicKey.toBase58() })
+    lastRoute = 'jupiter'; const jt = await rebuild(); G.capBuyCeilings(jt, cap); await G.guardTx(conn, jt, kp.publicKey, lim).catch((e2: any) => { if (e2 instanceof G.GuardError && e2.kind === 'refused') EV.log('guard', `jupiter ${lim.side} ${lim.mint.slice(0, 6)}… refused: ${e2.message}`, { route: 'jupiter', side: lim.side, mint: lim.mint }); throw e2 })
+    return { tx: jt, route: 'jupiter' }
+  }
+}
+/** pump.fun / PumpSwap / Raydium trade signed by a server-held keypair (vault). PumpPortal builds; the tx guard simulates it and checks every
+ *  SOL/token movement before the key signs; a route the chain rejects falls back to Jupiter (guarded the same way). `expectSol` = what a sell
+ *  should bring (bounds the fees it may pay). */
+export async function pumpTrade(kp: Keypair, action: 'buy' | 'sell', mint: string, amount: number | string, denominatedInSol: boolean, slippage = 10, priorityFee = +(process.env.VAULT_PRIORITY_SOL || 0.001), signer?: (tx: VersionedTransaction) => VersionedTransaction, opts: { expectSol?: number } = {}) {
   const args = { publicKey: kp.publicKey.toBase58(), action, mint, amount, denominatedInSol: denominatedInSol ? 'true' : 'false', slippage, priorityFee, pool: 'auto' }
   const url = (process.env.PUMPPORTAL_URL || 'https://pumpportal.fun/api') + '/trade-local'
   const jito = process.env.JITO === '1'
+  const guardOn = process.env.TX_GUARD !== '0'
+  const jup = () => jupBuild(kp.publicKey, action, mint, amount, denominatedInSol, slippage * 100)
+  // the guard's bound (a sell reads the balance) is fetched while PumpPortal builds, so the guard adds one simulation and nothing else
+  const limP = guardOn ? tradeLimits(kp.publicKey, action, mint, amount, denominatedInSol, slippage * 100, opts.expectSol) : Promise.resolve(null)
+  limP.catch(() => {})
   // Jito mode: PumpPortal's array body builds bundle-ready txs — the first tx's priorityFee becomes the Jito tip. Response is base58 strings.
-  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(jito ? [args] : args) }).catch(() => null)
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(jito ? [args] : args), signal: AbortSignal.timeout(15000) }).catch(() => null)
+  const lim = await limP
   // PumpPortal refusing to build (HTTP 4xx/5xx, unreachable) is the same case as a failed dry-run: build the trade through Jupiter instead
-  if (!r || !r.ok) { lastRoute = 'jupiter'; return signSend(kp, await jupBuild(kp.publicKey, action, mint, amount, denominatedInSol, slippage * 100), signer, false) }
+  if (!r || !r.ok) { lastRoute = 'jupiter'; const jt = await jup(); if (lim) await G.guardTx(conn, jt, kp.publicKey, lim); return signSend(kp, jt, signer, false) }
   let tx = jito ? VersionedTransaction.deserialize(bs58.decode((await r.json())[0])) : VersionedTransaction.deserialize(new Uint8Array(await r.arrayBuffer()))
-  // dry-run before spending a fee: mayhem/Token-2022 curve coins have failed PumpPortal's builder in preflight (pump error 6063). On a sim error, rebuild through Jupiter.
-  if (process.env.TRADE_SIM !== '0') {
+  let route: string = 'pumpportal'
+  if (lim) ({ tx, route } = await guardOrJupiter(tx, 'pumpportal', kp, lim, jup))
+  // guard off (TX_GUARD=0): the old dry-run — mayhem/Token-2022 curve coins have failed PumpPortal's builder in preflight (pump error 6063). On a sim error, rebuild through Jupiter.
+  else if (process.env.TRADE_SIM !== '0') {
     const simErr = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true }).then((x) => x?.value?.err ?? null, () => null)
-    if (simErr) { lastRoute = 'jupiter'; tx = await jupBuild(kp.publicKey, action, mint, amount, denominatedInSol, slippage * 100) } else lastRoute = 'pumpportal'
+    if (simErr) { lastRoute = route = 'jupiter'; tx = await jup() } else lastRoute = 'pumpportal'
   }
-  return signSend(kp, tx, signer, jito)
+  return signSend(kp, tx, signer, jito && route === 'pumpportal')
 }
 /** tip (Sender) → sign → send fast with rebroadcast → confirm. Shared by every venue. */
 export async function signSend(kp: Keypair, tx: VersionedTransaction, signer?: (tx: VersionedTransaction) => VersionedTransaction, jito = process.env.JITO === '1') {
@@ -75,13 +114,16 @@ export async function signSend(kp: Keypair, tx: VersionedTransaction, signer?: (
   const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 2000)
   try { await confirm(sig); return sig } catch (e: any) { e.sig = sig; throw e } finally { clearInterval(rb) }   // the signature rides on the error: a tx that lands after the timeout can still be booked
 }
-/** LaunchLab trade for a server-held key: built by the official SDK (no PumpPortal, no 0.5%), Jupiter if the build fails the dry-run. */
-export async function llTrade(kp: Keypair, action: 'buy' | 'sell', mint: string, amount: number | string, slippageBps = 1000, signer?: (tx: VersionedTransaction) => VersionedTransaction) {
+/** LaunchLab trade for a server-held key: built by the official SDK (no PumpPortal, no 0.5%), guarded like every vault trade; Jupiter if the chain rejects it. */
+export async function llTrade(kp: Keypair, action: 'buy' | 'sell', mint: string, amount: number | string, slippageBps = 1000, signer?: (tx: VersionedTransaction) => VersionedTransaction, opts: { expectSol?: number } = {}) {
   const L = await import('./launchlab.ts')
+  const lim = process.env.TX_GUARD !== '0' ? await tradeLimits(kp.publicKey, action, mint, amount, action === 'buy', slippageBps, opts.expectSol) : null
+  const jup = () => jupBuild(kp.publicKey, action, mint, amount, action === 'buy', slippageBps)
   let tx = action === 'buy' ? await L.buildTrade(kp.publicKey, 'buy', mint, amount, { slippageBps }) : await L.sellPct(kp.publicKey, mint, typeof amount === 'string' ? parseFloat(amount) : +amount, slippageBps)
-  if (process.env.TRADE_SIM !== '0') {
+  if (lim) tx = (await guardOrJupiter(tx, 'launchlab', kp, lim, jup)).tx
+  else if (process.env.TRADE_SIM !== '0') {
     const simErr = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true }).then((x) => x?.value?.err ?? null, () => null)
-    if (simErr) { lastRoute = 'jupiter'; tx = await jupBuild(kp.publicKey, action, mint, amount, action === 'buy', slippageBps) } else lastRoute = 'launchlab'
+    if (simErr) { lastRoute = 'jupiter'; tx = await jup() } else lastRoute = 'launchlab'
   }
   return signSend(kp, tx, signer)
 }

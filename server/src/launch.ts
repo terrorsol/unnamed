@@ -4,7 +4,8 @@
 // program it doesn't expect, or moves SOL anywhere but the curve (and the Jito tip account).
 // Shapes seen on mainnet (CI preflight, reports-preflight/launch-bundle.json): v0 txs with one lookup table; create = pump `create_v2`;
 // the buy is routed through PumpPortal's wrapper program (their 0.5% fee), data = disc(8) + amount u64 + max_sol_cost u64, same as pump `buy`.
-import { Connection, PublicKey, VersionedTransaction, SystemProgram, ComputeBudgetProgram } from '@solana/web3.js'
+import { Connection, PublicKey, VersionedTransaction, SystemProgram, ComputeBudgetProgram, TransactionMessage, TransactionInstruction, AddressLookupTableAccount } from '@solana/web3.js'
+import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token'
 import { PUMP_PROGRAM } from './pool.ts'
 
 // pump.fun bonding curve at creation (mainnet global config): virtual 30 SOL × 1.073e9 tokens, 1e9 total supply, ~793.1M tokens on the curve.
@@ -48,12 +49,16 @@ export const PUMPPORTAL_PROGRAM = 'FAdo9NCw1ssek6Z6yeWzWjhLVsr8uiCwcWNUnKgzTnHe'
 const ATA_PROGRAM = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'
 export const JITO_TIPS = ['96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5', 'HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe', 'Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY', 'ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49', 'DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh', 'ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt', 'DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL', '3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT']
 
+const altCache = new Map<string, { a: string[]; t: number }>()
 /** Full account list of a v0 tx: static keys, then every lookup table's writable and readonly entries, in message order. */
 export async function resolveKeys(tx: VersionedTransaction, conn: Connection): Promise<string[]> {
   const msg = tx.message; const keys = msg.staticAccountKeys.map((k) => k.toBase58())
   const lookups = msg.version === 0 ? msg.addressTableLookups : []
   if (!lookups.length) return keys
-  const tables = await Promise.all(lookups.map((l) => conn.getAddressLookupTable(l.accountKey).then((r) => r.value?.state.addresses.map((a) => a.toBase58()) || [])))
+  // tables only ever grow (extend appends; a closed table's address can't come back with other contents), so a cached copy is right for every
+  // index it has; any index past its end refetches. Saves an RPC round-trip on every guarded trade (PumpPortal and Jupiter txs use tables).
+  const fetchT = (k: PublicKey) => conn.getAddressLookupTable(k).then((r) => { const a = r.value?.state.addresses.map((x) => x.toBase58()) || []; if (a.length) altCache.set(k.toBase58(), { a, t: Date.now() }); return a })
+  const tables = await Promise.all(lookups.map((l) => { const c = altCache.get(l.accountKey.toBase58()); const need = Math.max(-1, ...l.writableIndexes, ...l.readonlyIndexes); return c && need < c.a.length && Date.now() - c.t < 3_600_000 ? c.a : fetchT(l.accountKey) }))
   const w: string[] = [], r: string[] = []
   lookups.forEach((l, i) => { for (const idx of l.writableIndexes) w.push(tables[i][idx] || `alt${i}:${idx}`); for (const idx of l.readonlyIndexes) r.push(tables[i][idx] || `alt${i}:${idx}`) })
   return [...keys, ...w, ...r]
@@ -118,4 +123,49 @@ export function inspectCreate(tx: VersionedTransaction, mint: string, tokenDecim
   }
   if (!created) throw new Error(`no create instruction · v${String(msg.version)} alts=${msg.version === 0 ? msg.addressTableLookups.length : 0} ixs=${seen.join(' ')}`)
   return { created, buy, tipSol: tip, signers: msg.header.numRequiredSignatures, seen }
+}
+
+/** PumpPortal's wrapper buy → pump's own `buy`, same accounts. The chest's block-zero buy on a pump launch is signed by the shared vault
+ *  wallet; through the wrapper, PumpPortal's program gets that wallet's signing power for the tx (and takes 0.5%). The wrapper's accounts are
+ *  pump's 16 `buy` accounts in the IDL's order, then bonding_curve_v2, then PumpPortal's own accounts (dropped). The official SDK appends
+ *  bonding_curve_v2 + a buyback fee recipient; the fee and buyback recipients are taken from pump's Global account. Every account we can
+ *  derive is checked against our own derivation (a wrong recipient only fails the buy, never moves more than max_sol_cost). Anything unexpected → { tx: null, why } and the caller keeps
+ *  the wrapper buy. Probe run (Oct 30 11:28 UTC, reports-probe): this direct buy simulates clean right after a create_v2 in the same tx;
+ *  without the two extra accounts pump answers BuybackFeeRecipientMissing. */
+export const PUMP_FEE_PROGRAM = 'pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ'
+/** pump's Global account: the fee recipients a buy may pay (fee_recipient + fee_recipients[7]) and the buyback fee recipients (8), by the IDL's
+ *  layout (pump-sdk 4.3.1: fee_recipient @41, fee_recipients @162, buyback_fee_recipients @741; 1088 bytes). Zero keys are unused slots. */
+export function pumpGlobalRecipients(data: Uint8Array) {
+  const b = Buffer.from(data); if (b.length < 997) throw new Error('pump global: ' + b.length + ' bytes')
+  const keys = (o: number, n: number) => Array.from({ length: n }, (_, i) => new PublicKey(b.subarray(o + 32 * i, o + 32 * i + 32)).toBase58()).filter((k) => k !== '11111111111111111111111111111111')
+  return { fee: [...keys(41, 1), ...keys(162, 7)], buyback: keys(741, 8) }
+}
+export function directPumpBuy(vt: VersionedTransaction, luts: AddressLookupTableAccount[], mint: string, payer: string, creator: string, globalData: Uint8Array): { tx: VersionedTransaction | null; why: string } {
+  let msg: TransactionMessage
+  try { msg = TransactionMessage.decompile(vt.message, { addressLookupTableAccounts: luts }) } catch (e: any) { return { tx: null, why: 'decompile: ' + String(e?.message || e).slice(0, 60) } }
+  const at = msg.instructions.map((ix, i) => ({ ix, i })).filter(({ ix }) => ix.programId.toBase58() === PUMPPORTAL_PROGRAM && hex(ix.data.subarray(0, 8)) === DISC.pp_buy)
+  if (at.length !== 1) return { tx: null, why: at.length ? 'two wrapper buys' : 'no wrapper buy' }
+  const w = at[0].ix; if (w.keys.length < 17 || w.data.length < 24) return { tx: null, why: `wrapper shape ${w.keys.length} accounts / ${w.data.length} bytes` }
+  const P = PUMP_PROGRAM, M = new PublicKey(mint), U = new PublicKey(payer), C = new PublicKey(creator)
+  const tp = w.keys[8].pubkey; if (!tp.equals(TOKEN_PROGRAM_ID) && !tp.equals(TOKEN_2022_PROGRAM_ID)) return { tx: null, why: 'account 8 is not a token program' }
+  const pda = (seeds: Buffer[], prog = P) => PublicKey.findProgramAddressSync(seeds, prog)[0]
+  const bc = pda([Buffer.from('bonding-curve'), M.toBuffer()])
+  const want: (PublicKey | null)[] = [pda([Buffer.from('global')]), null, M, bc, getAssociatedTokenAddressSync(M, bc, true, tp), getAssociatedTokenAddressSync(M, U, true, tp), U, SystemProgram.programId, tp,
+    pda([Buffer.from('creator-vault'), C.toBuffer()]), pda([Buffer.from('__event_authority')]), P, pda([Buffer.from('global_volume_accumulator')]), pda([Buffer.from('user_volume_accumulator'), U.toBuffer()]),
+    pda([Buffer.from('fee_config'), P.toBuffer()], new PublicKey(PUMP_FEE_PROGRAM)), new PublicKey(PUMP_FEE_PROGRAM), pda([Buffer.from('bonding-curve-v2'), M.toBuffer()]), null]
+  for (let i = 0; i < 17; i++) { const k = w.keys[i]; if (want[i] && !k.pubkey.equals(want[i]!)) return { tx: null, why: `account ${i} is ${k.pubkey.toBase58().slice(0, 6)}…, expected ${want[i]!.toBase58().slice(0, 6)}…` }
+    if (k.isSigner !== (i === 6)) return { tx: null, why: `account ${i} signer flag` } }
+  // the two fee recipients come from pump's own Global list, never from the wrapper: PumpPortal's trailing accounts are its own
+  // (probe Oct 30 11:32: taking the wrapper's 18th account as the buyback recipient → BuybackFeeRecipientNotAuthorized)
+  let g: { fee: string[]; buyback: string[] }; try { g = pumpGlobalRecipients(globalData) } catch (e: any) { return { tx: null, why: String(e?.message || e) } }
+  if (!g.fee.length || !g.buyback.length) return { tx: null, why: 'pump global lists no fee / buyback recipients' }
+  const feeRec = g.fee.includes(w.keys[1].pubkey.toBase58()) ? w.keys[1].pubkey : new PublicKey(g.fee[0])
+  const pick = w.keys.slice(17).map((k) => k.pubkey.toBase58()).find((k) => g.buyback.includes(k)) || g.buyback[Math.floor(Math.random() * g.buyback.length)]
+  const data = Buffer.alloc(26); Buffer.from(DISC.buy, 'hex').copy(data, 0); Buffer.from(w.data.subarray(8, 24)).copy(data, 8); data[24] = 1; data[25] = 0   // amount, max_sol_cost, track_volume Some(true), partial_fill Some(false)
+  const keys = w.keys.slice(0, 17).map((k) => ({ ...k })); keys[1] = { pubkey: feeRec, isSigner: false, isWritable: true }; keys[16] = { ...keys[16], isWritable: false }
+  keys.push({ pubkey: new PublicKey(pick), isSigner: false, isWritable: true })
+  const direct = new TransactionInstruction({ programId: P, keys, data })
+  const ixs = msg.instructions.slice(); ixs[at[0].i] = direct
+  try { const tx = new VersionedTransaction(new TransactionMessage({ payerKey: msg.payerKey, recentBlockhash: msg.recentBlockhash, instructions: ixs }).compileToV0Message(luts)); tx.serialize(); return { tx, why: '' } }
+  catch (e: any) { return { tx: null, why: 'recompile: ' + String(e?.message || e).slice(0, 60) } }
 }

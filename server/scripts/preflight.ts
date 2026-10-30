@@ -234,6 +234,27 @@ await step('launch bundle: [create+dev buy, vault buy] → decode + math check',
   const simNote = await sim(t0, 'create').catch((e) => 'create simulate: ' + String(e.message).slice(0, 100))
   return `${c.created} · tip on ${c.tipSol ? 'tx0' : 'tx1'} ${(c.tipSol || b.tipSol).toFixed(4)} SOL · dev ${(c.buy!.tokens / 1e6).toFixed(3)}M tok (ours ${(z.devTokens / 1e6).toFixed(3)}M, ${devDev >= 0 ? '+' : ''}${devDev.toFixed(3)}%) · vault ${(b.tokens / 1e6).toFixed(3)}M (ours ${(z.vaultTokens / 1e6).toFixed(3)}M, ${vaultDev >= 0 ? '+' : ''}${vaultDev.toFixed(3)}%) via ${b.via} · real cost ${real.cost.toFixed(4)} SOL vs max_sol_cost ${b.maxSolCost.toFixed(4)} (${(b.maxSolCost / real.cost).toFixed(2)}× pad) · ixs ${b.ixs.join(',')} · ${simNote}`
 })
+await step("pump launch: the chest's block-zero buy goes straight to pump (no PumpPortal wrapper) → create + that buy simulate in one tx", async () => {
+  // the server converts PumpPortal's wrapper buy into pump's own buy (launch.ts directPumpBuy). Dev and chest are both PAYER here; a Jito bundle
+  // runs the two txs back to back, so one tx holding the create and then the converted buy is the same state the buy meets on mainnet.
+  const { Keypair, TransactionMessage, ComputeBudgetProgram } = await import('@solana/web3.js'); const L = await import('../src/launch.ts')
+  const mint = Keypair.generate().publicKey.toBase58()
+  const body = [
+    { publicKey: PAYER.toBase58(), action: 'create', tokenMetadata: { name: 'preflight', symbol: 'PRE', uri: 'https://ipfs.io/ipfs/bafkreigh2akiscaildc' }, mint, denominatedInSol: 'true', amount: 0.05, slippage: 10, priorityFee: 0.0005, pool: 'pump' },
+    { publicKey: PAYER.toBase58(), action: 'buy', mint, denominatedInSol: 'true', amount: 0.1, slippage: 30, priorityFee: 0.00005, pool: 'pump' },
+  ]
+  const r = await timeout(fetch(PP, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), 20000)
+  if (!r.ok) throw new Error(`HTTP ${r.status} ${(await r.text()).slice(0, 160)}`)
+  const [t0, t1] = ((await r.json()) as string[]).map((e) => VersionedTransaction.deserialize(bs58.decode(e)))
+  const luts = (await Promise.all([...t0.message.addressTableLookups, ...t1.message.addressTableLookups].map((l) => conn.getAddressLookupTable(l.accountKey)))).map((x) => x.value!).filter(Boolean)
+  const gi = await conn.getAccountInfo(PublicKey.findProgramAddressSync([Buffer.from('global')], new PublicKey('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'))[0]); const gr = L.pumpGlobalRecipients(gi!.data)
+  const d = L.directPumpBuy(t1, luts, mint, PAYER.toBase58(), PAYER.toBase58(), gi!.data); if (!d.tx) throw new Error('conversion refused: ' + d.why)
+  const b = L.inspectBuy(d.tx, PAYER.toBase58(), mint, 6, await L.resolveKeys(d.tx, conn)); if (b.via !== 'pump') throw new Error('still the wrapper')
+  const noCU = (ix: any) => !ix.programId.equals(ComputeBudgetProgram.programId)
+  const m0 = TransactionMessage.decompile(t0.message, { addressLookupTableAccounts: luts }), m1 = TransactionMessage.decompile(d.tx.message, { addressLookupTableAccounts: luts })
+  const tx = new VersionedTransaction(new TransactionMessage({ payerKey: PAYER, recentBlockhash: m0.recentBlockhash, instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }), ...m0.instructions.filter(noCU), ...m1.instructions.filter(noCU)] }).compileToV0Message(luts))
+  return `global: ${gr.fee.length} fee + ${gr.buyback.length} buyback recipients · direct buy ${(b.tokens / 1e6).toFixed(3)}M tok, ceiling ${b.maxSolCost.toFixed(4)} · vault tx ${d.tx.serialize().length} B (wrapper ${t1.serialize().length} B) · ` + (await sim(tx, 'create + direct buy'))
+})
 await step('pumpportal: collectCreatorFee → shape', async () => {
   const r = await timeout(fetch(PP, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ publicKey: PAYER.toBase58(), action: 'collectCreatorFee', priorityFee: 0.000001 }) }), 15000)
   const txt = r.ok ? '' : await r.text(); if (!r.ok) return `HTTP ${r.status} ${txt.slice(0, 120)} (expected for a wallet with no creator fees)`
@@ -421,7 +442,10 @@ await step('one-signature launch through the real server routes: /vault/create �
       if (!b.txs?.length) throw new Error(venue + ' build: ' + JSON.stringify(b).slice(0, 200))
       const ct = VersionedTransaction.deserialize(Buffer.from(b.txs[0], 'base64')); const keys = await (await import('../src/launch.ts')).resolveKeys(ct, conn)
       if (!keys.includes(v.pub)) throw new Error(venue + ': the vault wallet is not in the create — no stake inside')
-      out.push(`${venue}: fundSol ${b.fundSol} · vault buy ${b.vaultTx ? 'signed' : 'none'} ${(+b.vaultSpend || 0).toFixed(3)} · ${ct.serialize().length} B · ` + (await sim(ct, venue + ' create+stake')).slice(0, 50))
+      // pump: the chest's signed buy must call pump's program itself, never PumpPortal's wrapper (directPumpBuy)
+      let via = ''; if (venue === 'pump' && b.vaultTx) { const vtx = VersionedTransaction.deserialize(Buffer.from(b.vaultTx, 'base64')); const ks = vtx.message.staticAccountKeys.map((k) => k.toBase58()); const progs = vtx.message.compiledInstructions.map((ix) => ks[ix.programIdIndex])
+        if (progs.includes('FAdo9NCw1ssek6Z6yeWzWjhLVsr8uiCwcWNUnKgzTnHe')) throw new Error('pump: the chest buy still goes through the PumpPortal wrapper'); via = progs.includes('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P') ? ' (direct pump buy)' : ' (?)' }
+      out.push(`${venue}: fundSol ${b.fundSol} · vault buy ${b.vaultTx ? 'signed' : 'none'} ${(+b.vaultSpend || 0).toFixed(3)}${via} · ${ct.serialize().length} B · ` + (await sim(ct, venue + ' create+stake')).slice(0, 50))
     }
     return out.join(' · ')
   } finally { proc.kill() }
@@ -437,6 +461,151 @@ await step('jupiter: api.jup.ag quote + swap → simulate', async () => {
   const tx = VersionedTransaction.deserialize(Buffer.from(s.swapTransaction, 'base64'))
   const tipped = await addTip(conn, tx, PAYER, MIN_TIP_LAMPORTS)
   return `out ${q.outAmount} · impact ${q.priceImpactPct}% · v${tx.message.version} alts=${tx.message.version === 'legacy' ? 0 : tx.message.addressTableLookups.length} · ` + (await sim(tipped, 'tipped swap'))
+})
+
+// ---------- tx guard: what the vault checks before it signs a trade someone else built ----------
+// Every route the vault trades through (PumpPortal curve + amm, Jupiter, the LaunchLab SDK) is built for a real wallet, simulated with inner
+// instructions and walked by the same guard production runs. Real trades must pass; the same trade with a drain appended must be refused.
+const GUARDX: { buy?: VersionedTransaction; solCurve?: { mint: string; buy: VersionedTransaction } } = {}
+async function ppBuild(owner: PublicKey, action: 'buy' | 'sell', mint: string, amount: number | string, pool = 'auto') {
+  const r = await timeout(fetch(PP, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ publicKey: owner.toBase58(), action, mint, amount, denominatedInSol: action === 'buy' ? 'true' : 'false', slippage: 15, priorityFee: 0.0005, pool }) }), 15000)
+  if (!r.ok) throw new Error(`pumpportal HTTP ${r.status} ${(await r.text()).slice(0, 80)}`)
+  return VersionedTransaction.deserialize(new Uint8Array(await r.arrayBuffer()))
+}
+/** a wallet (system-owned) that holds `mint`, from the largest token accounts; skips pools/curves (program-owned) */
+async function holderOf(mint: string): Promise<{ owner: PublicKey; raw: bigint } | null> {
+  const big = await conn.getTokenLargestAccounts(new PublicKey(mint)).catch(() => null); if (!big) return null
+  const parsed = await conn.getMultipleParsedAccounts(big.value.slice(0, 12).map((a) => a.address)).catch(() => null); if (!parsed) return null
+  for (const [i, a] of parsed.value.entries()) {
+    const o = (a?.data as any)?.parsed?.info?.owner; if (!o) continue; const oi = await conn.getAccountInfo(new PublicKey(o)).catch(() => null)
+    if (oi && oi.owner.toBase58() === '11111111111111111111111111111111' && oi.lamports > 0.01e9 && BigInt(big.value[i].amount) > 0n) return { owner: new PublicKey(o), raw: BigInt(big.value[i].amount) }
+  }
+  return null
+}
+/** a pump curve coin quoted in SOL (most top curve coins today are quoted in another token: PumpPortal answers 6063 UnsupportedQuoteMint
+ *  on those). Our own launches are SOL-quoted, so this is the shape the chest trades. Found by asking PumpPortal for a buy and simulating it. */
+async function solCurveCoin(): Promise<{ mint: string; buy: VersionedTransaction } | null> {
+  const seen = new Set<string>()
+  for (const q of ['sort=h24_volume_usd_desc&page=1', 'sort=h24_tx_count_desc&page=1', 'sort=h24_volume_usd_desc&page=2']) {
+    const d: any = await (await timeout(fetch(`${GT}/networks/solana/dexes/pump-fun/pools?${q}`), 10000)).json().catch(() => null)
+    for (const p of (d?.data || []).slice(0, 20)) {
+      const m = p.relationships.base_token.data.id.replace('solana_', ''); if (seen.has(m)) continue; seen.add(m)
+      try { const tx = await ppBuild(PAYER, 'buy', m, 0.01, 'pump'); const r = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true }); if (!r.value.err) return { mint: m, buy: tx } } catch {}
+      if (seen.size >= 24) return null
+      await sleep(250)
+    }
+    await sleep(1500)
+  }
+  return null
+}
+await step('tx guard: a SOL-quoted pump curve coin through PumpPortal\'s wrapper — real buy + real holder sell pass, the sell is capped', async () => {
+  const G = await import('../src/txguard.ts'); const { tokenBalance } = await import('../src/chain.ts'); const { curveSpot } = await import('../src/pool.ts')
+  const c = await solCurveCoin(); if (!c) return 'skipped: no SOL-quoted curve coin in the top lists this minute (the next step covers the wrapper buy on a fresh coin)'
+  GUARDX.solCurve = c
+  const notes: string[] = [`coin ${c.mint.slice(0, 6)}…`]
+  const { buyWatch } = await import('../src/chain.ts'); const blim = { ...G.limitsFor('buy', c.mint, 0.01, { slippageBps: 1500 }), ...(await buyWatch(PAYER, c.mint)) }
+  const bt = VersionedTransaction.deserialize(c.buy.serialize()); const capped = G.capBuyCeilings(bt, BigInt(Math.floor((blim.maxSolOut - 0.015) * 1e9)))
+  const r = await G.guardTx(conn, bt, PAYER, blim); notes.push(`buy ok · out ${r.solOut.toFixed(4)} (fee ${(r.feeSol || 0).toFixed(5)}) · coin in ${r.tokIn} · ${r.checked} ixs${capped ? ' · ceiling capped' : ''}`)
+  const h = await holderOf(c.mint); if (!h) return notes.concat('no wallet holder to test a sell').join(' · ')
+  const bal = await tokenBalance(h.owner.toBase58(), c.mint); const sp = await curveSpot(c.mint).catch(() => null); const expectSol = bal.ui * 0.1 * (sp?.priceSol || 0)
+  const sell = await ppBuild(h.owner, 'sell', c.mint, '10%', 'pump')
+  try { const rs = await G.guardTx(conn, sell, h.owner, G.limitsFor('sell', c.mint, '10%', { slippageBps: 1500, expectSol, balanceRaw: bal.raw })); notes.push(`holder sell 10% ok · tokens ${rs.tokOut} ≤ ${bal.raw / 10n + 1n} · sol out ${rs.solOut.toFixed(4)} (expect ${expectSol.toFixed(4)})`) }
+  catch (e: any) { if (e?.kind === 'refused' || e?.kind === 'unavailable') throw new Error('holder sell: ' + e.message); notes.push('holder sell: route fails on chain (' + String(e.message).slice(0, 50) + ')') }
+  try { await G.guardTx(conn, sell, h.owner, G.limitsFor('sell', c.mint, '5%', { slippageBps: 1500, expectSol, balanceRaw: bal.raw })); throw new Error('a 10% sell passed a 5% limit') } catch (e: any) { if (e?.kind === 'refused') notes.push('10% under a 5% limit refused'); else if (e?.kind !== 'simFailed') throw e }
+  return notes.join(' · ')
+})
+await step('tx guard: a fresh SOL-quoted coin — create + PumpPortal\'s wrapper buy in one simulated tx; the guard walks the buy\'s CPIs and passes them', async () => {
+  // the shape the chest meets right after one of our pump launches, independent of what trades on mainnet this minute
+  const G = await import('../src/txguard.ts'); const { Keypair, TransactionMessage, ComputeBudgetProgram } = await import('@solana/web3.js'); const L = await import('../src/launch.ts')
+  const mint = Keypair.generate().publicKey.toBase58()
+  const body = [{ publicKey: PAYER.toBase58(), action: 'create', tokenMetadata: { name: 'preflight', symbol: 'PRE', uri: 'https://ipfs.io/ipfs/bafkreigh2akiscaildc' }, mint, denominatedInSol: 'true', amount: 0.05, slippage: 10, priorityFee: 0.0005, pool: 'pump' },
+    { publicKey: PAYER.toBase58(), action: 'buy', mint, denominatedInSol: 'true', amount: 0.1, slippage: 30, priorityFee: 0.00005, pool: 'pump' }]
+  const r = await timeout(fetch(PP, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), 20000); if (!r.ok) throw new Error(`HTTP ${r.status}`)
+  const [t0, t1] = ((await r.json()) as string[]).map((e) => VersionedTransaction.deserialize(bs58.decode(e)))
+  const luts = (await Promise.all([...t0.message.addressTableLookups, ...t1.message.addressTableLookups].map((l) => conn.getAddressLookupTable(l.accountKey)))).map((x) => x.value!).filter(Boolean)
+  const noCU = (ix: any) => !ix.programId.equals(ComputeBudgetProgram.programId)
+  const a = TransactionMessage.decompile(t0.message, { addressLookupTableAccounts: luts }).instructions.filter(noCU), b = TransactionMessage.decompile(t1.message, { addressLookupTableAccounts: luts }).instructions.filter(noCU)
+  const all = [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }), ...a, ...b]; const tx = new VersionedTransaction(new TransactionMessage({ payerKey: PAYER, recentBlockhash: t0.message.recentBlockhash, instructions: all }).compileToV0Message(luts))
+  const sres = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true, innerInstructions: true }); if (sres.value.err) throw new Error('combined simulate err ' + JSON.stringify(sres.value.err))
+  // only the buy's part (top-level index ≥ 1 + a.length) — the create's own CPIs are the dev's, not a trade
+  const keys = await L.resolveKeys(tx, conn); const from = 1 + a.length; const inner = new Map<number, any[]>(); for (const g of sres.value.innerInstructions || []) inner.set(g.index, g.instructions as any[])
+  const ixs: any[] = []; tx.message.compiledInstructions.forEach((ix, i) => { if (i < from) return; ixs.push(G.decodeTop(keys[ix.programIdIndex], ix.data, ix.accountKeyIndexes.map((k) => keys[k]))); for (const y of inner.get(i) || []) ixs.push(G.fromInner(y)) })
+  const res = G.checkIxs(ixs, PAYER.toBase58(), G.limitsFor('buy', mint, 0.1, { slippageBps: 3000 }))
+  const types = [...new Set(ixs.filter((x) => x.program !== 'other').map((x) => x.program + ':' + x.type))].join(', ')
+  return `buy part: ${ixs.length} ixs (${types}) · out ${res.solOut.toFixed(4)} SOL for a 0.1 buy · bound ${G.limitsFor('buy', mint, 0.1, { slippageBps: 3000 }).maxSolOut.toFixed(4)}`
+})
+await step('tx guard: the RPC simulates with inner instructions (the guard refuses to sign without them)', async () => {
+  const tx = await ppBuild(PAYER, 'buy', ctx.curveMint!, 0.01); GUARDX.buy = tx
+  const r = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true, innerInstructions: true })
+  const ii = r.value.innerInstructions; if (!Array.isArray(ii)) throw new Error('no innerInstructions in the simulation response · err ' + JSON.stringify(r.value.err))
+  const flat = ii.flatMap((g: any) => g.instructions); const parsed = flat.filter((x: any) => x.parsed)
+  return `${ii.length} groups · ${flat.length} inner ixs (${parsed.length} parsed: ${[...new Set(parsed.map((x: any) => x.program + ':' + x.parsed.type))].slice(0, 8).join(', ')}) · err ${JSON.stringify(r.value.err)}`
+})
+await step('tx guard: real buys pass on every route (pumpportal curve + amm, jupiter, launchlab sdk)', async () => {
+  const G = await import('../src/txguard.ts'); const notes: string[] = []; let passed = 0
+  const one = async (label: string, mint: string | undefined, build: () => Promise<VersionedTransaction>, slipBps: number) => {
+    if (!mint) { notes.push(`${label}: no coin`); return }
+    // exactly what production does: the bound + the coin account to watch, padded ceilings pulled down, then the guard
+    try { const tx = await build(); const { buyWatch } = await import('../src/chain.ts'); const lim = { ...G.limitsFor('buy', mint, 0.01, { slippageBps: slipBps }), ...(await buyWatch(PAYER, mint)) }; const capped = G.capBuyCeilings(tx, BigInt(Math.floor((lim.maxSolOut - 0.015) * 1e9)))
+      const r = await G.guardTx(conn, tx, PAYER, lim); passed++; notes.push(`${label} ok · out ${r.solOut.toFixed(4)} (wrap ${r.wrapped.toFixed(4)}, fee ${(r.feeSol || 0).toFixed(5)}) of ${lim.maxSolOut.toFixed(4)} · coin in ${r.tokIn} · ${r.checked} ixs${capped ? ' · ceiling capped' : ''}`) }
+    catch (e: any) { if (e?.kind === 'refused' || e?.kind === 'unavailable') throw new Error(`${label}: ${e.message}`); notes.push(`${label}: route fails on chain (${String(e.message).slice(0, 70)})`) }
+    await sleep(800)
+  }
+  await one('pumpportal curve', ctx.curveMint, async () => GUARDX.buy || ppBuild(PAYER, 'buy', ctx.curveMint!, 0.01), 1500)
+  await one('pumpportal amm', ctx.ammMint, () => ppBuild(PAYER, 'buy', ctx.ammMint!, 0.01), 1500)
+  const { jupBuild } = await import('../src/chain.ts')
+  await one('jupiter amm', ctx.ammMint, () => jupBuild(PAYER, 'buy', ctx.ammMint!, 0.01, true, 1500), 1500)
+  if (ctx.mayhemMint) await one('jupiter mayhem curve', ctx.mayhemMint, () => jupBuild(PAYER, 'buy', ctx.mayhemMint!, 0.01, true, 1500), 1500)
+  const LL = await import('../src/launchlab.ts')
+  await one('launchlab sdk', LLX.mint, () => LL.buildTrade(PAYER, 'buy', LLX.mint!, 0.01, { slippageBps: 1500 }), 1500)
+  if (passed < 1) throw new Error(`no route passed · ` + notes.join(' · '))
+  return notes.join(' · ')
+})
+await step('tx guard: real sells pass for a real holder (pumpportal + jupiter), capped at the share asked for', async () => {
+  const G = await import('../src/txguard.ts'); const { jupBuild, tokenBalance } = await import('../src/chain.ts'); const notes: string[] = []; let passed = 0
+  for (const [label, mint] of [['curve', ctx.curveMint], ['amm', ctx.ammMint]] as const) {
+    if (!mint) continue; const h = await holderOf(mint); if (!h) { notes.push(`${label}: no wallet holder found`); continue }
+    const bal = await tokenBalance(h.owner.toBase58(), mint); const { curveSpot } = await import('../src/pool.ts'); const sp = label === 'curve' ? await curveSpot(mint).catch(() => null) : null
+    const px = sp?.priceSol || 0; const expectSol = bal.ui * 0.1 * px
+    const lim = G.limitsFor('sell', mint, '10%', { slippageBps: 1500, expectSol: expectSol || 1, balanceRaw: bal.raw })
+    for (const [route, build] of [['pumpportal', () => ppBuild(h.owner, 'sell', mint, '10%')], ['jupiter', () => jupBuild(h.owner, 'sell', mint, '10%', false, 1500)]] as const) {
+      try { const r = await G.guardTx(conn, await build(), h.owner, lim); passed++; notes.push(`${label}/${route} ok · tokens ${r.tokOut} ≤ ${lim.maxTokOutRaw} · sol out ${r.solOut.toFixed(4)}`) }
+      catch (e: any) { if (e?.kind === 'refused' || e?.kind === 'unavailable') throw new Error(`${label}/${route} (holder ${h.owner.toBase58().slice(0, 6)}): ${e.message}`); notes.push(`${label}/${route}: route fails on chain (${String(e.message).slice(0, 60)})`) }
+      await sleep(800)
+    }
+    // the same sell asked as 5%: a tx built for 10% must be refused
+    try { await G.guardTx(conn, await ppBuild(h.owner, 'sell', mint, '10%'), h.owner, G.limitsFor('sell', mint, '5%', { slippageBps: 1500, expectSol: expectSol || 1, balanceRaw: bal.raw })); throw new Error(`${label}: a 10% sell passed a 5% limit`) }
+    catch (e: any) { if (e?.kind === 'refused') notes.push(`${label}: 10% sell under a 5% limit refused`); else if (e?.kind === 'unavailable' || /passed a 5% limit/.test(String(e?.message))) throw e; else notes.push(`${label}: (route unavailable: ${String(e?.message).slice(0, 50)})`) }
+  }
+  if (!passed) throw new Error('no sell route passed · ' + notes.join(' · '))
+  return notes.join(' · ')
+})
+await step('tx guard: the same buy with a drain appended is refused (SOL out, token delegate, foreign token)', async () => {
+  const G = await import('../src/txguard.ts'); const { TransactionMessage } = await import('@solana/web3.js')
+  const { createApproveInstruction, createTransferInstruction } = await import('@solana/spl-token')
+  // a buy the chain accepts as is (the curve coin of the minute may be a mayhem coin PumpPortal can't trade): PumpPortal on the amm coin, else Jupiter
+  let base: VersionedTransaction | null = null, baseMint = ctx.ammMint!, baseRoute = ''
+  for (const [route, mint, build] of [['pumpportal sol-quoted curve', GUARDX.solCurve?.mint, async () => GUARDX.solCurve!.buy], ['pumpportal amm', ctx.ammMint, () => ppBuild(PAYER, 'buy', ctx.ammMint!, 0.01)], ['pumpportal curve', ctx.curveMint, () => GUARDX.buy ? Promise.resolve(GUARDX.buy) : ppBuild(PAYER, 'buy', ctx.curveMint!, 0.01)], ['jupiter amm', ctx.ammMint, async () => (await import('../src/chain.ts')).jupBuild(PAYER, 'buy', ctx.ammMint!, 0.01, true, 1500)]] as const) {
+    if (!mint) continue; try { const tx = await build(); const r = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true }); if (!r.value.err) { base = tx; baseMint = mint; baseRoute = route; break } } catch {}
+  }
+  if (!base) throw new Error('no buy route simulates clean right now — nothing to append a drain to')
+  const alts = base.message.version === 0 ? (await Promise.all(base.message.addressTableLookups.map((l) => conn.getAddressLookupTable(l.accountKey)))).map((r) => r.value!).filter(Boolean) : []
+  const msg = TransactionMessage.decompile(base.message, { addressLookupTableAccounts: alts })
+  const lim = G.limitsFor('buy', baseMint, 0.01, { slippageBps: 1500 })
+  const other = (await conn.getTokenAccountsByOwner(PAYER, { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') })).value.find((a) => a.account.data.readBigUInt64LE(64) > 0n)
+  const evil = PublicKey.unique()
+  const cases: [string, any][] = [['SOL out', SystemProgram.transfer({ fromPubkey: PAYER, toPubkey: evil, lamports: 500_000_000 })]]
+  if (other) { cases.push(['token delegate', createApproveInstruction(other.pubkey, evil, PAYER, 1n)]); cases.push(['foreign token out', createTransferInstruction(other.pubkey, other.pubkey, PAYER, 1n)]) }
+  const notes: string[] = []
+  for (const [label, ix] of cases) {
+    const m = new TransactionMessage({ payerKey: msg.payerKey, recentBlockhash: msg.recentBlockhash, instructions: [...msg.instructions, ix] })
+    const tx = new VersionedTransaction(m.compileToV0Message(alts))
+    try { await G.guardTx(conn, tx, PAYER, lim); throw new Error(`${label}: NOT refused`) }
+    catch (e: any) { if (e?.kind === 'refused') notes.push(`${label} refused (${String(e.message).replace('tx guard: ', '').slice(0, 60)})`); else if (e?.kind === 'simFailed') notes.push(`${label}: sim failed (${String(e.message).slice(0, 50)}) — not a guard check`); else throw e }
+    await sleep(500)
+  }
+  if (!notes.some((n) => /SOL out refused/.test(n))) throw new Error(baseRoute + ' · ' + notes.join(' · '))
+  return `base ${baseRoute} · ` + notes.join(' · ')
 })
 
 // ---------- desk fill structure on the real amm mint ----------

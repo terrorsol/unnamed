@@ -10,7 +10,7 @@ import { balanceSol, tokenBalance, pumpTrade, conn, confirm, decimals, TREASURY,
 import * as C from './chain.ts'
 import * as D from './desk.ts'
 import { watchPool, streamStats, delivering, decode as decodeSwap } from './stream.ts'
-import { curvePda } from './pool.ts'
+import { curvePda, PUMP_PROGRAM } from './pool.ts'
 import * as KEEP from './keeper.ts'
 import * as VM from './vamp.ts'
 import * as MM from './mm.ts'
@@ -79,7 +79,7 @@ export type Vault = { armedAt?: number; launchSpend?: number; taxAccrued?: numbe
 let vaults: Record<string, Vault> = {}
 const watched = new Map<string, { pool: string; off: () => void }>()   // vault id → the pool its per-swap stream is on (re-pointed when the coin migrates)
 let SOLUSD = 0; setInterval(() => fetch(`${process.env.DEX_URL || 'https://api.dexscreener.com'}/tokens/v1/solana/So11111111111111111111111111111111111111112`).then((r) => r.json()).then((a: any[]) => { const x = a?.[0]?.priceUsd; if (x) SOLUSD = +x }).catch(() => {}), 30000)
-export function load() { if (existsSync(FILE)) vaults = JSON.parse(readFileSync(FILE, 'utf8')); for (const v of Object.values(vaults)) { delete (v as any).closing; delete (v as any).crowdArming; delete (v as any)._capBusy; delete (v as any)._pendIn } for (const v of Object.values(vaults)) for (const a of v.activity || []) if (a.sig && a.kind === 'stake' && !booked[a.sig]) booked[a.sig] = v.id }
+export function load() { if (existsSync(FILE)) vaults = JSON.parse(readFileSync(FILE, 'utf8')); loadLate(); for (const v of Object.values(vaults)) { delete (v as any).closing; delete (v as any).crowdArming; delete (v as any)._capBusy; delete (v as any)._pendIn } for (const v of Object.values(vaults)) for (const a of v.activity || []) if (a.sig && a.kind === 'stake' && !booked[a.sig]) booked[a.sig] = v.id }
 /** Every signature whose SOL was booked INTO a chest, ever (persisted; activity is trimmed to 200 entries, so it can't be the record).
  *  A signature is claimed synchronously before any await, so parallel calls can't both book it (Oct 30 review: ten parallel /vault/fund
  *  calls on one stake would each have added it). */
@@ -129,13 +129,27 @@ async function book(v: Vault, sig: string | undefined, fallback = 0) {
   if (!v.shared) { v.chest = await balanceSol(v.pub); return }
   // when the tx can't be read yet: a spend is debited by its estimate now (conservative); a credit is NOT taken on an estimate — it is booked
   // from the tx itself once readable (lateCredits), or not at all (third review: an estimated sale credit could be withdrawn at once)
-  try { const d = await txDelta(sig, v.pub); v.chest = Math.max(0, +(v.chest + d).toFixed(9)) } catch (e: any) { if (fallback <= 0) v.chest = Math.max(0, v.chest + fallback); else lateCredits.push({ id: v.id, sig, until: Date.now() + 30 * 60_000 }); v.ledgerDirty = true; EV.log('error', `${v.symbol || v.id} ledger: ${String(e.message).slice(0, 80)} (fallback ${fallback})`, { mint: v.mint, sig }) }
+  try { const d = await txDelta(sig, v.pub); v.chest = Math.max(0, +(v.chest + d).toFixed(9)) } catch (e: any) { if (fallback <= 0) v.chest = Math.max(0, v.chest + fallback); else { lateCredits.push({ id: v.id, sig, until: Date.now() + 30 * 60_000 }); saveLate() } v.ledgerDirty = true; EV.log('error', `${v.symbol || v.id} ledger: ${String(e.message).slice(0, 80)} (fallback ${fallback})`, { mint: v.mint, sig }) }
 }
 /** trades whose confirmation timed out: the tx may still land. Retried every tick for ~10 min, booked by exact delta when it does. */
 const lateBooks: { id: string; sig: string; fallback: number; until: number; after?: (v: Vault, chestBefore: number) => void }[] = []
-export function deferBook(v: Vault, sig: string | undefined, fallback: number, after?: (v: Vault, chestBefore: number) => void) { if (!sig || PAPER) return; lateBooks.push({ id: v.id, sig, fallback, until: Date.now() + 10 * 60_000, after }); EV.log('vault', `${v.symbol || v.id} tx ${sig.slice(0, 8)}… not confirmed in time — will book it if it lands`, { sig }) }
+export function deferBook(v: Vault, sig: string | undefined, fallback: number, after?: (v: Vault, chestBefore: number) => void) { if (!sig || PAPER) return; lateBooks.push({ id: v.id, sig, fallback, until: Date.now() + 10 * 60_000, after }); saveLate(); EV.log('vault', `${v.symbol || v.id} tx ${sig.slice(0, 8)}… not confirmed in time — will book it if it lands`, { sig }) }
 const lateCredits: { id: string; sig: string; until: number }[] = []
+// both lists survive a restart (third review): a deploy in the 10–30 min a trade can take to show up would otherwise drop its booking.
+// `after` hooks are in-memory only; the booking itself is what the ledger needs.
+const LATE_FILE = DIR + '/late-books.json'; let lateSaved = ''
+function saveLate() { const j = JSON.stringify({ books: lateBooks.map(({ id, sig, fallback, until }) => ({ id, sig, fallback, until })), credits: lateCredits }); if (j === lateSaved) return; lateSaved = j; try { mkdirSync(DIR, { recursive: true }); writeFileSync(LATE_FILE, j) } catch {} }
+export function loadLate() {
+  try { if (!existsSync(LATE_FILE)) return; const d = JSON.parse(readFileSync(LATE_FILE, 'utf8')); const now = Date.now()
+    for (const b of d.books || []) if (b?.sig && !lateBooks.some((x) => x.sig === b.sig)) lateBooks.push({ id: b.id, sig: b.sig, fallback: +b.fallback || 0, until: Math.max(+b.until || 0, now + 5 * 60_000) })
+    for (const c of d.credits || []) if (c?.sig && !lateCredits.some((x) => x.sig === c.sig)) lateCredits.push({ id: c.id, sig: c.sig, until: Math.max(+c.until || 0, now + 5 * 60_000) })
+    lateSaved = JSON.stringify({ books: lateBooks.map(({ id, sig, fallback, until }) => ({ id, sig, fallback, until })), credits: lateCredits })
+  } catch {}
+}
 export async function settleLateBooks() {
+  try { await settleLateOnce() } finally { saveLate() }
+}
+async function settleLateOnce() {
   for (const lc of lateCredits.slice()) { const v = vaults[lc.id]; if (!v) { lateCredits.splice(lateCredits.indexOf(lc), 1); continue }
     const d = await txDelta(lc.sig, v.pub).catch(() => null); if (d != null) { v.chest = Math.max(0, +(v.chest + d).toFixed(9)); lateCredits.splice(lateCredits.indexOf(lc), 1); if (!lateCredits.some((x) => x.id === v.id)) v.ledgerDirty = false; save() }
     else if (Date.now() > lc.until) { lateCredits.splice(lateCredits.indexOf(lc), 1); EV.log('error', `${v.symbol || v.id} credit ${lc.sig.slice(0, 8)}… never became readable — not booked (under, never over)`, { sig: lc.sig }) } }
@@ -685,7 +699,10 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 /** vault slippage: the min-out is computed from the pool state read at build time, so this only has to cover 1–2 slots of other flow. It was 10% — a free 10% for any sandwich bot. A trade that misses fails (fee only, no fill) and the next tick re-decides. */
 const SLIP_BUY_BPS = Math.max(10, +(process.env.VAULT_SLIP_BUY_BPS || 150)), SLIP_SELL_BPS = Math.max(10, +(process.env.VAULT_SLIP_SELL_BPS || 100))
 async function trade(v: Vault, action: 'buy' | 'sell', amount: number | string, denominatedInSol: boolean, price: number): Promise<string> {
-  if (!PAPER) { const signer = (tx: any) => KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'trade', action === 'buy' ? +amount : 0); const onLL = v.venue === 'launchlab' && !!(await LL.pool(v.mint!).catch(() => null))?.migrated === false; const slip = action === 'buy' ? SLIP_BUY_BPS : SLIP_SELL_BPS; return onLL ? C.llTrade(kp(v), action, v.mint!, amount, slip, signer) : pumpTrade(kp(v), action, v.mint!, amount, denominatedInSol, slip / 100, undefined, signer) }
+  if (!PAPER) { const signer = (tx: any) => KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'trade', action === 'buy' ? +amount : 0); const onLL = v.venue === 'launchlab' && !!(await LL.pool(v.mint!).catch(() => null))?.migrated === false; const slip = action === 'buy' ? SLIP_BUY_BPS : SLIP_SELL_BPS
+    // what a sell should bring at the price this tick decided on: the tx guard lets it pay fees out of that, nothing more
+    const expectSol = action === 'sell' ? (typeof amount === 'string' && amount.trim().endsWith('%') ? v.tokens * parseFloat(amount) / 100 : +amount) * (price || 0) : undefined
+    return onLL ? C.llTrade(kp(v), action, v.mint!, amount, slip, signer, { expectSol }) : pumpTrade(kp(v), action, v.mint!, amount, denominatedInSol, slip / 100, undefined, signer, { expectSol }) }
   if (action === 'buy') { const sol = +amount; v.chest -= sol; v.tokens += (sol / price) * 0.985 }
   else { const frac = typeof amount === 'string' ? parseFloat(amount) / 100 : +amount / v.tokens; const tok = v.tokens * frac; v.tokens -= tok; v.chest += tok * price * 0.985 }
   return 'paper-' + Math.random().toString(36).slice(2, 10)
@@ -986,6 +1003,11 @@ async function buildPumpLaunchOnce(b: { dev: string; name: string; symbol: strin
     else ct = VersionedTransaction.deserialize(new Uint8Array(await r.arrayBuffer()))
     if (!ct.message.staticAccountKeys[0].equals(dev)) throw new Error('create is not paid by the dev')
     if (fundSol && v) { const luts: any[] = []; for (const l of ct.message.addressTableLookups) { const a = (await conn.getAddressLookupTable(l.accountKey)).value; if (a) luts.push(a) } ct = LL.appendTransfer(ct, luts, dev, new PK(v.pub), Math.round(fundSol * 1e9)); (v as any).fundInBundle = true }
+    // the chest's block-zero buy goes straight to pump's program, not through PumpPortal's wrapper: the wrapper would get the shared wallet's
+    // signing power for that tx (and 0.5%). Any shape we don't recognise keeps the wrapper buy (logged); PUMP_DIRECT_BUY=0 turns it off.
+    if (vt && v && process.env.PUMP_DIRECT_BUY !== '0') { const luts: any[] = []; for (const l of vt.message.addressTableLookups) { const a = (await conn.getAddressLookupTable(l.accountKey)).value; if (a) luts.push(a) }
+      const gi = await conn.getAccountInfo(PublicKey.findProgramAddressSync([Buffer.from('global')], PUMP_PROGRAM)[0]).catch(() => null)
+      const d = gi ? L.directPumpBuy(vt, luts, mint, v.pub, b.dev, gi.data) : { tx: null, why: 'pump global unreadable' }; if (d.tx) vt = d.tx; else EV.log('vault', `pump launch ${b.symbol}: kept PumpPortal's wrapper buy (${d.why})`, { mint }) }
     let vaultTx: string | null = null, vaultTokens = 0, cost = 0
     if (vt && v) {
       // decode what the txs really do: the create pins the dev buy, our token amount pins the vault's real cost (PumpPortal pads max_sol_cost ~3×)
