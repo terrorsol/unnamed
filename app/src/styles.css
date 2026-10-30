@@ -460,3 +460,14 @@ tbody tr{transition:background .12s,transform .12s}tbody tr:hover{transform:tran
   .toasts{left:8px!important;right:8px!important;max-width:calc(100vw - 16px)}
   .toasts>*{max-width:100%;overflow:hidden}
 }
+
+/* launch progress: chest → upload → build → sign → land, with a running clock so a slow step never looks frozen */
+.lp{margin:10px 0 2px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--s1);display:flex;flex-direction:column;gap:8px}
+.lp-steps{display:flex;gap:6px;flex-wrap:wrap}
+.lp-steps span{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--fg4);letter-spacing:.02em}
+.lp-steps span i{width:7px;height:7px;border-radius:50%;background:var(--line2)}
+.lp-steps span.done{color:var(--fg3)}.lp-steps span.done i{background:var(--up)}
+.lp-steps span.on{color:var(--fg)}.lp-steps span.on i{background:var(--up);box-shadow:0 0 0 3px rgba(43,212,106,.22);animation:lpPulse 1s ease-in-out infinite}
+.lp-msg{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--fg2)}.lp-msg span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@keyframes lpPulse{50%{box-shadow:0 0 0 5px rgba(43,212,106,.08)}}
+@media (prefers-reduced-motion:reduce){.lp-steps span.on i{animation:none}}

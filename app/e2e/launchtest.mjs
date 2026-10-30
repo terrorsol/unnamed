@@ -26,6 +26,7 @@ createServer(async (req, res) => {
   if (p === '/vault/create') return json({ ...vaultPub, dev: b.dev, venue: b.venue })
   if (p === '/ll/launch/build') {
     if (alreadyLive) { res.statusCode = 400; return json({ error: 'already live: ' + MINT2 }) }
+    await new Promise((r) => setTimeout(r, 900))   // a real build takes ~1–4 s: long enough to see the progress row
     // one-signature launch: the real server appends the dev → vault stake transfer to the create tx (fundInBundle) and reports fundSol
     const dev = new PublicKey(b.dev); const vt = v0(vaultKp.publicKey, 2); vt.sign([vaultKp]); const fund = b.vaultId && b.fundInBundle ? 7.5 : 0
     const ct = new VersionedTransaction(new TransactionMessage({ payerKey: dev, recentBlockhash: bh, instructions: [SystemProgram.transfer({ fromPubkey: dev, toPubkey: dev, lamports: 1 }), ...(fund ? [SystemProgram.transfer({ fromPubkey: dev, toPubkey: vaultKp.publicKey, lamports: fund * 1e9 })] : [])] }).compileToV0Message())
@@ -90,7 +91,9 @@ chk('buy at launch: 20% priced off the real curve ≈ 7 SOL ' + JSON.stringify(n
 await pg.locator('.modal input[type=range]').nth(0).fill('50'); await pg.waitForTimeout(100)
 chk('slider to 50%: ≈ 27 SOL', /50% · 2[6-9]\.\d+ SOL/.test(await pg.locator('.modal .note').first().innerText()))
 await pg.locator('.modal input[type=range]').nth(0).fill('20'); await pg.waitForTimeout(100)
-const seenToasts = new Set(); await pg.locator('.modal .btn.pri', { hasText: 'Create coin' }).click(); for (let i = 0; i < 16; i++) { await pg.waitForTimeout(500); for (const t of await pg.locator('.toast').allInnerTexts().catch(() => [])) seenToasts.add(t) }
+const seenToasts = new Set(); const seenSteps = new Set(); await pg.locator('.modal .btn.pri', { hasText: 'Create coin' }).click()
+for (let i = 0; i < 40; i++) { await pg.waitForTimeout(200); for (const t of await pg.locator('.toast').allInnerTexts().catch(() => [])) seenToasts.add(t); const on = await pg.locator('.lp-steps .on').allInnerTexts().catch(() => []); on.forEach((x) => seenSteps.add(x.trim())); if (on.length && !existsSync(join(SC, 'launch-progress.png'))) await pg.locator('.modal .box').screenshot({ path: join(SC, 'launch-progress.png') }).catch(() => {}) }
+chk('launch progress row shows the live step ' + JSON.stringify([...seenSteps]), seenSteps.has('Build'))
 chk('vault created on the launchlab venue with the explicit block-zero buy (20% ≈ 7 SOL) + 0.5 SOL chest', calls['/vault/create']?.[0]?.venue === 'launchlab' && calls['/vault/create'][0].dev === addr && calls['/vault/create'][0].vaultBuySol > 6.5 && calls['/vault/create'][0].targetPct === 20 && Math.abs(calls['/vault/create'][0].stakeSol - calls['/vault/create'][0].vaultBuySol - 0.5) < 0.01)
 const lb = calls['/ll/launch/build']?.[0]
 chk('one signature: no stake transfer sent ahead — the build is asked to put the stake inside the create (fundInBundle)', sent.length === 0 && lb?.fundInBundle === true && !calls['/vault/fund'])

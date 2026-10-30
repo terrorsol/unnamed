@@ -9,6 +9,17 @@ import { ModePicker } from './Desk'
 const link = (v: string, base: string) => { v = v.trim(); if (!v) return ''; if (/^https?:\/\//i.test(v)) return v; if (v.startsWith('@')) return base + v.slice(1); if (/\./.test(v)) return 'https://' + v.replace(/^\/+/, ''); return base + v }
 export type Venue = 'launchlab' | 'pump'
 type Props = { wallet?: string; walletKind?: 'in-app' | 'phantom' | 'wallet'; onClose: () => void; onLaunch: (m: CreateMeta, devBuy: number, stake: number, copyOf?: string, mode?: 'floor' | 'mm', ceiling?: number, venue?: Venue, permTax?: boolean, vaultBuy?: number, targetPct?: number) => void; taxBps?: number; permTaxBps?: number; platformReady?: boolean; busy: string; connected: boolean; sol: number | null; needWallet: () => void }
+/** where a launch is, from the status line the launch flow reports: chest → upload → build → sign → land. The modal closes once the coin is live. */
+const STEPS: [string, RegExp][] = [['Chest', /creating vault|funding vault/i], ['Upload', /uploading/i], ['Build', /building/i], ['Sign', /^sign|approve/i], ['Land', /sending|resending|landing|confirming|checking|rebuilding|dropped|took too long/i]]
+function Progress({ busy }: { busy: string }) {
+  const [t0] = useState(() => Date.now()); const [, tick] = useState(0)
+  React.useEffect(() => { const i = setInterval(() => tick((n) => n + 1), 500); return () => clearInterval(i) }, [])
+  const at = STEPS.findIndex(([, re]) => re.test(busy)); const secs = Math.floor((Date.now() - t0) / 1000)
+  return <div className="lp" role="status" aria-live="polite">
+    <div className="lp-steps">{STEPS.map(([n], i) => <span key={n} className={i < at ? 'done' : i === at ? 'on' : ''}><i />{n}</span>)}</div>
+    <div className="lp-msg"><span>{busy}</span><span className="num">{secs}s</span></div>
+  </div>
+}
 export default function Launch(p: Props) {
   const [name, setName] = useState(''); const [symbol, setSymbol] = useState(''); const [desc, setDesc] = useState(''); const [file, setFile] = useState<File | undefined>()
   const [tw, setTw] = useState(''); const [tg, setTg] = useState(''); const [web, setWeb] = useState('')
@@ -57,7 +68,8 @@ export default function Launch(p: Props) {
     <div className="kv"><span>Total to launch</span><b className="num">{S(total, 2)} SOL</b></div>
     <div className="nm">your buy {S(dev, 2)}{vaultBuy ? ` + chest's buy ${S(vaultBuy, 2)}` : ''} + chest {S(chest, 2)} + {venue === 'launchlab' ? '0.1 network setup' : '0.02 network fees'}</div>
     <div className="kv"><span>Paying from</span><b className="num">{p.wallet ? p.wallet.slice(0, 4) + '…' + p.wallet.slice(-4) + (p.walletKind ? ' · ' + p.walletKind : '') : '—'} · {p.sol == null ? '—' : S(p.sol) + ' SOL'}</b></div>
-    <div className="nm">{chest > 0 ? 'Your wallet asks you to approve twice: once to fund the chest, once to create the coin. Then the chest switches itself on. ' : 'Your wallet asks you to approve once. '}Phantom may warn that this site is new. That's about the site's age, not this transaction.</div>
+    <div className="nm">{chest > 0 ? 'Your wallet asks you to approve once: the coin, your buy and the chest\'s stake go out together, so nothing is spent unless the launch lands. Then the chest switches itself on. ' : 'Your wallet asks you to approve once. '}Phantom may warn that this site is new. That's about the site's age, not this transaction.</div>
+    {p.busy && <Progress busy={p.busy} />}
     <div className="row"><button className="btn" onClick={p.onClose}>Cancel</button><span className="sp" />
       <button className="btn pri" disabled={!!p.busy || (p.connected && (!ok || (p.sol != null && total > p.sol)))} onClick={() => !p.connected ? p.needWallet() : p.onLaunch({ name: name.trim(), symbol: symbol.trim(), description: desc.trim(), file, twitter: link(tw, 'https://x.com/') || undefined, telegram: link(tg, 'https://t.me/') || undefined, website: link(web, 'https://') || undefined }, dev, stake, copyOf?.mint, mode, ceiling, venue, venue === 'launchlab' && permTax, vaultBuy, pct)}>{p.busy || (!p.connected ? 'Connect wallet' : 'Create coin')}</button></div>
   </div></div>
