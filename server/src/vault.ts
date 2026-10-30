@@ -689,6 +689,7 @@ export async function signBundleTx(id: string, mint: string, txB64: string, maxS
     cost = L.bundleCost(c.buy?.tokens || 0, b.tokens).cost
     if (!Number.isFinite(cost)) throw new Error('bundle buy asks for more tokens than the curve holds')
     if (b.maxSolCost < cost) throw new Error(`max_sol_cost ${b.maxSolCost.toFixed(4)} below the real cost ${cost.toFixed(4)} — the buy would fail`)
+    if (b.maxSolCost > cost * 1.05 + 0.002) { const keys = await L.resolveKeys(tx, conn); L.setMaxSolCost(tx, Math.min(cost * 1.05 + 0.002, bal - 0.001), keys); Object.assign(b, L.inspectBuy(tx, v.pub, mint, dec, keys)) }
   }
   if (cost + b.tipSol > spend * 1.05 + 0.01) throw new Error(`block-zero buy costs ${cost.toFixed(3)} SOL, policy allows ${spend.toFixed(3)}`)
   if (b.maxSolCost > bal) throw new Error(`max_sol_cost ${b.maxSolCost.toFixed(3)} exceeds the vault balance`)
@@ -744,9 +745,11 @@ export async function buildPumpLaunch(b: { dev: string; name: string; symbol: st
     let vaultTx: string | null = null, vaultTokens = 0, cost = 0
     if (vt && v) {
       // decode what the txs really do: the create pins the dev buy, our token amount pins the vault's real cost (PumpPortal pads max_sol_cost ~3×)
-      const c = L.inspectCreate(ct, mint, 6, await L.resolveKeys(ct, conn)); const bi = L.inspectBuy(vt, v.pub, mint, 6, await L.resolveKeys(vt, conn))
+      const c = L.inspectCreate(ct, mint, 6, await L.resolveKeys(ct, conn)); const vkeys = await L.resolveKeys(vt, conn); let bi = L.inspectBuy(vt, v.pub, mint, 6, vkeys)
       cost = L.bundleCost(c.buy?.tokens || 0, bi.tokens).cost; if (!Number.isFinite(cost)) throw new Error('bundle buy asks for more tokens than the curve holds')
       if (bi.maxSolCost < cost) throw new Error(`max_sol_cost ${bi.maxSolCost.toFixed(4)} below the real cost ${cost.toFixed(4)}`)
+      // PumpPortal pads max_sol_cost ~3×; inside the bundle the cost is fixed, so the ceiling goes to cost + 5% (fees + rounding), never above the chest
+      if (bi.maxSolCost > cost * 1.05 + 0.002) { L.setMaxSolCost(vt, Math.min(cost * 1.05 + 0.002, bal - 0.001), vkeys); bi = L.inspectBuy(vt, v.pub, mint, 6, vkeys) }
       if (cost + bi.tipSol > spend * 1.05 + 0.01) throw new Error(`block-zero buy costs ${cost.toFixed(3)} SOL, policy allows ${spend.toFixed(3)}`)
       if (bi.maxSolCost > bal + 0.001) throw new Error(`max_sol_cost ${bi.maxSolCost.toFixed(3)} exceeds the vault's ${bal.toFixed(3)} SOL`)
       vaultTokens = bi.tokens; (v as any).bundleLiq = { mint, liq: L.bundleCost(c.buy?.tokens || 0, bi.tokens).after.vSol }

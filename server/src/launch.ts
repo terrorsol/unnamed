@@ -94,6 +94,17 @@ export function inspectBuy(tx: VersionedTransaction, payer: string, mint: string
   if (!(buy.maxSolCost > 0) || !(buy.tokens > 0)) throw new Error('buy with zero amount')
   return { tokens: buy.tokens, maxSolCost: buy.maxSolCost, via: buy.via, tipSol: tip, solOut: buy.maxSolCost * 1.005 + tip, ixs }
 }
+/** Tighten a pump buy's max_sol_cost (PumpPortal pads it ~3× in bundle mode). In a bundle the real cost is fixed by the curve math, so the
+ *  ceiling can sit just above it: the vault's signed buy can then never take more than the chest holds. Edits the instruction data in place
+ *  (call before signing). */
+export function setMaxSolCost(tx: VersionedTransaction, maxSol: number, keys = staticKeys(tx)) {
+  for (const ix of tx.message.compiledInstructions) {
+    const prog = keys[ix.programIdIndex]; if (prog !== PUMP_PROGRAM.toBase58() && prog !== PUMPPORTAL_PROGRAM) continue
+    const d = hex(ix.data.subarray(0, 8)); if (d !== DISC.buy && d !== DISC.pp_buy) continue
+    const b = Buffer.from(ix.data); b.writeBigUInt64LE(BigInt(Math.ceil(maxSol * 1e9)), 16); ix.data = new Uint8Array(b); return true
+  }
+  return false
+}
 /** Decode the dev side of a create(+buy) tx: the mint it creates and the dev buy, if any. */
 export function inspectCreate(tx: VersionedTransaction, mint: string, tokenDecimals = 6, keys = staticKeys(tx)) {
   const msg = tx.message

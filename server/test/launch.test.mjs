@@ -62,3 +62,12 @@ test('inspectCreate finds the create + dev buy', () => {
   assert.equal(c.created, 'create'); assert.equal(c.buy.tokens, 34e6); assert.equal(c.signers, 2)
   assert.throws(() => inspectCreate(tx([buyIx(1e6, 0.1)]), mint.toBase58()), /no create/)
 })
+test('setMaxSolCost tightens the PumpPortal-padded ceiling in place, before signing', async () => {
+  const { setMaxSolCost } = await import('../src/launch.ts')
+  const t = tx([ComputeBudgetProgram.setComputeUnitLimit({ units: 100000 }), buyIx(3.5, 0.303)])
+  assert.equal(inspectBuy(t, vault.publicKey.toBase58(), mint.toBase58()).maxSolCost, 0.303)
+  assert.ok(setMaxSolCost(t, 0.1062))
+  const b = inspectBuy(t, vault.publicKey.toBase58(), mint.toBase58()); assert.ok(Math.abs(b.maxSolCost - 0.1062) < 1e-9); assert.ok(Math.abs(b.tokens - 3.5) < 1e-9)
+  t.sign([vault]); assert.ok(VersionedTransaction.deserialize(t.serialize()).signatures[0].some((x) => x))
+  assert.equal(setMaxSolCost(tx([ComputeBudgetProgram.setComputeUnitLimit({ units: 1 })]), 1), false)
+})
