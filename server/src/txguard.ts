@@ -118,6 +118,7 @@ export function checkIxs(ixs: Ix[], owner: string, lim: GuardLimits, sigs = 1): 
   }
   let out = 0n, wrapped = 0n, wsolSpent = 0n, tokOut = 0n, cuLimit: number | null = null, cuPrice = 0n, nonCb = 0, ceiling = 0n
   const closed = new Set<string>()
+  const passIn = new Map<string, bigint>(), passOut = new Map<string, bigint>(), passMint = new Map<string, string>()
   const lam = (v: any) => { const f = Number(v); if (!(f >= 0) || !Number.isFinite(f)) refuse('an instruction moves an unreadable amount of SOL'); return BigInt(Math.round(f)) }
   for (const x of ixs) {
     if (x.top) {
@@ -138,12 +139,13 @@ export function checkIxs(ixs: Ix[], owner: string, lim: GuardLimits, sigs = 1): 
       const i = x.info
       if (x.type === 'transfer' || x.type === 'transferChecked' || x.type === 'transferCheckedWithFee') {
         const auth = i.authority ?? i.multisigAuthority ?? i.owner
-        if (auth !== V) continue   // tokens coming in, or moving between other people's accounts
-        if (i.mint && i.mint !== lim.mint && i.mint !== WSOL) refuse('moves a token this trade does not touch (' + String(i.mint).slice(0, 6) + '…)')
+        if (auth !== V) { if (i.destination) passIn.set(i.destination, (passIn.get(i.destination) || 0n) + amt(i)); continue }   // tokens coming in (a hop's output lands here)
         if (wsol.has(i.source)) { wsolSpent += amt(i); continue }   // wrapped SOL spent on the buy
         // the coin leaving: from its ATA, or (a checked transfer names the mint) from any account of the vault's that holds it — the cap applies either way
-        if (tradedAtas.has(i.source) || (i.mint === lim.mint && x.type !== 'transfer')) { tokOut += amt(i); continue }
-        refuse('moves tokens from a vault account other than this coin\'s (' + String(i.source).slice(0, 6) + '…)')
+        if ((tradedAtas.has(i.source) || (i.mint === lim.mint && x.type !== 'transfer')) && (!i.mint || i.mint === lim.mint)) { tokOut += amt(i); continue }
+        // anything else the vault sends: only a multi-hop route's intermediate token passing through — out of an account no more than came
+        // into it in this same tx (netted at the end). Another chest's coin sitting in the shared wallet can't leave this way.
+        passOut.set(i.source, (passOut.get(i.source) || 0n) + amt(i)); passMint.set(i.source, String(i.mint || '?')); continue
       }
       if (x.type === 'closeAccount') { if ((i.owner ?? i.multisigOwner) === V) { if (i.destination !== V) refuse('closes a vault account to someone else'); closed.add(i.account) } continue }
       if (/^initializeAccount|^syncNative$|^getAccountDataSize$|^initializeImmutableOwner$|^revoke$|^amountToUiAmount$|^uiAmountToAmount$/.test(x.type)) continue
@@ -158,6 +160,7 @@ export function checkIxs(ixs: Ix[], owner: string, lim: GuardLimits, sigs = 1): 
   const simOut = out + wsolSpent + fee                 // what the simulation spends
   const worst = out + wrapped + fee                     // what execution could spend: wrapped SOL can all go, whatever was simulated
   const solOut = Number(simOut) / 1e9, worstSol = Number(worst) / 1e9, ceilSol = Number(ceiling) / 1e9
+  for (const [acct, o] of passOut) if (o > (passIn.get(acct) || 0n)) refuse('moves a token this trade does not touch out of the vault (' + (passMint.get(acct) || '?').slice(0, 6) + '… from ' + acct.slice(0, 6) + '…, ' + o + ' out vs ' + (passIn.get(acct) || 0n) + ' in)')
   if (lim.side === 'buy' && tokOut > 0n) refuse('a buy that sends the coin out')
   if (lim.maxTokOutRaw !== undefined && !(tokOut <= lim.maxTokOutRaw)) refuse(`sells ${tokOut} raw, asked for at most ${lim.maxTokOutRaw}`)
   if (!(solOut <= lim.maxSolOut + 1e-9)) refuse(`sends ${solOut.toFixed(4)} SOL out, the trade allows ${lim.maxSolOut.toFixed(4)}`)

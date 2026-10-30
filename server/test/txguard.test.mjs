@@ -42,15 +42,23 @@ test('delegating, re-assigning, burning, closing to someone else, handing over a
   assert.doesNotThrow(() => G.checkIxs([tok('approve', { source: X, delegate: CURVE, owner: X, amount: '1' }), tok('closeAccount', { account: X, destination: CURVE, owner: X })], VS, buyLim))
 })
 test('another coin held by the shared wallet cannot move', () => {
-  assert.throws(() => G.checkIxs([tok('transfer', { source: otherAta, destination: X, authority: VS, amount: '1000' })], VS, buyLim), /other than this coin/)
+  assert.throws(() => G.checkIxs([tok('transfer', { source: otherAta, destination: X, authority: VS, amount: '1000' })], VS, buyLim), /does not touch/)
   assert.throws(() => G.checkIxs([tok('transferChecked', { source: otherAta, mint: OTHER.toBase58(), destination: X, authority: VS, tokenAmount: { amount: '1000' } })], VS, buyLim), /does not touch/)
+})
+test('a multi-hop route may pass an intermediate token through the vault — no more out than came in, in the same tx', () => {
+  const usd = Keypair.generate().publicKey.toBase58(), mid = getAssociatedTokenAddressSync(new PublicKey(usd), V, true).toBase58()
+  const hop = (outAmt) => [sys('transfer', { source: VS, destination: wsol, lamports: 10_000_000 }), tok('transfer', { source: wsol, destination: CURVE, authority: VS, amount: '10000000' }),
+    tok('transferChecked', { source: CURVE, mint: usd, destination: mid, authority: CURVE, tokenAmount: { amount: '1500000' } }), tok('transferChecked', { source: mid, mint: usd, destination: X, authority: VS, tokenAmount: { amount: String(outAmt) } }),
+    tok('transferChecked', { source: X, mint: M, destination: ata, authority: X, tokenAmount: { amount: '42' } })]
+  assert.doesNotThrow(() => G.checkIxs(hop(1500000), VS, buyLim))
+  assert.throws(() => G.checkIxs(hop(1500001), VS, buyLim), /does not touch out of the vault/)   // one unit of the vault's own balance would leave
 })
 test('a checked transfer of the coin from a non-ATA account of the vault counts against the cap (Jupiter picks whatever account holds it)', () => {
   const sellLim = G.limitsFor('sell', M, '10%', { slippageBps: 100, expectSol: 1, balanceRaw: 1_000_000_000n }); const acct = Keypair.generate().publicKey.toBase58()
   assert.equal(G.checkIxs([tok('transferChecked', { source: acct, mint: M, destination: CURVE, authority: VS, tokenAmount: { amount: '100000000' } })], VS, sellLim).tokOut, 100_000_000n)
   assert.throws(() => G.checkIxs([tok('transferChecked', { source: acct, mint: M, destination: CURVE, authority: VS, tokenAmount: { amount: '200000000' } })], VS, sellLim), /sells 200000000 raw/)
   // an unchecked transfer names no mint: from an unknown account it is refused
-  assert.throws(() => G.checkIxs([tok('transfer', { source: acct, destination: CURVE, authority: VS, amount: '1' })], VS, sellLim), /other than this coin/)
+  assert.throws(() => G.checkIxs([tok('transfer', { source: acct, destination: CURVE, authority: VS, amount: '1' })], VS, sellLim), /does not touch/)
 })
 test('a buy may not send the coin out; a sell may not take more than the share asked for', () => {
   assert.throws(() => G.checkIxs([tok('transfer', { source: ata, destination: X, authority: VS, amount: '1' })], VS, buyLim), /buy that sends the coin out/)
