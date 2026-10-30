@@ -9,7 +9,7 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 14
+    timeout-minutes: 17
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,11 +22,15 @@ jobs:
           RPC_URL: ${{ secrets.HELIUS_RPC || 'https://mainnet.helius-rpc.com/?api-key=1372a143-458e-4428-a1f2-aacb1e44bd1a' }}
           SERVER: ${{ vars.SERVER_URL || 'https://unnamed-server.onrender.com' }}
           PLATFORM_ID: 4dsPD4ZkE47XtxXmJRPTZ5e5eZKLSP2PuYsxQob3F45C
-        run: timeout 540 node --experimental-strip-types scripts/probe.ts > probe.txt 2>&1 || true; cat probe.txt
+        run: |
+          ADMIN_KEY="${{ secrets.ADMIN_KEY }}" timeout 800 node --experimental-strip-types scripts/probe.ts > probe.txt 2>&1 &
+          P=$!; mkdir -p /tmp/pub && cd /tmp/pub && git init -q && git checkout -qb reports-probe && git config user.name unnamed-ci && git config user.email ci@unnamed.local && cd - >/dev/null
+          pub() { cp probe.txt /tmp/pub/probe.txt; (cd /tmp/pub && git add -A && git commit -qm "watch $(date -u +%H:%M:%S)" && git push -qf https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git reports-probe) || true; }
+          while kill -0 $P 2>/dev/null; do sleep 30; pub; done; pub; cat probe.txt | tail -50
       - name: Publish
         if: always()
         run: |
-          mkdir -p /tmp/pub && (cp server/probe.txt /tmp/pub/ 2>/dev/null || echo "no output" > /tmp/pub/probe.txt); cp server/probe-out/* /tmp/pub/ 2>/dev/null || true
+          rm -rf /tmp/pub; mkdir -p /tmp/pub && (cp server/probe.txt /tmp/pub/ 2>/dev/null || echo "no output" > /tmp/pub/probe.txt); cp server/probe-out/* /tmp/pub/ 2>/dev/null || true
           cd /tmp/pub && git init -q && git checkout -qb reports-probe && git config user.name unnamed-ci && git config user.email ci@unnamed.local
           git add -A && git commit -qm "probe ${{ github.run_id }} $(date -u +%H:%M)"
           git push -qf https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git reports-probe
