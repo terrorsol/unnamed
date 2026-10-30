@@ -207,7 +207,9 @@ export async function fill(id: string, seller: string, txB64: string, sol?: numb
   if (b.internal) {
     try {
       if (b.sol > b.internal.maxSol()) throw new Error('vault bid no longer affordable')
-      if (b.internal.sign) b.internal.sign(tx, q.takeSol); else tx.partialSign(b.internal.kp); const raw = tx.serialize(); const sig = await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }); const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 2000); try { await confirm(sig) } finally { clearInterval(rb) }
+      if (b.internal.sign) b.internal.sign(tx, q.takeSol); else tx.partialSign(b.internal.kp); const raw = tx.serialize(); const sig = await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }); const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 2000)
+      // a vault fill that doesn't confirm in time may still land: the bid comes down and the vault books it if it does (it used to be put back and never booked — third review)
+      try { await confirm(sig) } catch (e: any) { if (/timeout/i.test(String(e?.message))) { bids.delete(id); bookChanged(b.mint); onVaultFillLate?.(b.bidder, b.mint, sig, q.takeSol, q.tokens) } throw e } finally { clearInterval(rb) }
       settleAmount(b, q.takeSol); recordFill({ t: Date.now(), mint: b.mint, symbol: b.symbol, seller, bidder: b.bidder, sol: q.takeSol, discBps: b.discBps, tokens: q.tokens, sig, vault: true }); rfqNoteFill(id, q.takeSol); onVaultFill?.(b.bidder, q.takeSol, q.tokens, seller, b.mint, sig); return { sig }
     } catch (e) { b.status = 'open'; throw e }
   }
@@ -241,6 +243,8 @@ export let onVaultFill: ((bidder: string, sol: number, tokens: number, seller?: 
 export let onVaultAskFill: ((seller: string, mint: string, sol: number, tokens: number, sig: string) => void) | null = null
 export function setOnVaultAskFill(f: typeof onVaultAskFill) { onVaultAskFill = f }
 let askClaim: ((sig: string) => boolean) | null = null, askRelease: ((sig: string) => void) | null = null
+let onVaultFillLate: ((bidder: string, mint: string, sig: string, sol: number, tokens: number) => void) | null = null
+export function setOnVaultFillLate(f: typeof onVaultFillLate) { onVaultFillLate = f }
 export function setAskSigHooks(claim: (sig: string) => boolean, release: (sig: string) => void) { askClaim = claim; askRelease = release }
 export function setOnVaultFill(f: typeof onVaultFill) { onVaultFill = f }
 let vaultResponder: ((mint: string, sizeSol: number, maxBps: number, rfqId: string) => Promise<Bid | null>) | null = null

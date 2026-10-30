@@ -79,7 +79,7 @@ export type Vault = { armedAt?: number; launchSpend?: number; taxAccrued?: numbe
 let vaults: Record<string, Vault> = {}
 const watched = new Map<string, { pool: string; off: () => void }>()   // vault id → the pool its per-swap stream is on (re-pointed when the coin migrates)
 let SOLUSD = 0; setInterval(() => fetch(`${process.env.DEX_URL || 'https://api.dexscreener.com'}/tokens/v1/solana/So11111111111111111111111111111111111111112`).then((r) => r.json()).then((a: any[]) => { const x = a?.[0]?.priceUsd; if (x) SOLUSD = +x }).catch(() => {}), 30000)
-export function load() { if (existsSync(FILE)) vaults = JSON.parse(readFileSync(FILE, 'utf8')); for (const v of Object.values(vaults)) for (const a of v.activity || []) if (a.sig && a.kind === 'stake' && !booked[a.sig]) booked[a.sig] = v.id }
+export function load() { if (existsSync(FILE)) vaults = JSON.parse(readFileSync(FILE, 'utf8')); for (const v of Object.values(vaults)) { delete (v as any).closing; delete (v as any).crowdArming; delete (v as any)._capBusy; delete (v as any)._pendIn } for (const v of Object.values(vaults)) for (const a of v.activity || []) if (a.sig && a.kind === 'stake' && !booked[a.sig]) booked[a.sig] = v.id }
 /** Every signature whose SOL was booked INTO a chest, ever (persisted; activity is trimmed to 200 entries, so it can't be the record).
  *  A signature is claimed synchronously before any await, so parallel calls can't both book it (Oct 30 review: ten parallel /vault/fund
  *  calls on one stake would each have added it). */
@@ -127,12 +127,18 @@ export async function txDelta(sig: string, pub: string): Promise<number> {
 async function book(v: Vault, sig: string | undefined, fallback = 0) {
   if (PAPER || !sig || sig.startsWith('paper-')) return
   if (!v.shared) { v.chest = await balanceSol(v.pub); return }
-  try { const d = await txDelta(sig, v.pub); v.chest = Math.max(0, +(v.chest + d).toFixed(9)) } catch (e: any) { v.chest = Math.max(0, v.chest + fallback); v.ledgerDirty = true; EV.log('error', `${v.symbol || v.id} ledger: ${String(e.message).slice(0, 80)} (fallback ${fallback})`, { mint: v.mint, sig }) }
+  // when the tx can't be read yet: a spend is debited by its estimate now (conservative); a credit is NOT taken on an estimate — it is booked
+  // from the tx itself once readable (lateCredits), or not at all (third review: an estimated sale credit could be withdrawn at once)
+  try { const d = await txDelta(sig, v.pub); v.chest = Math.max(0, +(v.chest + d).toFixed(9)) } catch (e: any) { if (fallback <= 0) v.chest = Math.max(0, v.chest + fallback); else lateCredits.push({ id: v.id, sig, until: Date.now() + 30 * 60_000 }); v.ledgerDirty = true; EV.log('error', `${v.symbol || v.id} ledger: ${String(e.message).slice(0, 80)} (fallback ${fallback})`, { mint: v.mint, sig }) }
 }
 /** trades whose confirmation timed out: the tx may still land. Retried every tick for ~10 min, booked by exact delta when it does. */
 const lateBooks: { id: string; sig: string; fallback: number; until: number; after?: (v: Vault, chestBefore: number) => void }[] = []
 export function deferBook(v: Vault, sig: string | undefined, fallback: number, after?: (v: Vault, chestBefore: number) => void) { if (!sig || PAPER) return; lateBooks.push({ id: v.id, sig, fallback, until: Date.now() + 10 * 60_000, after }); EV.log('vault', `${v.symbol || v.id} tx ${sig.slice(0, 8)}… not confirmed in time — will book it if it lands`, { sig }) }
+const lateCredits: { id: string; sig: string; until: number }[] = []
 export async function settleLateBooks() {
+  for (const lc of lateCredits.slice()) { const v = vaults[lc.id]; if (!v) { lateCredits.splice(lateCredits.indexOf(lc), 1); continue }
+    const d = await txDelta(lc.sig, v.pub).catch(() => null); if (d != null) { v.chest = Math.max(0, +(v.chest + d).toFixed(9)); lateCredits.splice(lateCredits.indexOf(lc), 1); if (!lateCredits.some((x) => x.id === v.id)) v.ledgerDirty = false; save() }
+    else if (Date.now() > lc.until) { lateCredits.splice(lateCredits.indexOf(lc), 1); EV.log('error', `${v.symbol || v.id} credit ${lc.sig.slice(0, 8)}… never became readable — not booked (under, never over)`, { sig: lc.sig }) } }
   for (const lb of lateBooks.slice()) {
     const v = vaults[lb.id]; if (!v) { lateBooks.splice(lateBooks.indexOf(lb), 1); continue }
     const st = (await conn.getSignatureStatuses([lb.sig]).catch(() => null))?.value?.[0]
@@ -192,6 +198,7 @@ export async function arm(id: string, mint: string, symbol: string, name = '', a
 }
 async function armOnce(id: string, mint: string, symbol: string, name = '', auth?: { msg?: string; sig?: string }, fundSig?: string) {
   const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) return pub(v)
+  if (v.imported || v.crowd) throw new Error('an imported chest switches on through its own activation')   // (arm skipped the fee and let the caller pick the coin — third review)
   if ((v as any).closedAt) throw new Error('this vault was closed and its chest withdrawn — launch with a new one')   // Oct 29: autoArm re-armed XYZ 3 s after its reclaim
   // the coin must exist: a LaunchLab vault armed onto a mint that never went live sat dead on Oct 29. If the given mint has no pool, use the
   // build of this vault that did go live.
@@ -243,6 +250,9 @@ async function armOnce(id: string, mint: string, symbol: string, name = '', auth
   catch (e: any) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'seed failed: ' + e.message }) }
   save(); return pub(v)
 }
+import * as INVK from './invite.ts'
+const RECLAIM_WALLETS = String(process.env.TEST_RECLAIM_WALLETS || '').split(',').map((x) => x.trim()).filter(Boolean)
+export function reclaimAllowed(dev: string) { if (!RECLAIM_WALLETS.length) return false; if (RECLAIM_WALLETS.includes(dev)) return true; const fam = INVK.walletsSharingKey(dev); return fam.some((w) => RECLAIM_WALLETS.includes(w)) }
 /** One money operation per vault at a time — launch builds, refund and arm. Taken synchronously at entry (before any await), so two
  *  parallel builds can't both sign a launch buy against one stake, and a refund can't pay the stake out while a build signs a buy on it
  *  (second review, Oct 30). A busy vault answers 'busy' at once; the callers retry. */
@@ -412,10 +422,13 @@ export async function paperArm(mint: string, chestSol = 20, mode: 'floor' | 'mm'
 }
 /** SOL transfer signed by the vault key, confirmed by polling (no websocket dependency). */
 async function payFrom(v: Vault, to: string, lamports: number, purpose: KEEP.Purpose = 'payout') {
+  if (to === v.pub) throw new Error('a payout to the vault wallet itself moves nothing')
+  if ((v as any)._payPending && purpose !== 'refund') throw new Error('a payout from this chest is still confirming')
   // priority fee + rebroadcast: a plain transfer with no priority fee gets dropped when the network is busy (refunds timed out on Oct 29)
   const k = kp(v); const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 5000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: +(process.env.PAYOUT_CU_PRICE || 400000) }), SystemProgram.transfer({ fromPubkey: k.publicKey, toPubkey: new PublicKey(to), lamports }))
   const lb = await conn.getLatestBlockhash('confirmed'); tx.feePayer = k.publicKey; tx.recentBlockhash = lb.blockhash; KEEP.sign({ id: v.id, chest: v.chest, sk: k }, tx, purpose, lamports / 1e9)
-  const raw = tx.serialize(); const sig = await conn.sendRawTransaction(raw, { skipPreflight: false, maxRetries: 0 })
+  const raw = tx.serialize(); const pre = bs58.encode(tx.signature!); (v as any)._payPending = { sig: pre, t: Date.now(), lvbh: lb.lastValidBlockHeight, sol: lamports / 1e9, to }; save()
+  const sig = await conn.sendRawTransaction(raw, { skipPreflight: false, maxRetries: 0 }).catch((e) => { (v as any)._payPending = undefined; save(); throw e })
   // resend the same signed tx every 2s until it confirms or its blockhash expires: it can only ever land once (same signature)
   const t0 = Date.now(); let landed = false
   while (Date.now() - t0 < 75_000) {
@@ -425,8 +438,8 @@ async function payFrom(v: Vault, to: string, lamports: number, purpose: KEEP.Pur
     const h = await conn.getBlockHeight('confirmed').catch(() => 0); if (h && h > lb.lastValidBlockHeight) break
     conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}); await wait(2000)
   }
-  if (!landed) { (v as any)._payPending = { sig, t: Date.now() }; const e: any = new Error('payout not confirmed yet — nothing was double-paid; if it lands it is booked, otherwise press again in a minute'); e.sig = sig; deferBook(v, sig, -(lamports / 1e9 + 0.000005)); throw e }
-  await book(v, sig, -(lamports / 1e9 + 0.000005)); return sig
+  if (!landed) { (v as any)._payPending = { sig, t: Date.now(), lvbh: lb.lastValidBlockHeight, sol: lamports / 1e9, to }; const e: any = new Error('payout not confirmed yet — nothing was double-paid; if it lands it is booked, otherwise press again in a minute'); e.sig = sig; deferBook(v, sig, -(lamports / 1e9 + 0.000005)); throw e }
+  await book(v, sig, -(lamports / 1e9 + 0.000005)); (v as any)._payPending = undefined; save(); return sig
 }
 /** Community takeover import: nobody pays 15 SOL alone. The vault wallet itself is the escrow — anyone sends ≥0.05 SOL to it; when
  *  the goal is reached the server pays the treasury share from the vault and arms it (cut 0, renounced). Not funded in 7 days → refunds pro-rata. */
@@ -440,7 +453,7 @@ export async function importCrowd(initiator: string, mint: string) {
 export const crowdOpen = () => Object.values(vaults).filter((v) => v.crowd && !v.armed && !v.crowd.refunded).map(pub)
 /** Record a contribution (verified on-chain: SOL from `from` landed in the vault wallet in `sig`). Arms when funded. */
 export async function importContribute(id: string, from: string, sig: string, sessionWallet?: string | null) {
-  const v = vaults[id]; if (!v || !v.crowd || v.armed || (v as any).crowdArming) throw new Error('not an open crowd import')
+  const v = vaults[id]; if (!v || !v.crowd || v.armed || (v as any).crowdArming || (v as any).crowdFeeSig || v.crowd.refunded || Date.now() > v.crowd.expiresAt) throw new Error('not an open crowd import')
   if (sessionWallet && from !== sessionWallet) throw new Error('contribution from another wallet — connect the wallet that sent it')
   if (booked[sig] === id) return pub(v); if (!claimSig(sig)) throw new Error('that tx is already booked')
   let got = 0
@@ -457,18 +470,29 @@ export async function importContribute(id: string, from: string, sig: string, se
 }
 async function crowdArm(v: Vault) {
   const treasurySol = R.IMPORT_FEE_SOL - R.IMPORT_SEED_SOL
-  const sig = await payFrom(v, TREASURY, Math.floor(treasurySol * 1e9), 'treasury')
+  if ((v as any).crowdFeeSig) throw new Error('takeover fee already paid')   // never twice (third review)
+  if (v.shared && otherLiveVault(v.mint!, v.id)) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'another chest went live on this coin first — this takeover stays off; backers are refunded' }); v.crowd!.expiresAt = Date.now(); save(); return }
+  ;(v as any).crowdFeeSig = 'pending'; save()
+  const sig = await payFrom(v, TREASURY, Math.floor(treasurySol * 1e9), 'treasury'); (v as any).crowdFeeSig = sig; save()
   v.feePaid = R.IMPORT_FEE_SOL; try { const sup = await conn.getTokenSupply(new PublicKey(v.mint!)); v.supply = +(sup.value.uiAmount || 1e9) } catch {}
   await sync(v); if (v.shared && otherLiveVault(v.mint!, v.id)) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'another chest went live on this coin first — this takeover stays off; backers are refunded' }); return }
   v.armed = true; v.armedAt = Date.now(); v.activity.unshift({ t: Date.now(), kind: 'stake', sol: v.chest, sig, msg: `vault activated by ${Object.keys(v.crowd!.contributors).length} backers · community takeover` })
 }
 /** Refund crowd imports that did not reach the goal in time (vault key pays everyone back pro-rata, minus tx fees). */
-export async function crowdSweep() {
+let sweeping = false
+export async function crowdSweep() { if (sweeping) return; sweeping = true; try { await crowdSweepOnce() } finally { sweeping = false } }
+async function crowdSweepOnce() {
   for (const v of Object.values(vaults)) {
     if (!v.crowd || v.armed || v.crowd.refunded || Date.now() < v.crowd.expiresAt) continue
     try {
-      const bal = v.shared ? v.chest : await balanceSol(v.pub); const total = v.crowd.raised || 1; const payable = Math.max(0, bal - 0.002)
-      for (const [who, amt] of Object.entries(v.crowd.contributors)) { const lam = Math.floor((amt / total) * payable * 1e9); if (lam > 5000) await payFrom(v, who, lam, 'refund') }
+      const c: any = v.crowd; c.paid ||= {}
+      // a payout that timed out is resolved first: landed → that backer is paid; provably dead → retried; unknown → wait (never paid twice)
+      const pp = (v as any)._payPending; if (pp) { const r = await conn.getSignatureStatuses([pp.sig], { searchTransactionHistory: true }).catch(() => null); if (!r) continue
+        const st = r.value[0]; if (st && !st.err) { if (pp.to) c.paid[pp.to] = pp.sig; await book(v, pp.sig, -(pp.sol || 0)).catch(() => {}); (v as any)._payPending = undefined; save() }
+        else { const h = pp.lvbh ? await conn.getBlockHeight('confirmed').catch(() => 0) : 0; if (st?.err || (pp.lvbh && h > pp.lvbh)) { (v as any)._payPending = undefined; save() } else continue } }
+      // amounts fixed once, from the chest at the first sweep; each backer marked paid as it lands
+      if (!c.payout) { const bal = v.shared ? v.chest : await balanceSol(v.pub); const total = c.raised || 1; const payable = Math.max(0, bal - 0.002); c.payout = {}; for (const [who, amt] of Object.entries(c.contributors)) c.payout[who] = Math.floor(((amt as number) / total) * payable * 1e9); save() }
+      for (const [who, lam] of Object.entries(c.payout as Record<string, number>)) { if (c.paid[who] || lam <= 5000) continue; const sig = await payFrom(v, who, lam, 'refund'); c.paid[who] = sig; save() }
       v.crowd.refunded = true; v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'takeover not funded in 7 days — contributions refunded' }); save()
     } catch (e: any) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'refund attempt failed: ' + String(e.message).slice(0, 80) }) }
   }
@@ -507,7 +531,7 @@ export function renounce(id: string, dev: string) { const v = vaults[id]; if (!v
 /** A launch that never armed (bundle dropped, arm never signed, coin abandoned): the dev takes the stake back. Signed by the dev; only before arm; pays to the wallet that funded it. */
 export async function refund(id: string, auth?: { msg?: string; sig?: string }) {
   if (!vaults[id]) throw new Error('no such vault')
-  try { return await withVaultOp(id, 'withdrawing', () => refundOnce(id, auth)) } finally { const v = vaults[id]; if (v) (v as any).closing = false }
+  return withVaultOp(id, 'withdrawing', async () => { try { return await refundOnce(id, auth) } finally { const v = vaults[id]; if (v) { (v as any).closing = false; save() } } })   // only the run that set 'closing' clears it
 }
 async function refundOnce(id: string, auth?: { msg?: string; sig?: string }) {
   const v = vaults[id]; if (!v) throw new Error('no such vault')
@@ -517,11 +541,15 @@ async function refundOnce(id: string, auth?: { msg?: string; sig?: string }) {
   const untouched = v.tokens <= 0 && !(v.score && (v.score.captures || v.score.dips || v.score.deskFills)) && !v.activity.some((a) => a.kind === 'buy' || a.kind === 'capture' || a.kind === 'redeem')
   // TEST_RECLAIM=1 (private-beta test launches only): the dev takes the WHOLE chest back — stake, tax collected and market-making gains.
   // Tokens the vault still holds are sold first, so everything comes back as SOL. Off by default; with it off the chest never pays out, as designed.
-  const reclaim = process.env.TEST_RECLAIM === '1'
+  // limited to the owner's wallets (TEST_RECLAIM_WALLETS, and any wallet bound to the same beta key as one of them): a full withdrawal of
+  // a ledger is only as safe as the ledger, so nobody else gets it (third review, Oct 30). Everyone else: the stake of a vault that never traded.
+  const reclaim = process.env.TEST_RECLAIM === '1' && reclaimAllowed(v.dev)
   if (v.armed && !untouched && !reclaim) throw new Error(v.tokens > 0 && process.env.TEST_RECLAIM === '1' ? 'the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed' : 'an armed vault that has traded never pays out its chest — that is the point of it')
   devAuth(v, 'refund', v.mint || 'none', auth)
   // a launch of this vault that can still land would spend this chest in its bundle: refuse until it lands or its blockhash is gone
-  if (!v.armed) { const fl = await launchInFlight(v); if (fl && !fl.startsWith('already live')) throw new Error('a launch with this vault is still in flight — try again in a minute, after it lands or expires') }
+  if (!v.armed) { const fl = await launchInFlight(v); if (fl && !fl.startsWith('already live')) throw new Error('a launch with this vault is still in flight — try again in a minute, after it lands or expires')
+    // its coin is live: the chest's tokens are there, unbooked — it switches on first, then can be closed out (never a payout that leaves its coins behind)
+    if (!(v as any).closedAt && (fl?.startsWith('already live') || (v.mint && (v as any).builtMints?.includes(v.mint) && await onChain(v, v.mint)))) throw new Error('your coin is live — the chest is switching on; withdraw from it in a minute') }
   // a one-signature stake rides in the create: if the coin went live, book that stake before anything is paid
   if (v.shared && !v.armed && (v as any).fundInBundle && v.mint && fundedSol(v) < v.stakeSol * 0.95 - 0.001 && await onChain(v, v.mint)) await bookCreateFunding(v, v.mint).catch(() => false)
   // a signed block-zero buy that landed (or may still land) is a spend from this chest: book it first, or refuse until it is known
@@ -529,9 +557,13 @@ async function refundOnce(id: string, auth?: { msg?: string; sig?: string }) {
   // nothing else may touch the chest from here to the payout: the tick skips a closing vault, and its resting desk orders come down
   ;(v as any).closing = true; if (v.mint) { try { D.cancelInternal(v.pub, v.mint); D.cancelInternalAsk(v.pub, v.mint) } catch {} v.deskBid = 0 }
   // a payout that did not confirm in time must never be paid twice: wait until its blockhash can no longer land, or until it is found landed
-  { const pp = (v as any)._payPending; if (pp) { const st = (await conn.getSignatureStatuses([pp.sig]).catch(() => null))?.value?.[0]
-    if (st && !st.err) throw new Error('the last payout landed — refresh, it is in your wallet')
-    if (Date.now() - pp.t < 90_000) throw new Error('the last payout is still confirming — try again in a minute'); (v as any)._payPending = undefined } }
+  { const pp = (v as any)._payPending; if (pp) { const r = await conn.getSignatureStatuses([pp.sig], { searchTransactionHistory: true }).catch(() => null); if (!r) throw new Error('could not check the last payout — try again in a minute')
+    const st = r.value[0]
+    if (st && !st.err) { await book(v, pp.sig, -(pp.sol || 0)).catch(() => {}); (v as any)._payPending = undefined; save(); throw new Error('the last payout landed — refresh, it is in your wallet') }
+    // not seen: it can only be paid again once it provably can't land (its block height passed), never on a clock alone
+    const h = pp.lvbh ? await conn.getBlockHeight('confirmed').catch(() => 0) : 0
+    if (!st?.err && !(pp.lvbh && h > pp.lvbh) && !(!pp.lvbh && Date.now() - pp.t > 300_000)) throw new Error('the last payout is still confirming — try again in a minute'); (v as any)._payPending = undefined } }
+  if (lateBooks.some((x) => x.id === v.id) || lateCredits.some((x) => x.id === v.id)) throw new Error('a trade of this chest is still confirming — try again in a few minutes')
   if (reclaim && v.mint && v.tokens > 0 && !PAPER) {
     // close-out: sell everything back to SOL in slices. Each slice is sized so it moves the pool price ≤ ~15%, is quoted fresh
     // (min-out from the pool read at build time, 1% for other flow), and a few seconds apart so buyers can step in between.
@@ -557,7 +589,7 @@ async function refundOnce(id: string, auth?: { msg?: string; sig?: string }) {
   const avail = (v.shared ? v.chest : await balanceSol(v.pub)) - 0.001
   const sol = +Math.max(0, reclaim ? avail : Math.min(staked, avail)).toFixed(6); if (sol < 0.001) throw new Error('nothing to refund')
   const sig = await payFrom(v, v.dev, Math.floor(sol * 1e9), 'refund')
-  v.activity.unshift({ t: Date.now(), kind: 'note', sol, sig, msg: `stake refunded to ${v.dev.slice(0, 4)}… (vault never traded)` }); if (v.shared) v.chest = Math.max(0, +(v.chest - sol).toFixed(9)); if (reclaim) (v as any).closedAt = Date.now(); if (v.armed && v.chest < 0.05) { v.armed = false; if (v.deskBid) { try { D.cancelInternal(v.pub, v.mint!) } catch {} v.deskBid = 0 } }
+  v.activity.unshift({ t: Date.now(), kind: 'note', sol, sig, msg: `stake refunded to ${v.dev.slice(0, 4)}… (vault never traded)` }); if (reclaim) (v as any).closedAt = Date.now(); if (v.armed && v.chest < 0.05) { v.armed = false; if (v.deskBid) { try { D.cancelInternal(v.pub, v.mint!) } catch {} v.deskBid = 0 } }
   EV.log('vault', `${v.symbol || id} refunded ${sol} SOL to the dev (${reclaim ? 'test reclaim: whole chest' : 'stake back, vault never traded'})`, { id, sig }); save(); return { sig, sol }
 }
 /** admin: drop a vault that never armed (its stake was returned by hand from the shared wallet); refuses armed vaults */
@@ -585,6 +617,7 @@ export function redeemQuote(mint: string, tokensUi: number) {
 /** Holder-signed tx: [create vault ATA idempotent (payer holder), spl transfer holder→vault tokens, SOL vault→holder]. Server verifies + co-signs with the vault key. */
 export async function redeem(mint: string, holder: string, tokensUi: number, txB64: string) {
   const q = redeemQuote(mint, tokensUi); const v = vaults[q.vaultId]
+  if ((v as any).closing || (v as any).closedAt || (v as any)._payPending || vaultOps.has(v.id)) throw new Error('this chest is busy — try again in a minute')
   const tx = Transaction.from(Buffer.from(txB64, 'base64')); const ix = tx.instructions
   const d = await decimals(mint); const base = BigInt(Math.floor(tokensUi * 10 ** d))
   const hp = new PublicKey(holder), vp = new PublicKey(v.pub), mp = new PublicKey(mint), prog = new PublicKey(await C.tokenProgram(mint))
@@ -607,6 +640,7 @@ function liveReadout(v: Vault) {
 export function setMode(id: string, dev: string, mode: 'floor' | 'mm', ceiling?: number) { const v = vaults[id]; if (!v || v.dev !== dev) throw new Error('not yours'); v.mode = mode; if (ceiling != null) v.ceiling = Math.min(R.MM_MAX_CAPTURE, Math.max(0.05, ceiling)); v.activity.unshift({ t: Date.now(), kind: 'note', msg: `mode → ${mode}${mode === 'mm' ? ` · capture ceiling ${Math.round((v.ceiling) * 100)}%` : ''}` }); save(); return pub(v) }
 /** A buy was observed (stream or inferred). MM mode may counter it. */
 export async function onBuy(v: Vault, solIn: number, m: any, p: number, now: number) {
+  if ((v as any).closing || (v as any).closedAt || vaultOps.get(v.id) === 'withdrawing') return
   // one sale at a time — but a buy that lands while a sale is in flight is queued, not dropped (a sniper wave is ten buys in two seconds)
   const initials = MM.initialsOn(v); const perBuy = MM.perBuyOn(v); if (perBuy && (v as any)._capBusy) { (v as any)._pendIn = +(((v as any)._pendIn || 0) + solIn).toFixed(9); return }
   const tokens = MM.capture(v, m, p, solIn, now); if (tokens <= 0) return
@@ -628,9 +662,13 @@ export async function onBuy(v: Vault, solIn: number, m: any, p: number, now: num
 }
 /** the dev cut on realized profit. A copy (declared at launch, or flagged by the vamp detector) streams half of every cut to the original's chest. */
 async function payCut(v: Vault, cut: number, now: number, why: string) {
-  if (!(cut > 0.001) || PAPER) return
+  if (!(cut > 0.001) || PAPER || (v as any).closing || (v as any).closedAt) return
   let devShare = cut
-  if (v.copyOf) { const orig = Object.values(vaults).find((x) => x.mint === v.copyOf && x.armed); if (orig) { try { const half = cut / 2; const s3 = await payFrom(v, orig.pub, Math.floor(half * 1e9)); v.streamed = (v.streamed || 0) + half; devShare = cut - half; v.activity.unshift({ t: now, kind: 'stream', sol: half, sig: s3, msg: `half of cut → original ${orig.symbol}` }); orig.activity.unshift({ t: now, kind: 'stream', sol: half, sig: s3, msg: `received from copy ${v.symbol}` }); orig.chest += half } catch {} } }
+  if (v.copyOf) { const orig = Object.values(vaults).find((x) => x.mint === v.copyOf && x.armed && x.id !== v.id); if (orig && v.shared && orig.shared && orig.pub === v.pub) {
+      // same wallet: the half is a pure ledger move (a transfer to itself moved nothing but the fee, and credited the original anyway — third review, Oct 30)
+      const half = Math.min(cut / 2, Math.max(0, v.chest)); v.chest = +(v.chest - half).toFixed(9); orig.chest = +(orig.chest + half).toFixed(9); v.streamed = (v.streamed || 0) + half; devShare = cut - half
+      v.activity.unshift({ t: now, kind: 'stream', sol: half, msg: `half the cut → original ${orig.symbol} (ledger)` }); orig.activity.unshift({ t: now, kind: 'stream', sol: half, msg: `from copy ${v.symbol}` }) }
+    else if (orig) { try { const half = cut / 2; const s3 = await payFrom(v, orig.pub, Math.floor(half * 1e9)); v.streamed = (v.streamed || 0) + half; devShare = cut - half; v.activity.unshift({ t: now, kind: 'stream', sol: half, sig: s3, msg: `half of cut → original ${orig.symbol}` }); orig.activity.unshift({ t: now, kind: 'stream', sol: half, sig: s3, msg: `received from copy ${v.symbol}` }); orig.chest += half } catch {} } }
   try { const s2 = await payFrom(v, v.dev, Math.floor(devShare * 1e9)); v.devPaid += devShare; v.activity.unshift({ t: now, kind: 'cut', sol: devShare, sig: s2, msg: `dev cut ${v.cut}% of ${why}` }) } catch {}
 }
 function trimAllowed(v: Vault, m: any, p: number, now: number) {
@@ -797,13 +835,13 @@ async function tickOne(v: Vault) {
       // standing switch offer: a slice of the vault's tokens at spot, fee 0 — the off-chart way INTO this coin for anyone leaving a vamp. Only when the desk is open.
       try {
         if (v.mode === 'mm' && v.tokens > 0 && R.deskOpen(m) && !PAPER && p >= MM.sellFloor(v.avgCost)) { const mb = R.minBlockSol(m); const want = +Math.max(Math.min(v.tokens * 0.1 * p, v.chest * 2), mb).toFixed(3)
-          if (v.tokens * p >= want && want >= 0.1 && (!v.askRefreshAt || now > v.askRefreshAt)) { v.askRefreshAt = now + 60000 + Math.random() * 60000; await D.placeInternalAsk(kp(v), 'VAULT', v.mint, want, 0, (tx) => { KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'trade', 0) }) } }
+          if (v.tokens * p >= want && want >= 0.1 && (!v.askRefreshAt || now > v.askRefreshAt)) { v.askRefreshAt = now + 60000 + Math.random() * 60000; await D.placeInternalAsk(kp(v), 'VAULT', v.mint, want, 0, (tx) => { if ((v as any).closing || (v as any).closedAt) throw new Error('chest closing'); KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'trade', 0) }) } }
       } catch {}
       // standing vault bid on the desk: −4%, ≤25% of chest, pulled for 15 min after toxic flow, only when the desk is open for this coin
       try {
         const mb = R.minBlockSol(m); let want = MM.deskBid(v, mb, now, MM.P, Math.random(), p, m.liqSol || 0, MM.volSol(v, m)); const bidMax = +(process.env.DESK_BID_MAX_SOL || 0); if (bidMax > 0 && want > bidMax) want = +Math.min(want, bidMax).toFixed(3)
         if (!v.bidRefreshAt || now > v.bidRefreshAt) v.bidRefreshAt = now + 45000 + Math.random() * 60000 // re-quote at random 45–105s, not on the minute
-        if (R.deskOpen(m) && want > 0 && !PAPER) { if (Math.abs(want - v.deskBid) > v.chest * 0.05 || now > v.bidRefreshAt - 1000) { const stop = MM.stopped(v, p, now); const disc = Math.round(Math.max(stop ? 1500 : 0, R.deskDiscountBps(R.sigma(v.samples))) + (Math.random() * 100 - 50)); await D.placeInternal(kp(v), 'VAULT', v.mint, want, disc, () => v.chest - 0.02, (tx, solOut) => { KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'desk_fill', solOut) }, (seller) => MM.deskDenied(v, seller, Date.now())); if (!v.deskBid) v.activity.unshift({ t: now, kind: 'bid', sol: want, msg: `vault bid resting on desk at −${(disc / 100).toFixed(1)}%` }); v.deskBid = want } }
+        if (R.deskOpen(m) && want > 0 && !PAPER) { if (Math.abs(want - v.deskBid) > v.chest * 0.05 || now > v.bidRefreshAt - 1000) { const stop = MM.stopped(v, p, now); const disc = Math.round(Math.max(stop ? 1500 : 0, R.deskDiscountBps(R.sigma(v.samples))) + (Math.random() * 100 - 50)); await D.placeInternal(kp(v), 'VAULT', v.mint, want, disc, () => v.chest - 0.02, (tx, solOut) => { if ((v as any).closing || (v as any).closedAt || (v as any)._payPending) throw new Error('chest closing'); KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'desk_fill', solOut) }, (seller) => MM.deskDenied(v, seller, Date.now())); if (!v.deskBid) v.activity.unshift({ t: now, kind: 'bid', sol: want, msg: `vault bid resting on desk at −${(disc / 100).toFixed(1)}%` }); v.deskBid = want } }
         else if (v.deskBid) { D.cancelInternal(v.pub, v.mint); v.deskBid = 0 }
       } catch {}
       v.ddPrev = ddNow
@@ -821,13 +859,14 @@ export async function respondRfq(mint: string, sizeSol: number, maxBps: number, 
   const m = await market(mint); if (!m || !m.priceSol) return null
   const room = MM.deskBid(v, R.minBlockSol(m), Date.now(), MM.P, Math.random(), m.priceSol, m.liqSol || 0, MM.volSol(v, m)); const bidMax = +(process.env.DESK_BID_MAX_SOL || 0)
   const sol = +Math.min(sizeSol, room, v.chest - 0.02, bidMax > 0 ? bidMax : Infinity).toFixed(3); if (sol < 0.2 || sol < R.minBlockSol(m)) return null
-  const b = await D.placeInternalRaw(kp(v), 'VAULT', mint, sol, 400, () => v.chest - 0.02, true, (tx, solOut) => { KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'desk_fill', solOut) }, (seller) => MM.deskDenied(v, seller, Date.now())); b.rfq = rfqId
+  const b = await D.placeInternalRaw(kp(v), 'VAULT', mint, sol, 400, () => v.chest - 0.02, true, (tx, solOut) => { if ((v as any).closing || (v as any).closedAt || (v as any)._payPending) throw new Error('chest closing'); KEEP.sign({ id: v.id, chest: v.chest, sk: kp(v) }, tx, 'desk_fill', solOut) }, (seller) => MM.deskDenied(v, seller, Date.now())); b.rfq = rfqId
   v.activity.unshift({ t: Date.now(), kind: 'bid', sol, msg: `answered block request at −4%` })
   return b
 }
 
 // desk fills: the vault is found by wallet AND coin — every shared vault has the same wallet, so the wallet alone named the first vault in
 // the file (review, Oct 30: the bidding vault's chest never went down)
+D.setOnVaultFillLate((pub, mint, sig, sol) => { const v = Object.values(vaults).find((x) => x.pub === pub && x.mint === mint && x.armed); if (v) deferBook(v, sig, -sol, (vv) => { vv.activity.unshift({ t: Date.now(), kind: 'buy', sol, msg: 'desk fill (late) · bought a block off-chart' }) }) })
 D.setAskSigHooks((sig) => claimSig(sig), (sig) => releaseSig(sig))   // the ask fill's payment signature is held for the vault from before it is sent
 D.setOnVaultAskFill((pub, mint, sol, tokens, sig) => { const v = Object.values(vaults).find((x) => x.pub === pub && x.mint === mint && x.armed); if (!v) { releaseSig(sig); EV.log('error', `ask fill ${sig.slice(0, 8)}… on ${mint.slice(0, 4)}… matched no vault — SOL left unattributed`, { sig }); return } if (booked[sig]) { EV.log('error', `ask fill ${sig.slice(0, 8)}… already booked to ${booked[sig]} — not credited twice`, { sig }); return } if (v.shared) v.chest = +(v.chest + sol).toFixed(9); commitSig(sig, v.id); v.activity.unshift({ t: Date.now(), kind: 'capture', sol, tokens, sig, msg: 'desk: sold a block off-chart at spot' }); sync(v).then(save).catch(() => {}) })
 D.setOnVaultFill((pub, sol, tokens, seller, mint, sig) => { const v = Object.values(vaults).find((x) => x.pub === pub && (!mint || x.mint === mint) && x.armed); if (!v) { EV.log('error', `vault bid fill ${String(sig).slice(0, 8)}… matched no vault`, { sig }); return } if (!v.score) v.score = { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: 0 }; if (sig) commitSig(sig, v.id); MM.onDeskFill(v, sol, tokens, v.samples.at(-1)?.p || 0, Date.now(), seller); if (v.shared) v.chest = Math.max(0, +(v.chest - sol).toFixed(9)); v.score.deskBought += sol; v.score.deskFills++; v.score.redeployed += sol; v.deskBid = 0; v.activity.unshift({ t: Date.now(), kind: 'buy', sol, tokens, msg: 'desk fill · bought a block off-chart' }); sync(v).then(save).catch(() => {}) })

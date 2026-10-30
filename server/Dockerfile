@@ -11,6 +11,8 @@ ENV PORT=8080 DATA_DIR=/data
 # - Refund / Close & withdraw all sells whatever the vault holds and pays the dev the whole chest
 # - launch bundles tip Jito 0.005 SOL; vault trades keep the default tip; test chests up to 10 SOL
 ENV LAUNCH_TIP_SOL=0.005 TEST_MAX_CHEST_SOL=10
+# 'Close & withdraw all' (TEST_RECLAIM) only for the owner's wallets and any wallet bound to the same beta key
+ENV TEST_RECLAIM_WALLETS=7BAdBZxhisBAJH8PGMADKp8thz8yqk2AmaoHZq92mmvb,5MHbsDZaNTzNLhcn7JNNgQ2zTm2ooyr4xHXEV1uwxrqt,HuZGx4k41dCPuXR4PnBNdHNXJ4WzbUnDxo9wvU3VpXAY
 ENV PROFIT_ONLY=1 TEST_RECLAIM=1 MM_ON=1 DESK_BID=1 MM_WARMUP_MS=0 PROFIT_LAUNCH_BUY_SOL=9 \
     MM_CAPTURE_DAY_CAP=0.5 MM_MAX_BUY_SOL=0.2 MM_MAX_LEG_SOL=0.6 MM_INITIALS_FRAC=0.5 MM_TAKE_FRAC=0.4 \
     MM_DYN_MIN=0.10 MM_DYN_MAX=0.30 MM_DYN_REF_SOL=2

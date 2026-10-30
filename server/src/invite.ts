@@ -66,3 +66,6 @@ export function link(token: string, wallet: string, msg: string, sig: string): {
 export const stats = () => { const s = load(); const ks = Object.values(s.keys); return { gate: GATE, keys: ks.length, redeemed: ks.filter((k) => k.wallet).length } }
 export const hashOf = hash
 export const redeemed = () => Object.entries(load().keys).filter(([, k]) => k.wallet).map(([h, k]) => ({ key: h.slice(0, 8), label: k.label, wallet: k.wallet, redeemedAt: k.redeemedAt }))
+
+/** every wallet bound to the same beta key as `wallet` (itself included); [] when it has no key */
+export function walletsSharingKey(wallet: string): string[] { const k = Object.values(load().keys).find((x) => x.wallet === wallet || !!x.wallets?.includes(wallet)); return k ? [...new Set([k.wallet, ...(k.wallets || [])].filter(Boolean) as string[])] : [] }

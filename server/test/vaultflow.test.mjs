@@ -12,7 +12,7 @@ import { join } from 'node:path'
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), 'vaultflow-'))
 const SHARED = Keypair.generate(); process.env.VAULT_KEY = bs58.encode(SHARED.secretKey)
 process.env.PROFIT_ONLY = '1'; process.env.PROFIT_LAUNCH_BUY_SOL = '9'; process.env.TEST_MAX_CHEST_SOL = '10'; process.env.VAMPS = '0'
-const dev = Keypair.generate(); let mintKp = Keypair.generate(); let MINT = mintKp.publicKey.toBase58(); const BANKY = SHARED.publicKey.toBase58()
+const dev = Keypair.generate(); process.env.TEST_RECLAIM_WALLETS = dev.publicKey.toBase58(); let mintKp = Keypair.generate(); let MINT = mintKp.publicKey.toBase58(); const BANKY = SHARED.publicKey.toBase58()
 const bh = '11111111111111111111111111111111'
 const DEVPK = dev.publicKey.toBase58()
 
@@ -180,4 +180,9 @@ test('a deposit counts only the signed-in depositor\'s own transfer, once', asyn
   const d = await V.deposit(v.id, DEVPK, sig, DEVPK); assert.ok(Math.abs(d.chest - (c0 + 1)) < 1e-9)
   await assert.rejects(V.deposit(v.id, DEVPK, sig, DEVPK), /already booked/)
   poolLive = false; createSigs.length = 0
+})
+
+test('the full withdrawal (TEST_RECLAIM) is only for the owner\'s wallets', () => {
+  assert.equal(V.reclaimAllowed(DEVPK), true)
+  assert.equal(V.reclaimAllowed(Keypair.generate().publicKey.toBase58()), false)
 })
