@@ -674,13 +674,13 @@ export async function onBuy(v: Vault, solIn: number, m: any, p: number, now: num
   // one sale at a time — but a buy that lands while a sale is in flight is queued, not dropped (a sniper wave is ten buys in two seconds)
   // the lock has a watchdog: a sale stuck on a hung call (RPC, keeper) longer than 2 min no longer blocks every later buy (review, Oct 30)
   const initials = MM.initialsOn(v); const perBuy = MM.perBuyOn(v, MM.P, now)
-  if (perBuy && (v as any)._capBusy) { if (Date.now() - ((v as any)._capBusyAt || 0) < 120_000) { (v as any)._pendIn = +(((v as any)._pendIn || 0) + solIn).toFixed(9); return } EV.log('error', `${v.symbol} capture lock held > 2 min — taken back`, { mint: v.mint }) }
+  if ((v as any)._capBusy) { if (Date.now() - ((v as any)._capBusyAt || 0) < 120_000) { if (perBuy) (v as any)._pendIn = +(((v as any)._pendIn || 0) + solIn).toFixed(9); return } EV.log('error', `${v.symbol} capture lock held > 2 min — taken back`, { mint: v.mint }) }
   const sniper = MM.sniperOn(v, now)
   const tokens = MM.capture(v, m, p, solIn, now); if (tokens <= 0) return
   // sniper tax: a sale capped by the pool-impact limit leaves part of the buy untaxed — that part goes back in the queue for the next sale
   const covered = sniper ? Math.min(solIn, (tokens * p) / Math.max(MM.P.sniperFrac, 1e-9)) : solIn
   if (sniper) { const left = +(solIn - covered).toFixed(9); if (left >= MM.P.sniperMinBuy && tokens < v.tokens - ((v as any).launchTok || 0) * MM.P.sniperKeep - 1e-6) (v as any)._pendIn = +(((v as any)._pendIn || 0) + left).toFixed(9) }
-  if (perBuy) { (v as any)._capBusy = true; (v as any)._capBusyAt = Date.now() }
+  ;(v as any)._capBusy = true; (v as any)._capBusyAt = Date.now()
   const lockAt = (v as any)._capBusyAt
   const frac = R.captureFracV2(p, R.vwap(v.samples), v.avgCost, m.mcapUsd, R.sigma(v.samples), MM.vaultedPct(v), v.pct || 5, v.ceiling ?? R.MM_MAX_CAPTURE, 0.5)
   const sellFrac = tokens / v.tokens; const before = v.chest; MM.onCaptured(v, tokens, now)
@@ -706,8 +706,12 @@ export async function onBuy(v: Vault, solIn: number, m: any, p: number, now: num
       v.tokens = Math.max(0, v.tokens - tokens) }
     // a sale whose blockhash died unlanded sold nothing: the share of the buy it answered goes back in the queue (the rest already is)
     else if (e?.expired && sniper) (v as any)._pendIn = +(((v as any)._pendIn || 0) + covered).toFixed(9) }
-  finally { if (perBuy && (v as any)._capBusyAt === lockAt) { (v as any)._capBusy = false; const pend = (v as any)._pendIn || 0; (v as any)._pendIn = 0
-    if (pend >= Math.min(MM.P.initialsMinBuy, MM.P.sniperMinBuy) && v.armed) setTimeout(() => { (v.venue === 'pump' ? pumpMarket(v) : market(v.mint!)).then((mm: any) => mm && mm.priceSol ? onBuy(v, pend, mm, mm.priceSol, Date.now(), mm._hint) : undefined).then(() => save()).catch(() => {}) }, 0) } }
+  finally { if ((v as any)._capBusyAt === lockAt) { (v as any)._capBusy = false; drainPending(v) } }
+}
+/** buys that arrived while the vault was trading (per-buy policies only): sold into as one, right after the lock frees */
+function drainPending(v: Vault) {
+  const pend = (v as any)._pendIn || 0; (v as any)._pendIn = 0
+  if (pend >= Math.min(MM.P.initialsMinBuy, MM.P.sniperMinBuy) && v.armed && MM.perBuyOn(v)) setTimeout(() => { (v.venue === 'pump' ? pumpMarket(v) : market(v.mint!)).then((mm: any) => mm && mm.priceSol ? onBuy(v, pend, mm, mm.priceSol, Date.now(), mm._hint) : undefined).then(() => save()).catch(() => {}) }, 0)
 }
 /** the dev cut on realized profit. A copy (declared at launch, or flagged by the vamp detector) streams half of every cut to the original's chest. */
 async function payCut(v: Vault, cut: number, now: number, why: string) {
@@ -856,6 +860,7 @@ async function tickOne(v: Vault) {
       if (!(v as any).sniper && !(v as any).sniperTried && !v.imported && (v.vaultBuySol || 0) > 0 && v.armedAt && now - v.armedAt > 180_000 && now - v.armedAt < 6 * 3600_000) { (v as any).sniperTried = true; sniperReport(v).catch(() => {}) }   // after the opening rush, not during it
       { const cu = (v as any).catchUp; if (cu != null) { (v as any).catchUp = undefined
         if (m.liqSol && now - (v.armedAt || 0) < 180_000) { const inflow = +(m.liqSol - cu).toFixed(6); v.lastLiq = m.liqSol; v.lastLiqT = now
+          if (inflow > 0 && v.venue === 'launchlab' && (v as any).onCurveLL !== false) v.taxAccrued = +((v.taxAccrued || 0) + inflow * LL.TAX_BPS / 1e4).toFixed(9)
           if (inflow >= MM.P.initialsMinBuy) { EV.log('vault', `${v.symbol} ${inflow.toFixed(2)} SOL of sniper buys landed before the chest switched on — selling into them`, { mint: v.mint }); await onBuy(v, inflow, m, p, now) } } } }
       // per-swap detection: our launchlab pool, any graduated pool, and — unless the PumpPortal stream is on — the pump.fun bonding curve itself
       // (the curve account's own SOL delta is the exact buy). Re-pointed when the coin migrates (curve → AMM), so a graduated coin is never left on a dead stream.
@@ -893,8 +898,13 @@ async function tickOne(v: Vault) {
       // defense: tranches at −20 / −35 / −50 from the high the crash started at (mm.ts: episode anchor, day cap, pool-impact cap, seller-concentration check, cooldown)
       // MM_BUYS=0 (beta knob): the vault never buys from the pool — no dip tranches, no accumulation; captures, the standing ask and a capped desk bid still run
       const NOBUY = process.env.MM_BUYS === '0' && process.env.MM_ON !== '1'
-      const dec = NOBUY ? null : MM.defense(v, m, p, now, dd, MM.sellerShare(recent(v.mint), now))
-      if (dec) {
+      const capBusy = (v as any)._capBusy && Date.now() - ((v as any)._capBusyAt || 0) < 120_000
+      if (!capBusy) { (v as any)._capBusy = true; (v as any)._capBusyAt = Date.now() }
+      const tLock = capBusy ? -1 : (v as any)._capBusyAt
+      try {
+      const dec = capBusy ? null : NOBUY ? null : MM.defense(v, m, p, now, dd, MM.sellerShare(recent(v.mint), now))
+      if (capBusy) {}
+      else if (dec) {
         const { spend, level } = dec; (v as any)._lastSpend = spend
         await wait(Math.random() * 4000)
         const before = v.tokens; const sig = await trade(v, 'buy', spend, true, p)
@@ -920,6 +930,7 @@ async function tickOne(v: Vault) {
         const profit = got - v.avgCost * (v.tokens * frac / (1 - frac)); const cut = v.cut > 0 ? Math.max(0, profit) * (v.cut / 100) : 0
         await payCut(v, cut, now, 'trim profit')
       }
+      } finally { if (tLock !== -1 && (v as any)._capBusyAt === tLock) { (v as any)._capBusy = false; drainPending(v) } }
       } catch (e: any) { v.activity.unshift({ t: now, kind: 'note', msg: 'trade failed: ' + String(e.message || e).slice(0, 100) }); EV.log('error', `${v.symbol} vault trade failed: ${String(e.message || e).slice(0, 120)}`, { mint: v.mint }); if (e?.sig) deferBook(v, e.sig, -((v as any)._lastSpend || 0)) }
       // standing switch offer: a slice of the vault's tokens at spot, fee 0 — the off-chart way INTO this coin for anyone leaving a vamp. Only when the desk is open.
       try {

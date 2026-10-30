@@ -12,7 +12,8 @@ export async function confirm(sig: string, timeoutMs = 60000) {
   const t0 = Date.now()
   while (Date.now() - t0 < timeoutMs) {
     const st = (await conn.getSignatureStatuses([sig]).catch(() => null))?.value?.[0]
-    if (st) { if (st.err) throw new Error('tx failed: ' + JSON.stringify(st.err)); if (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized') return }
+    // landed with an error: marked, so the caller books the fee and re-reads balances at once instead of treating it as still in flight
+    if (st) { if (st.err) { const e: any = new Error('tx failed: ' + JSON.stringify(st.err)); e.landedErr = true; throw e } if (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized') return }
     await new Promise((r) => setTimeout(r, 1000))
   }
   throw new Error('confirm timeout ' + sig)
