@@ -10,7 +10,7 @@ import { confirmByPolling } from './lib/rpc'
 import WalletPanel from './components/WalletPanel'
 import * as B from './lib/burner'
 import { STORE_SAFE } from './lib/native'
-import { confetti, useRoute, useSettings, useSolPrice, useTrending, useNewTokens, useWalletState, useCoins } from './hooks'
+import { confetti, useRoute, useSettings, useSolPrice, useTrending, useNewTokens, useWalletState, useCoins, useMintHolding } from './hooks'
 import Home from './components/Home'
 import CoinPage from './components/CoinPage'
 import Launch from './components/Launch'
@@ -65,6 +65,7 @@ export default function App() {
   const activeB58 = mode === 'burner' ? (burner ? burner.publicKey.toBase58() : '') : (wallet.publicKey ? wallet.publicKey.toBase58() : '')
   const activeKey = useMemo(() => (activeB58 ? new PublicKey(activeB58) : null), [activeB58])
   const ws = useWalletState(activeKey, rk)
+  const coinHolding = useMintHolding(activeKey, page === 'coin' ? arg || null : null, rk)
   const pendingVault = useRef<{ v: K.VaultPub; dev: string; stake: number; venue: string } | null>(null)
   const [lat, setLat] = useState<number | null>(null); const [busy, setBusy] = useState(''); const [launch, setLaunch] = useState(false); const openLaunch = () => { if (STORE_SAFE) { toast({ kind: 'info', title: 'Launch coins on app.banker.cash', rows: [['In the app', 'buy, sell and track coins']] }); return } setLaunch(true) }; const [llp, setLlp] = useState<K.LLPlatform | null>(null); useEffect(() => { K.llPlatform().then(setLlp).catch(() => {}) }, [launch]); const [more, setMore] = useState(false); const [q, setQ] = useState(''); const [results, setResults] = useState<Coin[]>([])
   const [ledgerV, setLedgerV] = useState(0)
@@ -234,7 +235,10 @@ export default function App() {
   }
   const onSell = async (c: Coin, frac: number) => {
     const x = ctx(); if (!x) return needWallet()
-    const h = ws.tokens.find((t) => t.mint === c.mint); if (!h) return
+    // the coin's own balance first (fresh every 4 s), then the wallet sweep, then ask the chain right now — a sell never silently does nothing
+    let h = (coinHolding?.mint === c.mint ? coinHolding : null) || ws.tokens.find((t) => t.mint === c.mint)
+    if (!h) { const r = await connection.getParsedTokenAccountsByOwner(x.owner, { mint: new PublicKey(c.mint) }).catch(() => null); let amount = 0, raw = 0n, decimals = 6; for (const a of r?.value || []) { const t = (a.account.data as any).parsed.info.tokenAmount; amount += +t.uiAmount || 0; raw += BigInt(t.amount || 0); decimals = t.decimals } if (amount > 0) h = { mint: c.mint, amount, decimals, raw: raw.toString() } }
+    if (!h) { toast({ kind: 'err', title: `No ${c.symbol} in this wallet`, rows: [['Wallet', short(ws.owner, 4)], ['Tip', 'bought from another wallet? switch to it to sell']] }); return }
     try { const before = ws.sol || 0; const sig = await T.sell({ ...x, depthSol: c.depthSol, venue: c.venue }, c.mint, frac, BigInt(h.raw), c.onCurve, (h.amount * (c.raw?.priceNative ? +c.raw.priceNative : 0)) * frac); const after = await connection.getBalance(x.owner).then((b) => b / 1e9).catch(() => before); recordSell(ws.owner, c.mint, c.symbol, frac, Math.max(0, after - before), sig); setLedgerV((v) => v + 1); toast({ kind: 'ok', title: `Sold ${Math.round(frac * 100)}% ${c.symbol}`, rows: [['Landed', landing()], ['Received', '≈ ' + S(Math.max(0, after - before)) + ' SOL'], ['Tx', short(sig, 6)]], href: solscan(sig) }); setTimeout(() => setRk((k) => k + 1), 1500) }
     catch (e: any) { toast({ kind: 'err', title: 'Sell failed', rows: [['Reason', String(e?.message || e).slice(0, 120)]] }) } finally { setBusy('') }
   }
@@ -294,7 +298,7 @@ export default function App() {
   const toggleWatch = (m: string) => setSettings({ watch: settings.watch.includes(m) ? settings.watch.filter((x) => x !== m) : [...settings.watch, m] })
 
   const content = () => {
-    if (page === 'coin' && arg) { const h = ws.tokens.find((t) => t.mint === arg); return <CoinPage simple={simple} mint={arg} coin={byMint[arg]} solPrice={solPrice} holding={h} lot={ledger.lots[arg]} sol={ws.sol} connected={connected} busy={busy} onBuy={onBuy} onSell={onSell} needWallet={needWallet} quickSol={settings.quickBuy} watch={settings.watch} toggleWatch={toggleWatch} trades={allTrades} subscribe={fresh.subscribe} desk={{ owner: ws.owner, connected, bidder, deskUp, busy, takeBid, takeAsk, holdingUi: h?.amount || 0, solPrice }} deskTick={deskTick} vaultV={vaultV} onRenounce={renounce} onRedeem={onRedeem} onDeposit={onDeposit} onMode={onMode} onSwitch={onSwitch} go={go} ordersV={ordersV} bumpOrders={() => setOrdersV((v) => v + 1)} fills={ledger.fills} /> }
+    if (page === 'coin' && arg) { const h = (coinHolding?.mint === arg ? coinHolding : null) || ws.tokens.find((t) => t.mint === arg); return <CoinPage simple={simple} mint={arg} coin={byMint[arg]} solPrice={solPrice} holding={h} lot={ledger.lots[arg]} sol={ws.sol} connected={connected} busy={busy} onBuy={onBuy} onSell={onSell} needWallet={needWallet} quickSol={settings.quickBuy} watch={settings.watch} toggleWatch={toggleWatch} trades={allTrades} subscribe={fresh.subscribe} desk={{ owner: ws.owner, connected, bidder, deskUp, busy, takeBid, takeAsk, holdingUi: h?.amount || 0, solPrice }} deskTick={deskTick} vaultV={vaultV} onRenounce={renounce} onRedeem={onRedeem} onDeposit={onDeposit} onMode={onMode} onSwitch={onSwitch} go={go} ordersV={ordersV} bumpOrders={() => setOrdersV((v) => v + 1)} fills={ledger.fills} /> }
     if (page === 'trending') return <SimpleTrending coins={coins} vaults={vaultList} solPrice={solPrice} go={go} usd={10} buyUsd={buyUsd} />
     if (page === 'chests') return <SimpleChests byMint={byMint} vaults={vaultList} solPrice={solPrice} go={go} onLaunch={() => openLaunch()} />
     if (page === 'portfolio' && simple) return <SimplePortfolio owner={ws.owner || undefined} onConnect={needWallet} sol={ws.sol} tokens={ws.tokens} coins={byMint} lots={ledger.lots} vaults={vaultList} solPrice={solPrice} go={go} />

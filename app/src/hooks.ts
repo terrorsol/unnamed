@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useConnection } from '@solana/wallet-adapter-react'
-import type { PublicKey } from '@solana/web3.js'
+import { PublicKey } from '@solana/web3.js'
 import { LAMPORTS } from './lib/fmt'
 import { holdings, type Holding } from './lib/rpc'
 import * as D from './lib/dex'
@@ -54,6 +54,21 @@ export function useWalletState(publicKey: PublicKey | null, refreshKey = 0) {
   }, [connection, publicKey])
   useEffect(() => { refresh(); const i = setInterval(refresh, 15000); return () => clearInterval(i) }, [refresh, refreshKey])
   return { sol, tokens, refresh, owner: publicKey?.toBase58() || '' }
+}
+/** The open coin's balance on its own, every 4 s (one cheap call, both token programs): the Sell button must not wait for the 15 s wallet sweep —
+ *  Oct 29 a dev's fresh coin showed no Sell at all for a while after the launch. */
+export function useMintHolding(publicKey: PublicKey | null, mint: string | null, refreshKey = 0) {
+  const { connection } = useConnection(); const [h, setH] = useState<Holding | null>(null)
+  const pk = publicKey?.toBase58() || ''
+  useEffect(() => {
+    setH(null); if (!publicKey || !mint || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) return; let on = true
+    const f = () => connection.getParsedTokenAccountsByOwner(publicKey, { mint: new PublicKey(mint) }).then((r) => {
+      if (!on) return; let amount = 0, raw = 0n, decimals = 6
+      for (const a of r.value) { const t = (a.account.data as any).parsed.info.tokenAmount; amount += +t.uiAmount || 0; raw += BigInt(t.amount || 0); decimals = t.decimals }
+      setH(amount > 0 ? { mint, amount, decimals, raw: raw.toString() } : null) }).catch(() => {})
+    f(); const i = setInterval(f, 4000); return () => { on = false; clearInterval(i) }
+  }, [connection, pk, mint, refreshKey])
+  return h
 }
 /** Hydrate a list of mints with DexScreener data; polls */
 export function useCoins(mints: string[], ms = 15000) {
