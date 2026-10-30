@@ -14,14 +14,20 @@ const W = new PublicKey(process.env.WALLET || 'BANKYubgHd48UQt2VFtEytyE8QyeBHhiu
 const accs = await conn.getParsedTokenAccountsByOwner(W, { mint: new PublicKey(mint) })
 for (const a of accs.value) console.log('account', a.pubkey.toBase58(), 'balance', a.account.data.parsed.info.tokenAmount.uiAmountString)
 const ata = accs.value[0]?.pubkey; if (ata) {
-  const sigs = await conn.getSignaturesForAddress(ata, { limit: 70 })
-  for (const x of sigs) { await new Promise((r) => setTimeout(r, 120))
+  const sigs = await conn.getSignaturesForAddress(ata, { limit: 160 })
+  for (const x of sigs) { await new Promise((r) => setTimeout(r, 350))
     const tx = await conn.getParsedTransaction(x.signature, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }).catch(() => null); if (!tx?.meta) continue
     const pre = tx.meta.preTokenBalances?.find((b: any) => b.owner === W.toBase58() && b.mint === mint)?.uiTokenAmount.uiAmount || 0
     const post = tx.meta.postTokenBalances?.find((b: any) => b.owner === W.toBase58() && b.mint === mint)?.uiTokenAmount.uiAmount || 0
     const keys = tx.transaction.message.accountKeys.map((k: any) => k.pubkey.toBase58()); const wi = keys.indexOf(W.toBase58())
     const sol = wi >= 0 ? (tx.meta.postBalances[wi] - tx.meta.preBalances[wi]) / 1e9 : 0
     const progs = [...new Set(tx.transaction.message.instructions.map((i: any) => (i.programId?.toBase58?.() || String(i.programId)).slice(0, 6)))].join(',')
+    if (post - pre > 0) { // the vault's coin account went UP: print the whole tx (who signed, what ran, what moved)
+      console.log('=== BUY-SIDE TX', x.signature, 'slot', x.slot, 'signers', tx.transaction.message.accountKeys.filter((k: any) => k.signer).map((k: any) => k.pubkey.toBase58()).join(' '))
+      for (const ix of tx.transaction.message.instructions as any[]) console.log('  ix', ix.programId.toBase58(), ix.parsed ? JSON.stringify(ix.parsed).slice(0, 300) : 'data ' + String(ix.data).slice(0, 40))
+      for (const l of (tx.meta.logMessages || []).slice(0, 40)) console.log('  log', l.slice(0, 160))
+      for (const b of tx.meta.postTokenBalances || []) { const pr = (tx.meta.preTokenBalances || []).find((q: any) => q.accountIndex === b.accountIndex); console.log('  tokbal', b.owner, b.mint.slice(0, 6), (pr?.uiTokenAmount.uiAmount || 0), '→', b.uiTokenAmount.uiAmount) }
+      keys.forEach((k: string, i: number) => { const d = (tx.meta!.postBalances[i] - tx.meta!.preBalances[i]) / 1e9; if (Math.abs(d) > 0.0001) console.log('  sol', k, d.toFixed(6)) }) }
     console.log(new Date((x.blockTime || 0) * 1000).toISOString().slice(11, 19), x.signature.slice(0, 10), x.err ? 'ERR' : 'ok ', 'tok', (post - pre).toFixed(0).padStart(12), 'sol', sol.toFixed(4).padStart(8), 'signer', keys[0].slice(0, 6), 'progs', progs) }
 }
 process.exit(0)
