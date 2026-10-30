@@ -197,8 +197,9 @@ async function armOnce(id: string, mint: string, symbol: string, name = '', auth
   }
   // only a coin this vault launched: a vault armed onto someone else's mint would read the shared wallet's whole balance of that coin as
   // its own, and pay its dev out of it (review, Oct 30)
-  if (!v.imported) { const mine = new Set([...(((v as any).builtMints || []) as string[]), ...(v.mint ? [v.mint] : [])]); if (!mine.has(mint)) throw new Error('this vault did not launch that coin') }
-  { const other = otherLiveVault(mint, v.id); if (other) throw new Error(`another chest (${other.symbol || other.id}) already sits on that coin`) }
+  // (shared wallet only: a vault with its own key holds only what it bought itself)
+  if (v.shared && !v.imported) { const mine = new Set([...(((v as any).builtMints || []) as string[]), ...(v.mint ? [v.mint] : [])]); if (!mine.has(mint)) throw new Error('this vault did not launch that coin') }
+  if (v.shared) { const other = otherLiveVault(mint, v.id); if (other) throw new Error(`another chest (${other.symbol || other.id}) already sits on that coin`) }
   // arming needs the dev: a session/message signature, OR the coin itself — a LaunchLab pool whose on-chain creator is the vault's dev (only that wallet could have created it)
   if (!v.imported) { try { devAuth(v, 'arm', mint, auth) } catch (e) { const pl = await LL.pool(mint).catch(() => null); if (!pl || pl.creator !== v.dev) throw e } }
   // after a block-zero bundle half the stake is already in tokens, so the SOL check is against the other half
