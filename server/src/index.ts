@@ -159,7 +159,7 @@ setInterval(D.sweep, 10000); setInterval(D.rfqSweep, 5000)
 D.setVaultResponder(V.respondRfq)
 // DESK_ONLY=1: ephemeral/public-tunnel deployments — the desk is non-custodial so it is safe to run anywhere; vaults (server-held keys) stay off.
 export const DESK_ONLY = process.env.DESK_ONLY === '1'
-if (!DESK_ONLY) { V.load(); V.startStream(); setInterval(() => V.tick().catch(() => {}), 5000); setInterval(() => V.crowdSweep().catch(() => {}), 60000); setInterval(() => V.autoArm().catch(() => {}), 15000); const ep = () => LL.ensurePlatform().catch((e) => console.log('platform setup: ' + String(e.message).slice(0, 120))); setTimeout(ep, 8000); setInterval(ep, 60000) }
+if (!DESK_ONLY) { V.load(); V.startStream(); setInterval(() => V.tick().catch(() => {}), 5000); setInterval(() => V.crowdSweep().catch(() => {}), 60000); setInterval(() => V.autoArm().catch(() => {}), 15000); setInterval(() => V.trackTick().catch(() => {}), 4000); const ep = () => LL.ensurePlatform().catch((e) => console.log('platform setup: ' + String(e.message).slice(0, 120))); setTimeout(ep, 8000); setInterval(ep, 60000) }
 else console.log('desk-only mode: vault/import routes disabled')
 if (process.env.VAMPS !== '0') VM.start()
 server.listen(PORT, () => console.log(`banker server on :${PORT} · treasury ${TREASURY}`))

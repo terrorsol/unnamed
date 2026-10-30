@@ -16,7 +16,8 @@ type Pt = { t: number; v: number }
 
 async function load(coin: Coin, solPrice: number, r: string): Promise<Pt[]> {
   const R = RANGES[r]; const supply = 1e9
-  const ours = async () => (await K.candles(coin.mint, R.sec)).filter((x) => x.close > 0).slice(-R.n).map((x) => ({ t: x.time * 1000, v: x.close * solPrice * supply }))
+  // a coin minutes old has one 15-minute bar: step down to 1-minute, then 15-second bars until there is a line to draw
+  const ours = async () => { for (const sec of [R.sec, 60, 15]) { if (sec > R.sec) continue; const b = (await K.candles(coin.mint, sec)).filter((x) => x.close > 0).slice(-Math.max(R.n, 60)).map((x) => ({ t: x.time * 1000, v: x.close * solPrice * supply })); if (b.length >= 6 || sec === 15) return b } return [] }
   if (coin.venue === 'launchlab' || !coin.pair) { const b = await ours().catch(() => []); if (b.length >= 2) return b }
   if (coin.pair) {
     const [path, agg, limit] = R.gecko

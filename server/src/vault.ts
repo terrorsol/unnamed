@@ -39,6 +39,25 @@ export function candles(mint: string, tf = 60, limit = 300) {
   const filled: typeof out = []; for (const c of out) { const prev = filled[filled.length - 1]; if (prev) for (let t = prev.time + tf; t < c.time && filled.length < 5000; t += tf) filled.push({ time: t, open: prev.close, high: prev.close, low: prev.close, close: prev.close, volume: 0 }); filled.push(c) }
   return filled.slice(-limit)
 }
+/** Coins launched here without a chest still get a chart: their pool is read every few seconds for 48 h (price → candles, SOL moves →
+ *  volume) — Oct 29: a fresh launchpad coin with no chest showed an empty chart until GeckoTerminal caught up. Survives restarts. */
+const TRACK_FILE = () => DIR + '/tracked.json'
+const tracked: Record<string, number> = (() => { try { return JSON.parse(readFileSync(TRACK_FILE(), 'utf8')) } catch { return {} } })()
+const trackLiq = new Map<string, number>()
+export function track(mint: string) { if (!tracked[mint]) { tracked[mint] = Date.now(); try { mkdirSync(DIR, { recursive: true }); writeFileSync(TRACK_FILE(), JSON.stringify(tracked)) } catch {} } }
+let trackBusy = false
+export async function trackTick() {
+  if (trackBusy || PAPER) return; trackBusy = true
+  try { const now = Date.now(); let dirty = false
+    for (const [m, t] of Object.entries(tracked)) {
+      if (now - t > 48 * 3600_000) { delete tracked[m]; dirty = true; continue }
+      if (Object.values(vaults).some((v) => v.armed && v.mint === m)) continue   // an armed vault reads it already
+      const p = await LL.pool(m, 2000).catch(() => null); if (!p) { if (now - t > 600_000) { delete tracked[m]; dirty = true } continue }   // built but never went live
+      pxPush(m, now, p.priceSol); const last = trackLiq.get(m); if (last != null && Math.abs(p.liqSol - last) >= 0.01) tape(m, { t: now, side: p.liqSol > last ? 'buy' : 'sell', sol: +Math.abs(p.liqSol - last).toFixed(6) }); trackLiq.set(m, p.liqSol)
+    }
+    if (dirty) try { writeFileSync(TRACK_FILE(), JSON.stringify(tracked)) } catch {}
+  } finally { trackBusy = false }
+}
 /** last 10 minutes of swaps on a mint, in memory (seller-concentration check) */
 export const recent = (mint: string) => recentTape.get(mint) || []
 let lastTapeSave = 0
@@ -797,7 +816,7 @@ export async function buildLaunch(b: { dev: string; name: string; symbol: string
     // a retry after a launch that looked failed but landed late: never a second coin for one chest — point the app at the live one
     const live = await liveBuild(v); if (live) throw new Error('already live: ' + live) }
   const t0 = Date.now()
-  const built = await LL.buildLaunch(dev, { name: b.name, symbol: b.symbol, uri: b.uri }, devBuy, LL.PLATFORM_ID, !!b.permTax)
+  const built = await LL.buildLaunch(dev, { name: b.name, symbol: b.symbol, uri: b.uri }, devBuy, LL.PLATFORM_ID, !!b.permTax); track(built.mint)
   let vaultTx: string | null = null, vaultSpend = 0, vaultTokens = 0; let launchTxs = built.txs; let fundSol = 0
   if (b.vaultId) {
     const v = vaults[b.vaultId]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('already armed')
