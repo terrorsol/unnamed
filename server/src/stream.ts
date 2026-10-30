@@ -4,16 +4,19 @@
 import { Connection, PublicKey } from '@solana/web3.js'
 import { RPC, conn } from './chain.ts'
 const WSOL = 'So11111111111111111111111111111111111111112'
-export type Swap = { pool: string; sig: string; slot: number; side: 'buy' | 'sell'; sol: number; trader: string; t: number }
+export type Swap = { pool: string; sig: string; slot: number; side: 'buy' | 'sell'; sol: number; trader: string; t: number; ev?: TradeEvent }
+import { tradesFromLogs, type TradeEvent } from './pumpfast.ts'
 type Handler = (s: Swap) => void
 let ws: any = null, nextId = 1, closed = false
-const subs = new Map<string, { id: number | null; subId: number | null; handlers: Set<Handler> }>()
+const subs = new Map<string, { id: number | null; subId: number | null; handlers: Set<Handler>; fast?: boolean }>()
 const pending = new Map<number, string>() // request id → pool
 const wsUrl = () => process.env.WS_URL || RPC.replace(/^http/, 'ws')   // WS_URL: a websocket endpoint when the RPC's own ws is refused (seen on Render: closed before established)
 const seen = new Set<string>()
 
 function send(o: any) { if (ws?.readyState === 1) ws.send(JSON.stringify(o)) }
-function subscribe(pool: string) { const id = nextId++; pending.set(id, pool); send({ jsonrpc: '2.0', id, method: 'logsSubscribe', params: [{ mentions: [pool] }, { commitment: 'confirmed' }] }); return id }
+// a pump.fun curve the chest sells into (fast: true) is watched at 'processed' and read from pump's own trade event in the logs — no
+// getTransaction, no wait for confirmation (pumpfast.ts). Everything else stays at 'confirmed' and reads the tx.
+function subscribe(pool: string) { const id = nextId++; pending.set(id, pool); send({ jsonrpc: '2.0', id, method: 'logsSubscribe', params: [{ mentions: [pool] }, { commitment: subs.get(pool)?.fast ? 'processed' : 'confirmed' }] }); return id }
 function connect() {
   const WS = (globalThis as any).WebSocket; if (!WS) return
   try { ws = new WS(wsUrl()) } catch { return }
@@ -25,6 +28,12 @@ function connect() {
     const { value, context } = m.params.result; const sig: string = value.signature; if (value.err || seen.has(sig)) return; seen.add(sig); if (seen.size > 5000) seen.clear()
     const subId = m.params.subscription; const entry = [...subs.entries()].find(([, s]) => s.subId === subId); if (!entry) return
     const [pool, s] = entry
+    if (s.fast) {
+      const evs = tradesFromLogs(value.logs); if (evs.length) { for (const e of evs) { const sw: Swap = { pool, sig, slot: context.slot, side: e.isBuy ? 'buy' : 'sell', sol: e.sol, trader: e.user, t: Date.now(), ev: e }; s.handlers.forEach((h) => h(sw)) } return }
+      // no event in the logs (truncated): the tx itself, once it is readable at 'confirmed'
+      for (let i = 0; i < 4; i++) { await new Promise((r) => setTimeout(r, 700)); try { const sw = await decode(conn, pool, sig, context.slot); if (sw) { s.handlers.forEach((h) => h(sw)); return } } catch {} }
+      return
+    }
     try { const sw = await decode(conn, pool, sig, context.slot); if (sw) s.handlers.forEach((h) => h(sw)) } catch {}
   }
   ws.onclose = (e: any) => { lastClose = `${e?.code || ''} ${e?.reason || ''}`.trim(); if (!closed) setTimeout(connect, 3000) }
@@ -67,9 +76,10 @@ export async function decode(c: Connection, pool: string, sig: string, slot: num
   if (Math.abs(delta) < 0.001) return null
   return { pool, sig, slot, side: delta > 0 ? 'buy' : 'sell', sol: Math.abs(delta), trader: payer, t: Date.now() }
 }
-export function watchPool(pool: string, h: Handler) {
+export function watchPool(pool: string, h: Handler, opts: { fast?: boolean } = {}) {
   if (!ws) { closed = false; connect() }
-  let s = subs.get(pool); if (!s) { s = { id: null, subId: null, handlers: new Set() }; subs.set(pool, s); if (ws?.readyState === 1) s.id = subscribe(pool) }
+  let s = subs.get(pool); if (!s) { s = { id: null, subId: null, handlers: new Set(), fast: !!opts.fast }; subs.set(pool, s); if (ws?.readyState === 1) s.id = subscribe(pool) }
+  else if (opts.fast && !s.fast) { s.fast = true; if (s.subId != null) send({ jsonrpc: '2.0', id: nextId++, method: 'logsUnsubscribe', params: [s.subId] }); s.subId = null; if (ws?.readyState === 1) s.id = subscribe(pool) }
   s.handlers.add(h); startPoll(pool); return () => { s!.handlers.delete(h); if (!s!.handlers.size) { if (s!.subId != null) send({ jsonrpc: '2.0', id: nextId++, method: 'logsUnsubscribe', params: [s!.subId] }); subs.delete(pool) } }
 }
 export const streamStats = () => ({ pools: subs.size, connected: ws?.readyState === 1, polling: pollers.size, lastClose, lastError, wsHost: (() => { try { return new URL(wsUrl()).host } catch { return '?' } })() })

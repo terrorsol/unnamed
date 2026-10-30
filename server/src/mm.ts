@@ -33,6 +33,13 @@ export const P = {
   dynMin: +(process.env.MM_DYN_MIN ?? 0.10),
   dynMax: +(process.env.MM_DYN_MAX ?? 0),
   dynRefSol: +(process.env.MM_DYN_REF_SOL ?? 2),
+  // sniper tax (pump.fun has no sell tax; this stands in for one): for sniperWindowMs after the launch lands, every buy ≥ sniperMinBuy gets
+  // sniperFrac of its SOL sold back into it at once by the chest that bought block zero — never under cost +1%, never into more than
+  // poolImpactMax of the pool, and sniperKeep of the block-zero tokens stays in the chest for the market making after. 0 = off.
+  sniperFrac: +(process.env.MM_SNIPER_FRAC ?? 0),
+  sniperWindowMs: +(process.env.MM_SNIPER_WINDOW_MS ?? 60_000),
+  sniperMinBuy: +(process.env.MM_SNIPER_MIN_BUY ?? 0.03),
+  sniperKeep: +(process.env.MM_SNIPER_KEEP ?? 0.2),
   episodeAnchor: true,
   captureOn: true,
   defendBelowVwap: 1.02,
@@ -66,6 +73,8 @@ export type State = {
   deskPauseUntil?: number; lastDeskFill?: { t: number; p: number; seller?: string } | null; toxicEvents?: number[]; denied?: Record<string, number>
   /** mm leg: SOL spent on buys, SOL got back selling *bought* tokens, bought tokens still held (never negative). invGot = SOL from selling the vault's own inventory (block-zero seed / deposits) — pure proceeds, not part of the leg. */
   mmSpent?: number; mmGot?: number; mmTok?: number; mmCost?: number; invGot?: number; stoppedAt?: number; armedAt?: number; launchSpend?: number
+  /** sniper tax: when the launch landed (ms), the tokens the chest bought in block zero, and whether this coin's venue takes the tax */
+  launchAt?: number; launchTok?: number; sniperTax?: boolean
 }
 export type Market = { priceSol: number; mcapUsd: number; liqSol: number; vol1h?: number; volSol?: number }
 /** SOL traded on the coin in the last hour: the explicit figure when the caller has one, else the USD figure converted at the market's own SOL price */
@@ -186,10 +195,20 @@ export const initialsLeft = (s: State) => Math.max(0, (s.launchSpend || 0) - (s.
 export const initialsOn = (s: State, p_: Params = P) => p_.initialsFrac > 0 && initialsLeft(s) > 0.005
 /** take mode is on once there is no launch buy left to recover (or none was made) */
 export const takeOn = (s: State, p_: Params = P) => p_.takeFrac > 0 && !initialsOn(s, p_)
+/** the sniper window is open: this coin takes the sniper tax, and the launch landed less than sniperWindowMs ago */
+export const sniperOn = (s: State, now: number, p_: Params = P) => p_.sniperFrac > 0 && !!s.sniperTax && !!(s.launchAt || s.armedAt) && now - (s.launchAt || s.armedAt || 0) < p_.sniperWindowMs
 /** either per-buy selling mode: sells go out at once, one at a time */
-export const perBuyOn = (s: State, p_: Params = P) => initialsOn(s, p_) || takeOn(s, p_)
+export const perBuyOn = (s: State, p_: Params = P, now = Date.now()) => sniperOn(s, now, p_) || initialsOn(s, p_) || takeOn(s, p_)
 /** Capture decision when a buy of `solIn` lands: tokens to sell into it. 0 = let it run. */
 export function capture(s: State, m: Market, p: number, solIn: number, now: number, p_: Params = P, rnd = Math.random(), rnd2 = Math.random()): number {
+  // sniper tax first: a flat share of every buy in the window, sold straight back into it
+  if (p_.captureOn && s.mode === 'mm' && s.tokens > 0 && sniperOn(s, now, p_)) {
+    if (solIn < p_.sniperMinBuy || (s.avgCost > 0 && p < s.avgCost * 1.01)) return 0
+    const impact = m.liqSol > 0 ? (m.liqSol * p_.poolImpactMax) / p : Infinity
+    const room = Math.max(0, s.tokens - (s.launchTok || 0) * p_.sniperKeep)
+    const t = Math.min((solIn * p_.sniperFrac) / p, impact, room)
+    return t * p >= 0.02 ? t : 0   // a smaller sale would pay more than ~5% of itself in tip + fees
+  }
   if (p_.captureOn && s.mode === 'mm' && s.tokens > 0 && initialsOn(s, p_)) {
     if (solIn < p_.initialsMinBuy || (s.avgCost > 0 && p < s.avgCost * 1.01)) return 0
     const impact = m.liqSol > 0 ? (m.liqSol * p_.poolImpactMax) / p : Infinity

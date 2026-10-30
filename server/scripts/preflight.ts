@@ -534,6 +534,34 @@ await step('tx guard: a fresh SOL-quoted coin — create + PumpPortal\'s wrapper
   const types = [...new Set(ixs.filter((x) => x.program !== 'other').map((x) => x.program + ':' + x.type))].join(', ')
   return `buy part: ${ixs.length} ixs (${types}) · out ${res.solOut.toFixed(4)} SOL for a 0.1 buy · bound ${G.limitsFor('buy', mint, 0.1, { slippageBps: 3000 }).maxSolOut.toFixed(4)}`
 })
+// ---------- pump fast path: the sniper tax's own feed and sale (pumpfast.ts) ----------
+await step('pump fast path: the trade event in real pump txs\' logs (what the processed-logs feed reads) matches the curve\'s own SOL move', async () => {
+  const PF = await import('../src/pumpfast.ts'); const c = GUARDX.solCurve || await solCurveCoin(); if (!c) return 'skipped: no SOL-quoted curve coin this minute'
+  GUARDX.solCurve = c; const curve = PF.curveOf(new PublicKey(c.mint))
+  const sigs = await conn.getSignaturesForAddress(curve, { limit: 8 }); const notes: string[] = []; let checked = 0
+  for (const x of sigs) { if (x.err || checked >= 3) continue
+    const tx = await conn.getTransaction(x.signature, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }).catch(() => null); if (!tx?.meta) continue
+    const evs = PF.tradesFromLogs(tx.meta.logMessages).filter((e) => e.mint === c.mint); if (!evs.length) { notes.push(`${x.signature.slice(0, 6)}: no event in logs`); continue }
+    const keys = tx.transaction.message.getAccountKeys({ accountKeysFromLookups: tx.meta.loadedAddresses as any }).staticAccountKeys.map((k) => k.toBase58()); const i = keys.indexOf(curve.toBase58())
+    const d = i >= 0 ? Math.abs(tx.meta.postBalances[i] - tx.meta.preBalances[i]) / 1e9 : NaN; const e = evs[0]; checked++
+    notes.push(`${e.isBuy ? 'buy' : 'sell'} ${e.sol.toFixed(4)} SOL (curve moved ${d.toFixed(4)}) · fees ${e.feeBps}+${e.creatorFeeBps} bps (buyback ${e.buybackFeeBps / 100}% of the protocol fee) · reserves ${(Number(e.vSol) / 1e9).toFixed(2)} SOL`) }
+  if (!checked) throw new Error('no trade event decoded · ' + notes.join(' · '))
+  return `coin ${c.mint.slice(0, 6)}… · ` + notes.join(' · ')
+})
+await step('pump fast path: our own direct sell for a real holder → simulate (CU, min-out vs what pump pays) + this pool\'s priority fee', async () => {
+  const PF = await import('../src/pumpfast.ts'); const { tokenBalance } = await import('../src/chain.ts'); const c = GUARDX.solCurve; if (!c) return 'skipped: no SOL-quoted curve coin'
+  const f = await PF.coinFacts(conn, c.mint, true); if (!f) throw new Error('coinFacts refused a SOL-quoted curve coin')
+  const h = await holderOf(c.mint); if (!h) return 'no wallet holder found'
+  const [g, rs, fee] = await Promise.all([PF.pumpGlobal(conn), PF.reserves(conn, f.curve), PF.poolPriorityFee(conn, [new PublicKey(f.curve)])])
+  const bal = await tokenBalance(h.owner.toBase58(), c.mint); const amt = bal.raw / 10n; const expect = PF.sellOut(rs!.vSol, rs!.vTok, amt, 130)
+  const lb = await conn.getLatestBlockhash('confirmed')
+  const tx = PF.buildSellTx(h.owner, f, g, amt, (expect * 97n) / 100n, fee, 1_000_000, lb.blockhash, 200_000)
+  PF.selfCheck(tx, h.owner)
+  const r = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true })
+  if (r.value.err) throw new Error('direct sell simulate err ' + JSON.stringify(r.value.err) + ' · ' + (r.value.logs || []).slice(-3).join(' | '))
+  const ev = PF.tradesFromLogs(r.value.logs).find((e) => e.mint === c.mint && !e.isBuy); const paid = ev ? ev.sol : NaN
+  return `holder ${h.owner.toBase58().slice(0, 6)}… sells 10% · ${r.value.unitsConsumed} CU (whole tx) · we expected ${(Number(expect) / 1e9).toFixed(5)} SOL, pump's event says ${paid.toFixed(5)} gross · pool priority fee ${fee} µlamports/CU · tx ${tx.serialize().length} B`
+})
 await step('tx guard: the RPC simulates with inner instructions (the guard refuses to sign without them)', async () => {
   const tx = await ppBuild(PAYER, 'buy', ctx.curveMint!, 0.01); GUARDX.buy = tx
   const r = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true, innerInstructions: true })
