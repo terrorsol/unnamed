@@ -89,14 +89,14 @@ const server = createServer(async (req, res) => {
     if (p.startsWith('/tape/')) { const f = (process.env.DATA_DIR || './data') + '/tape/' + p.slice(6).replace(/[^1-9A-HJ-NP-Za-km-z]/g, '') + '.jsonl'; if (!existsSync(f)) return json(res, 404, { error: 'no tape' }); res.writeHead(200, { 'content-type': 'application/x-ndjson', 'access-control-allow-origin': '*' }); return createReadStream(f).pipe(res) }
     if (p.startsWith('/vault/mint/')) return json(res, 200, V.byMint(p.slice(12)))
     if (p.startsWith('/vault/') && req.method === 'GET') return json(res, 200, V.get(p.slice(7)))
-    if (p === '/vault/create' && req.method === 'POST') { const b = await readBody(req); if (!(b.stakeSol > 0)) throw new Error('stake required'); return json(res, 200, V.create(b.dev, +b.stakeSol, b.copyOf, b.mode === 'floor' ? 'floor' : 'mm', b.ceiling != null ? +b.ceiling : undefined, b.venue === 'launchlab' ? 'launchlab' : 'pump', b.vaultBuySol != null ? +b.vaultBuySol : undefined, b.targetPct != null ? +b.targetPct : undefined)) }
+    if (p === '/vault/create' && req.method === 'POST') { const b = await readBody(req); if (!(b.stakeSol > 0)) throw new Error('stake required'); if (sessionWallet && b.dev !== sessionWallet) return json(res, 403, { error: 'a vault is created for the signed-in wallet' }); return json(res, 200, V.create(b.dev, +b.stakeSol, b.copyOf, b.mode === 'floor' ? 'floor' : 'mm', b.ceiling != null ? +b.ceiling : undefined, b.venue === 'launchlab' ? 'launchlab' : 'pump', b.vaultBuySol != null ? +b.vaultBuySol : undefined, b.targetPct != null ? +b.targetPct : undefined)) }
     if (p === '/vault/refund' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.refund(b.id, { ...(b.auth || {}), sessionWallet })) }
-    if (p === '/vault/fund' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.fund(b.id, b.sig)) }
+    if (p === '/vault/fund' && req.method === 'POST') { const b = await readBody(req); const v0 = V.devOf(b.id); if (sessionWallet && v0 && v0 !== sessionWallet) return json(res, 403, { error: 'not your vault' }); return json(res, 200, await V.fund(b.id, b.sig)) }
     if (p === '/vault/arm' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.arm(b.id, b.mint, b.symbol || '', b.name || '', { ...(b.auth || {}), sessionWallet }, b.fundSig)) }
     if (p.startsWith('/import/quote/')) return json(res, 200, await V.importQuote(p.slice(14)))
     if (p === '/import/create' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importCreate(b.owner, b.mint)) }
     if (p === '/import/crowd' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importCrowd(b.owner, b.mint)) }
-    if (p === '/import/contribute' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importContribute(b.id, b.from, b.sig)) }
+    if (p === '/import/contribute' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importContribute(b.id, b.from, b.sig, sessionWallet)) }
     if (p === '/import/open') return json(res, 200, V.crowdOpen())
     if (p === '/vault/paper' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.paperArm(b.mint, +(b.chestSol || 20), b.mode || 'mm')) }
     if (p === '/import/activate' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importActivate(b.id, b.sig)) }

@@ -1,3 +1,4 @@
+import bs58 from 'bs58'
 // Desk: an order book of resting SOL bids for blocks of tokens, 3–5% under spot. Non-custodial:
 // the fill is a single transaction co-signed by seller and bidder; the server only matches and relays.
 import { Transaction, Keypair } from '@solana/web3.js'
@@ -47,6 +48,7 @@ export async function placeInternalRaw(kp: Keypair, label: string, mint: string,
   const b: Bid = { id, mint, symbol: m.symbol, bidder, sol, discBps, placedAt: Date.now(), refreshedAt: Date.now(), status: 'open', ws: null, fills: 0, internal: { kp, label, maxSol, sign, deny } }
   bids.set(id, b); bookChanged(mint); return b
 }
+export function cancelInternalAsk(sellerPk: string, mint: string) { for (const [id, a] of asks) if (a.seller === sellerPk && a.mint === mint && a.internal && a.status === 'open') { asks.delete(id); bookChanged(mint) } }
 export function cancelInternal(bidderPk: string, mint: string) { for (const [id, b] of bids) if (b.bidder === bidderPk && b.mint === mint && b.status === 'open') bids.delete(id) }
 
 export async function place(ws: WebSocket, bidder: string, mint: string, sol: number, discBps: number) {
@@ -129,9 +131,12 @@ export async function askFill(id: string, buyer: string, txB64: string, sol?: nu
   if (why) { a.status = 'open'; throw new Error('fill rejected: ' + why) }
   if (a.internal) {
     // the vault is the seller: keeper co-signs the token transfer, we send and settle right here
+    // the buyer's payment lands in the shared vault wallet: its signature is claimed for this vault BEFORE it is sent, so nobody can book it as
+    // their own deposit or contribution in between (second review, Oct 30)
+    const pre = tx.signature ? bs58.encode(tx.signature) : ''; if (!pre || (askClaim && !askClaim(pre))) { a.status = 'open'; throw new Error('fill rejected: payment signature already in use') }
     try { a.internal.sign(tx, 0); const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 }); await confirm(sig); onVaultAskFill?.(a.seller, a.mint, Number(BigInt(q.sellerLamports)) / 1e9, q.tokens, sig)
       pending.set('a:' + id, { resolve: () => {}, reject: () => {}, timer: setTimeout(() => {}, 0), buyer, tokens: q.tokens, takeSol: q.takeSol } as any); settleAsk(id, true, sig); return { sig } }
-    catch (e: any) { a.status = 'open'; throw new Error('vault fill failed: ' + String(e.message).slice(0, 100)) }
+    catch (e: any) { a.status = 'open'; askRelease?.(pre); throw new Error('vault fill failed: ' + String(e.message).slice(0, 100)) }
   }
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => { pending.delete('a:' + id); if (a.status === 'filling') a.status = 'open'; reject(new Error('seller did not respond in time')) }, 25000)
@@ -235,6 +240,8 @@ export let onVaultFill: ((bidder: string, sol: number, tokens: number, seller?: 
 /** a vault's standing ask was taken: the buyer's SOL landed in the vault wallet (credited to THAT vault's chest, and the signature recorded so nobody can book it as their own deposit) */
 export let onVaultAskFill: ((seller: string, mint: string, sol: number, tokens: number, sig: string) => void) | null = null
 export function setOnVaultAskFill(f: typeof onVaultAskFill) { onVaultAskFill = f }
+let askClaim: ((sig: string) => boolean) | null = null, askRelease: ((sig: string) => void) | null = null
+export function setAskSigHooks(claim: (sig: string) => boolean, release: (sig: string) => void) { askClaim = claim; askRelease = release }
 export function setOnVaultFill(f: typeof onVaultFill) { onVaultFill = f }
 let vaultResponder: ((mint: string, sizeSol: number, maxBps: number, rfqId: string) => Promise<Bid | null>) | null = null
 export function setVaultResponder(f: typeof vaultResponder) { vaultResponder = f }

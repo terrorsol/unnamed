@@ -253,7 +253,10 @@ export default function App() {
     try {
       let vault: K.VaultPub | null = null
       // reuse the vault of a failed attempt: an unfunded one (one-signature: nothing was sent) or one still holding exactly this stake, never an armed one
-      const pend = pendingVault.current; if (stake > 0 && pend && pend.dev === ws.owner && pend.stake === stake && pend.venue === venue) { const fresh = await K.vaultGet(pend.v.id).catch(() => null); if (fresh && !fresh.armed && (fresh.chest >= stake * 0.95 - 0.001 || (oneSig && fresh.chest === 0))) { vault = fresh; staked = fresh.chest > 0 } else pendingVault.current = null }
+      const pend = pendingVault.current; if (stake > 0 && pend && pend.dev === ws.owner && pend.stake === stake && pend.venue === venue) { const fresh = await K.vaultGet(pend.v.id).catch(() => null)
+        // the earlier attempt landed late and the chest already switched itself on: that coin is live — open it, never launch a second one
+        if (fresh?.armed && fresh.mint) { pendingVault.current = null; setLaunch(false); toast({ kind: 'ok', title: `${fresh.symbol || meta.symbol} is already live`, rows: [['Mint', short(fresh.mint, 6)], ['Note', 'your earlier attempt landed — opening it, no second coin']] }); go('coin/' + fresh.mint); return }
+        if (fresh && !fresh.armed && (fresh.chest >= stake * 0.95 - 0.001 || (oneSig && fresh.chest === 0))) { vault = fresh; staked = fresh.chest > 0 } else pendingVault.current = null }
       // a launch that asked for a chest never goes out without one: if the vault can't be made, stop here (nothing has been spent yet)
       if (stake > 0 && !vault) { setBusy('Creating vault…'); vault = await K.vaultCreate(ws.owner, stake, copyOf, mode, ceiling, venue, buy, targetPct).catch((e) => { throw new Error('vault not created — nothing launched, nothing spent: ' + String(e.message || e)) }); if (oneSig) pendingVault.current = { v: vault, dev: ws.owner, stake, venue } }
       const fundAhead = async (v: K.VaultPub) => {

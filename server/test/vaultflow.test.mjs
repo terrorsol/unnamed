@@ -159,3 +159,25 @@ test('a reclaimed …BANK mint handed to a second vault launches for that vault 
   await assert.rejects(V.arm(A.v.id, A.b.mint, 'BANK', 'Bank', { sessionWallet: DEVPK }), /did not launch that coin|not on chain|another chest/)
   poolLive = false; createSigs.length = 0
 })
+
+test('two builds fired in parallel on one vault: one is refused (one stake can never back two launch buys)', async () => {
+  const v = V.create(DEVPK, STAKE, undefined, 'mm', 0.3, 'launchlab', BUY, 20)
+  const req = () => V.buildLaunch({ dev: DEVPK, name: 'Bank', symbol: 'BANK', uri: 'u', devBuySol: 0.5, vaultId: v.id, vaultBuySol: BUY, fundInBundle: true, auth: { sessionWallet: DEVPK } })
+  const rs = await Promise.allSettled([req(), req()])
+  assert.equal(rs.filter((r) => r.status === 'fulfilled').length, 1)
+  assert.match(String(rs.find((r) => r.status === 'rejected').reason), /busy/)
+})
+
+test('a deposit counts only the signed-in depositor\'s own transfer, once', async () => {
+  const { v, b } = await launch()
+  const ct = VersionedTransaction.deserialize(Buffer.from(b.txs[0], 'base64')); ct.sign([dev]); const vt = VersionedTransaction.deserialize(Buffer.from(b.vaultTx, 'base64'))
+  createSigs.length = 0; const cs = land(ct, { [DEVPK]: -(STAKE + 0.52), [BANKY]: +STAKE }); land(vt, { [BANKY]: -(b.vaultSpend + 0.005) }); createSigs.push(cs)
+  poolLive = true; vaultTokens = 197e6
+  const a = await V.arm(v.id, MINT, 'BANK', 'Bank', { sessionWallet: DEVPK }, cs); const c0 = a.chest
+  const t = new VersionedTransaction(new TransactionMessage({ payerKey: dev.publicKey, recentBlockhash: bh, instructions: [SystemProgram.transfer({ fromPubkey: dev.publicKey, toPubkey: SHARED.publicKey, lamports: 1e9 })] }).compileToV0Message()); t.sign([dev])
+  const sig = land(t, { [DEVPK]: -1, [BANKY]: +1 })
+  await assert.rejects(V.deposit(v.id, DEVPK, sig, Keypair.generate().publicKey.toBase58()), /another wallet/)
+  const d = await V.deposit(v.id, DEVPK, sig, DEVPK); assert.ok(Math.abs(d.chest - (c0 + 1)) < 1e-9)
+  await assert.rejects(V.deposit(v.id, DEVPK, sig, DEVPK), /already booked/)
+  poolLive = false; createSigs.length = 0
+})
