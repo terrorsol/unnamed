@@ -131,7 +131,15 @@ export async function fund(id: string, sig: string) {
   v.activity.unshift({ t: Date.now(), kind: 'stake', sol: got, sig, msg: 'dev stake received' }); save(); return pub(v)
 }
 /** Step 2 (after the coin exists + dev sent the stake): bind mint, seed the position */
-export async function arm(id: string, mint: string, symbol: string, name = '', auth?: { msg?: string; sig?: string }, fundSig?: string) {
+/** one arm at a time per vault: the app's arm and autoArm can land together right after a launch, and two concurrent runs would both
+ *  book the block-zero buy against the chest (the ledger would go to 0 while the SOL is still there) */
+const armLocks = new Map<string, Promise<any>>()
+export async function arm(id: string, mint: string, symbol: string, name = '', auth?: { msg?: string; sig?: string; sessionWallet?: string | null }, fundSig?: string) {
+  const cur = armLocks.get(id); if (cur) { await cur.catch(() => {}); const v = vaults[id]; if (v?.armed) return pub(v) }
+  const run = armOnce(id, mint, symbol, name, auth, fundSig); armLocks.set(id, run)
+  try { return await run } finally { if (armLocks.get(id) === run) armLocks.delete(id) }
+}
+async function armOnce(id: string, mint: string, symbol: string, name = '', auth?: { msg?: string; sig?: string }, fundSig?: string) {
   const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) return pub(v)
   if ((v as any).closedAt) throw new Error('this vault was closed and its chest withdrawn — launch with a new one')   // Oct 29: autoArm re-armed XYZ 3 s after its reclaim
   // the coin must exist: a LaunchLab vault armed onto a mint that never went live sat dead on Oct 29. If the given mint has no pool, use the
