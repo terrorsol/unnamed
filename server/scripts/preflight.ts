@@ -316,7 +316,7 @@ await step('one-signature launch: create(+dev buy) with the stake transfer insid
   const vault = Keypair.generate().publicKey; const out: string[] = []
   for (const [dev, perm] of [[0.5, false], [2, true]] as [number, boolean][]) {
     const built = await LL.buildLaunch(PAYER, { name: 'Preflight One Signature Launch', symbol: 'PREFLIGHT', uri: 'https://ipfs.io/ipfs/bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy' }, dev, LAUNCHPAD_PLATFORM, perm)
-    const size = await built.addTransfer(vault, 7.5e9); const lb = await conn.getLatestBlockhash('confirmed'); const raws = built.restamp(lb.blockhash).map((b) => VersionedTransaction.deserialize(Buffer.from(b, 'base64')))
+    const size = await built.addTransfer(vault, 0.5e9)   // small: the preflight wallet only holds a few SOL; const lb = await conn.getLatestBlockhash('confirmed'); const raws = built.restamp(lb.blockhash).map((b) => VersionedTransaction.deserialize(Buffer.from(b, 'base64')))
     const keys = raws[0].message.staticAccountKeys.map((k) => k.toBase58()); if (!keys.includes(vault.toBase58())) throw new Error('vault not in the create tx')
     out.push(`dev buy ${dev}${perm ? ' + transfer tax' : ''}: ${size} B · ` + (await sim(raws[0], 'create+stake')).slice(0, 70))
   }
@@ -344,7 +344,7 @@ await step('pump one-signature launch: PumpPortal [create+dev buy+tip, vault buy
     if (!r.ok) throw new Error(`HTTP ${r.status} ${(await r.text()).slice(0, 160)}`); return (await r.json() as string[]).map((e) => VersionedTransaction.deserialize(bs58.decode(e))) }
   // 1) as a funded dev: the create with the stake appended must still simulate
   let [ct] = await mk(PAYER.toBase58()); const luts: any[] = []; for (const l of ct.message.addressTableLookups) { const a = (await conn.getAddressLookupTable(l.accountKey)).value; if (a) luts.push(a) }
-  ct = LL.appendTransfer(ct, luts, PAYER, vault.publicKey, 7.5e9); const size = ct.serialize().length; ct.sign([mintKp])
+  ct = LL.appendTransfer(ct, luts, PAYER, vault.publicKey, 0.5e9); const size = ct.serialize().length; ct.sign([mintKp])
   const c = L.inspectCreate(ct, mint, 6, await L.resolveKeys(ct, conn)); if (!c.tipSol) throw new Error('no Jito tip left in the create after the surgery')
   const simNote = await sim(ct, 'pump create+stake')
   // 2) unfunded dev: Jito must take the bundle (fresh blockhash), it can never land
