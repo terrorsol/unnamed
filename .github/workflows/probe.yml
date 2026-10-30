@@ -1,0 +1,32 @@
+name: Probe (read-only mainnet + live-server checks)
+# Push to the `probe` branch to run server/scripts/probe.ts against mainnet and the live server (read-only: no keys, no sends).
+# Output lands on the reports-probe branch (probe.txt).
+on:
+  push:
+    branches: [probe]
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+        working-directory: server
+      - name: Probe
+        working-directory: server
+        env:
+          RPC_URL: ${{ secrets.HELIUS_RPC || 'https://mainnet.helius-rpc.com/?api-key=1372a143-458e-4428-a1f2-aacb1e44bd1a' }}
+          SERVER: ${{ vars.SERVER_URL || 'https://unnamed-server.onrender.com' }}
+          PLATFORM_ID: 4dsPD4ZkE47XtxXmJRPTZ5e5eZKLSP2PuYsxQob3F45C
+        run: timeout 420 node --experimental-strip-types scripts/probe.ts > probe.txt 2>&1 || true; cat probe.txt
+      - name: Publish
+        if: always()
+        run: |
+          mkdir -p /tmp/pub && cp server/probe.txt /tmp/pub/ 2>/dev/null || echo "no output" > /tmp/pub/probe.txt
+          cd /tmp/pub && git init -q && git checkout -qb reports-probe && git config user.name unnamed-ci && git config user.email ci@unnamed.local
+          git add -A && git commit -qm "probe ${{ github.run_id }} $(date -u +%H:%M)"
+          git push -qf https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git reports-probe
