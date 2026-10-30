@@ -201,7 +201,7 @@ async function armOnce(id: string, mint: string, symbol: string, name = '', auth
     // the bundle can be signed and still not land (Jito drops it, tip too low). Tokens on the vault wallet are the only proof.
     if (v.tokens > 0) { v.avgCost = buy / v.tokens; v.launchSpend = buy; v.activity.unshift({ t: Date.now(), kind: 'seed', sol: buy, tokens: v.tokens, msg: 'block-zero vault supply (bundled)' })
       // the snipers who bought between the bundle and this arm: the first tick sells into all of it at once (the swap feed only starts now)
-      const bl = (v as any).bundleLiq; if (bl?.mint === mint && bl.liq > 0) { (v as any).catchUp = bl.liq; v.nextTickAt = 0 }
+      const bl = (v as any).bundleLiq; if (bl?.mint === mint && bl.liq > 0) { (v as any).catchUp = bl.liq; v.nextTickAt = 0; setTimeout(() => { tickOne(v).catch(() => {}) }, 50) }   // now, not at the next 5 s tick
       save(); return pub(v) }
     if (MM.P.profitOnly) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'block-zero buy did not land — test mode: no market buy after launch, the fees fill the chest' }); save(); return pub(v) }
     v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'bundle did not land — seeding now' })
