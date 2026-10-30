@@ -110,7 +110,9 @@ export async function sendBundle(raws: Uint8Array[]): Promise<string> {
   for (const u of urls) {
     try { const b = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body }); const d: any = await b.json().catch(() => ({ error: { message: 'http ' + b.status } }))
       if (d.error) { last = JSON.stringify(d.error); if (/plan|not available|unauthorized|forbidden|expired|blockhash|rate|limit|congest/i.test(last)) continue; throw new Error('jito: ' + last) }
-      if (d.result) bundleAt.set(String(d.result), u)
+      if (d.result) { bundleAt.set(String(d.result), u)
+        // the same bundle to every other region as well (fire-and-forget): the slot leader may sit behind any of them, and a bundle can only land once
+        if (process.env.JITO_FANOUT !== '0') for (const o of urls) if (o !== u && !/helius/.test(o)) fetch(o, { method: 'POST', headers: { 'content-type': 'application/json' }, body }).catch(() => {}) }
       return d.result as string } catch (e: any) { last = String(e.message || e); if (!/plan|not available|fetch failed|http 4|http 5/i.test(last)) throw e }
   }
   // say whether OUR node still thinks the blockhash is valid: tells a slow signer (really expired) from a block engine that disagrees
