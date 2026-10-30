@@ -41,9 +41,18 @@ pump 1139–1199 B of 1232), Jito accepts both bundle shapes, and the whole rout
 | Sell button missing/dead until the 15 s wallet sweep | the open coin's balance polls every 4 s; Sell asks the chain again before giving up, then says why |
 | a coin launched without a chest had no way to get one | creator switches it on from the coin page, free; the 2% fee fills it from the next trade |
 
+**Independent review of the money path (Oct 30, ~09:00 UTC) → fixed before the last server push.** A reviewer that hadn't seen the
+work read every change since 49363cd1. With `TEST_RECLAIM=1` (image env) any chest booked above its real SOL is withdrawable, so these
+were treated as critical: parallel `/vault/fund` booking one stake many times; a one-signature create bookable into another vault;
+the arm lock letting waiters run together after a failure; two builds of one vault both landing on one stake; a vault arming onto a mint
+another vault holds (shared-wallet token balances); fee claims handing unobserved fees to whoever observed volume (attach made that free);
+desk bid fills debiting the first vault in the file; block-zero buys escaping booking on an RPC error. All fixed (see the commit
+'ledger hardening…'), each with a test where it can be faked. Open by design: the pump chest buy still goes through PumpPortal's
+wrapper program, which gets signer authority over the shared wallet for that tx — build it against the pump program directly next.
+
 New on the coin page: launch progress row (chest → upload → build → sign → land, with a clock), "launch buy paid back" bar,
 the chest's last moves, and a **sniper report** (first-minute buys/wallets/launch-block SOL and what the chest sold into them).
-Tests: server 61 (incl. a faked-chain money-path test: build → land → arm books stake + vault buy exactly once, racing arms),
+Tests: server 66 (incl. a faked-chain money-path suite: build → land → arm books stake + vault buy exactly once, racing arms, parallel fund, cross-vault and foreign transfers, in-flight builds, reclaimed mints),
 app 23, e2e launch 37 (one signature, already-live retry, pump path, switch-on chest, chest card), app 22, desk 40, gate 15, import 16, mm 10.
 Mainnet preflight 39/39. Read-only probe workflow: push to the `probe` branch → `reports-probe`.
 
