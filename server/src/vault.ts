@@ -9,7 +9,7 @@ import { market } from './market.ts'
 import { balanceSol, tokenBalance, pumpTrade, conn, confirm, decimals, TREASURY, holderStats } from './chain.ts'
 import * as C from './chain.ts'
 import * as D from './desk.ts'
-import { watchPool, streamStats } from './stream.ts'
+import { watchPool, streamStats, delivering } from './stream.ts'
 import { curvePda } from './pool.ts'
 import * as KEEP from './keeper.ts'
 import * as VM from './vamp.ts'
@@ -523,6 +523,8 @@ export async function tick() {
 async function tickOne(v: Vault) {
   if (inflight.has(v.id)) { const at = inflightAt.get(v.id); if (at && Date.now() - at.t > 180_000) { inflight.delete(v.id); inflightAt.delete(v.id); EV.log('error', `${v.symbol || v.id} tick stuck for ${((Date.now() - at.t) / 1000).toFixed(0)} s — lock released`, { id: v.id }) } }
   if (!v.armed || !v.mint || inflight.has(v.id) || (v as any).closing) return
+  // a withdrawn vault that holds nothing has nothing left to do: switch it off (one was left armed on a dead mint on Oct 30)
+  if ((v as any).closedAt && v.chest < 0.01 && v.tokens <= 0) { v.armed = false; v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'switched off: closed and withdrawn, nothing left in it' }); save(); return }
   if (Date.now() < (v.nextTickAt || 0)) return; v.nextTickAt = Date.now() + 3500 + Math.random() * 3000
   inflight.add(v.id); const tok = ++tickTok; inflightAt.set(v.id, { t: Date.now(), tok }); (v as any).lastTickAt = Date.now()
   {
@@ -551,7 +553,8 @@ async function tickOne(v: Vault) {
       // reserve-delta fallback when the pool websocket is not delivering (not connected, or no subscription yet)
       // …and a subscription that is 'connected' but silent while the pool's SOL moved counts as not delivering (backstop: the pool read catches the buys)
       const liqMoved = !!v.lastLiq && !!m.liqSol && Math.abs(m.liqSol - v.lastLiq) >= 0.05; const swapSeen = ((v as any)._lastSwapAt || 0) > (v.lastLiqT || 0) || now - ((v as any)._lastSwapAt || 0) < 20000
-      const streaming = !!target && watched.get(v.id)?.pool === target && streamStats().connected && (!liqMoved || swapSeen)
+      // 'delivering' counts the poller too: with the socket down (Render, Oct 29–30) the poller IS the feed — treating that as no feed made the pool-read backstop fire on the same buys
+      const streaming = !!target && watched.get(v.id)?.pool === target && delivering(target) && (!liqMoved || swapSeen)
       // curve coins without a delivering websocket: every tick compares the pool's real SOL; a change is a swap (buy if up, sell if down) → tape + live ticker
       if (m.onCurve && !streaming && !pumpPP && m.liqSol) { const d = m.liqSol - (v.lastLiq || m.liqSol); if (v.lastLiq && Math.abs(d) >= 0.01) { const sw = { t: now, side: d > 0 ? 'buy' as const : 'sell' as const, sol: Math.abs(d), trader: '' }; tape(v.mint!, sw); D.broadcast({ type: 'swap', mint: v.mint, symbol: v.symbol, ...sw }) } }
       // pump curve coins without the PumpPortal stream, and launchlab coins until the websocket attaches: the pool read every tick is the buy detector

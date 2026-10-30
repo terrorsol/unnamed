@@ -316,7 +316,7 @@ await step('one-signature launch: create(+dev buy) with the stake transfer insid
   const vault = Keypair.generate().publicKey; const out: string[] = []
   for (const [dev, perm] of [[0.5, false], [2, true]] as [number, boolean][]) {
     const built = await LL.buildLaunch(PAYER, { name: 'Preflight One Signature Launch', symbol: 'PREFLIGHT', uri: 'https://ipfs.io/ipfs/bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy' }, dev, LAUNCHPAD_PLATFORM, perm)
-    const size = await built.addTransfer(vault, 0.5e9)   // small: the preflight wallet only holds a few SOL; const lb = await conn.getLatestBlockhash('confirmed'); const raws = built.restamp(lb.blockhash).map((b) => VersionedTransaction.deserialize(Buffer.from(b, 'base64')))
+    const size = await built.addTransfer(vault, 0.5e9); const lb = await conn.getLatestBlockhash('confirmed'); const raws = built.restamp(lb.blockhash).map((b) => VersionedTransaction.deserialize(Buffer.from(b, 'base64')))
     const keys = raws[0].message.staticAccountKeys.map((k) => k.toBase58()); if (!keys.includes(vault.toBase58())) throw new Error('vault not in the create tx')
     out.push(`dev buy ${dev}${perm ? ' + transfer tax' : ''}: ${size} B · ` + (await sim(raws[0], 'create+stake')).slice(0, 70))
   }
@@ -348,7 +348,7 @@ await step('pump one-signature launch: PumpPortal [create+dev buy+tip, vault buy
   const c = L.inspectCreate(ct, mint, 6, await L.resolveKeys(ct, conn)); if (!c.tipSol) throw new Error('no Jito tip left in the create after the surgery')
   const simNote = await sim(ct, 'pump create+stake')
   // 2) unfunded dev: Jito must take the bundle (fresh blockhash), it can never land
-  const dev = Keypair.generate(); let [ct2, vt2] = await mk(dev.publicKey.toBase58()); ct2 = LL.appendTransfer(ct2, [], dev.publicKey, vault.publicKey, 1e9)
+  const dev = Keypair.generate(); let [ct2, vt2] = await mk(dev.publicKey.toBase58()); const luts2: any[] = []; for (const l of ct2.message.addressTableLookups) { const a = (await conn.getAddressLookupTable(l.accountKey)).value; if (a) luts2.push(a) } ct2 = LL.appendTransfer(ct2, luts2, dev.publicKey, vault.publicKey, 1e9)
   const lb = await conn.getLatestBlockhash('confirmed'); ct2.message.recentBlockhash = lb.blockhash; vt2.message.recentBlockhash = lb.blockhash; ct2.sign([mintKp, dev]); vt2.sign([vault])
   let jito = ''; try { const id = await C.sendBundle([ct2.serialize(), vt2.serialize()]); await new Promise((r) => setTimeout(r, 3000)); const st = await C.bundleStatus(id).catch(() => null); jito = `Jito accepted (${st?.status || 'no status'})` } catch (e: any) { const m = String(e.message || e); if (/expired|blockhash/i.test(m)) throw new Error('Jito refused a fresh pump bundle as expired: ' + m.slice(0, 160)); jito = 'Jito refused (not the blockhash): ' + m.slice(0, 100) }
   return `${c.created} · ${size} B with the stake · tip ${c.tipSol.toFixed(4)} · ${simNote.slice(0, 60)} · ${jito}`

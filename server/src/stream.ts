@@ -9,7 +9,7 @@ type Handler = (s: Swap) => void
 let ws: any = null, nextId = 1, closed = false
 const subs = new Map<string, { id: number | null; subId: number | null; handlers: Set<Handler> }>()
 const pending = new Map<number, string>() // request id → pool
-const wsUrl = () => RPC.replace(/^http/, 'ws')
+const wsUrl = () => process.env.WS_URL || RPC.replace(/^http/, 'ws')   // WS_URL: a websocket endpoint when the RPC's own ws is refused (seen on Render: closed before established)
 const seen = new Set<string>()
 
 function send(o: any) { if (ws?.readyState === 1) ws.send(JSON.stringify(o)) }
@@ -45,8 +45,10 @@ function startPoll(pool: string) {
       lastSig.set(pool, sigs[0].signature)
       for (const x of sigs.reverse()) { if (x.err || seen.has(x.signature)) continue; seen.add(x.signature); const sw = await decode(conn, pool, x.signature, x.slot).catch(() => null); if (sw) s.handlers.forEach((h) => h(sw)) }
     } catch {}
-  }, 4000))
+  }, +(process.env.POLL_MS || 2000)))
 }
+/** is this pool's swap feed live — the websocket subscription, or (while the socket is down) the poller standing in for it */
+export function delivering(pool: string) { const s = subs.get(pool); if (!s) return false; return (ws?.readyState === 1 && s.subId != null) || pollers.has(pool) }
 /** Read the pool's WSOL delta from the tx: + = buy (SOL into pool), − = sell. Works for PumpSwap, Raydium, Meteora pools. */
 export async function decode(c: Connection, pool: string, sig: string, slot: number): Promise<Swap | null> {
   const tx = await c.getTransaction(sig, { maxSupportedTransactionVersion: 1, commitment: 'confirmed' }); if (!tx || tx.meta?.err) return null
@@ -70,4 +72,4 @@ export function watchPool(pool: string, h: Handler) {
   let s = subs.get(pool); if (!s) { s = { id: null, subId: null, handlers: new Set() }; subs.set(pool, s); if (ws?.readyState === 1) s.id = subscribe(pool) }
   s.handlers.add(h); startPoll(pool); return () => { s!.handlers.delete(h); if (!s!.handlers.size) { if (s!.subId != null) send({ jsonrpc: '2.0', id: nextId++, method: 'logsUnsubscribe', params: [s!.subId] }); subs.delete(pool) } }
 }
-export const streamStats = () => ({ pools: subs.size, connected: ws?.readyState === 1, polling: pollers.size, lastClose, lastError })
+export const streamStats = () => ({ pools: subs.size, connected: ws?.readyState === 1, polling: pollers.size, lastClose, lastError, wsHost: (() => { try { return new URL(wsUrl()).host } catch { return '?' } })() })
