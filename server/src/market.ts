@@ -1,5 +1,5 @@
 import type { Market } from './rules.ts'
-import { poolSpot } from './pool.ts'
+import { poolSpot, curveSpot, curvePda } from './pool.ts'
 import * as LL from './launchlab.ts'
 const cache = new Map<string, { t: number; it: number; m: any }>()
 const volTrack = new Map<string, { t: number; liq: number }[]>()
@@ -24,7 +24,16 @@ export async function market(mint: string, maxAgeMs = 5000): Promise<(Market & {
     cache.set(mint, { t: m.t, it, m }); return m
   }
   // indexer fields (symbol, mcap, volume, pair) refresh at most every 5s; the PRICE is re-read from the pool itself whenever asked
-  const fresh = c && Date.now() - c.it < 5000; const base = fresh ? c.m : (await fromIndexer(mint)) || c?.m; if (!base) return null; const it = fresh ? c!.it : Date.now()
+  const fresh = c && Date.now() - c.it < 5000; let base = fresh ? c.m : (await fromIndexer(mint)) || c?.m; let it = fresh ? c!.it : Date.now()
+  if (!base || base.synth) {
+    // a pump.fun coin seconds old: no indexer has it yet, but its bonding curve is on chain and is the exact source. Without this the vault saw
+    // nothing until DexScreener caught up (30 s–2 min) — exactly when the snipers buy.
+    const cs: any = await curveSpot(mint).catch(() => null); if (!cs || cs.complete) return base && !base.synth ? base : null
+    const usd = await solUsd(); const vt = volTrack.get(mint) || []; const last = vt.at(-1); if (!last || Math.abs(cs.liqSol - last.liq) >= 0.005) vt.push({ t: Date.now(), liq: cs.liqSol }); while (vt.length && Date.now() - vt[0].t > 3.6e6) vt.shift(); volTrack.set(mint, vt)
+    let ownVol = 0; for (let i = 1; i < vt.length; i++) ownVol += Math.abs(vt[i].liq - vt[i - 1].liq)
+    const m = { symbol: base?.symbol || '', onCurve: true, pair: curvePda(mint).toBase58(), dexId: 'pumpfun', venue: 'pump', priceSol: cs.priceSol, ipx: cs.priceSol, liqSol: cs.liqSol, mcapUsd: cs.priceSol * 1e9 * usd, imcap: cs.priceSol * 1e9 * usd, vol1h: ownVol * usd, volSol: ownVol, t: Date.now(), exact: true, synth: true }
+    cache.set(mint, { t: m.t, it: base?.synth ? it : 0, m }); return m   // it=0: ask the indexer again next time, until it knows the coin
+  }
   const spot = await poolSpot(mint, { onCurve: base.onCurve, pair: base.pair, dexId: (base as any).dexId, decimals: (base as any).decimals })
   const ipx = (base as any).ipx ?? base.priceSol // indexer price, kept so mcap scales with the exact price
   const m = spot ? { ...base, ipx, priceSol: spot.priceSol, liqSol: spot.liqSol || base.liqSol, mcapUsd: ipx ? (base as any).imcap * (spot.priceSol / ipx) : base.mcapUsd, t: Date.now(), exact: true } : { ...base, ipx, priceSol: ipx, mcapUsd: (base as any).imcap, t: fresh ? c!.t : Date.now(), exact: false }
