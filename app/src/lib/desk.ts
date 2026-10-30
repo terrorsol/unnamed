@@ -208,7 +208,7 @@ export async function withDevAuth<T>(signMsg: ((m: Uint8Array) => Promise<Uint8A
 export const vaultGet = (id: string): Promise<VaultPub | null> => j('/vault/' + id)
 export const vaultRefund = (id: string, auth: DevAuth): Promise<{ sig: string; sol: number }> => j('/vault/refund', { id, auth })
 export const vaultFund = (id: string, sig: string): Promise<VaultPub> => j('/vault/fund', { id, sig })
-export const vaultArm = (id: string, mint: string, symbol: string, name = '', auth?: DevAuth): Promise<VaultPub> => j('/vault/arm', { id, mint, symbol, name, auth })
+export const vaultArm = (id: string, mint: string, symbol: string, name = '', auth?: DevAuth, fundSig?: string): Promise<VaultPub> => j('/vault/arm', { id, mint, symbol, name, auth, fundSig })
 export const vaultRenounce = (id: string, dev: string): Promise<VaultPub> => j('/vault/renounce', { id, dev })
 export const vaultByMint = (mint: string): Promise<VaultPub | null> => j('/vault/mint/' + mint)
 export const candles = (mint: string, tf = 60): Promise<{ time: number; open: number; high: number; low: number; close: number; volume: number }[]> => j(`/candles/${mint}?tf=${tf}`).then(arr)
@@ -300,5 +300,8 @@ export const llPlatform = (): Promise<LLPlatform> => j('/ll/platform')
 export const llPlatformBuild = (admin: string): Promise<{ tx: string; platformId: string }> => j('/ll/platform/build', { admin })
 export const llPool = (mint: string): Promise<LLPool | null> => j('/ll/pool/' + mint)
 export const llQuote = (dev: number, vault: number): Promise<{ devPct: number; vaultPct: number; mcapSol: number }> => j(`/ll/quote?dev=${dev}&vault=${vault}`)
-export const llLaunchBuild = (b: { dev: string; name: string; symbol: string; uri: string; devBuySol: number; vaultId?: string; vaultBuySol?: number; auth?: DevAuth; permTax?: boolean }): Promise<{ venue: string; mint: string; poolId: string; txs: string[]; vaultTx: string | null; vaultSpend: number; vaultTokens: number; devTokens: number }> => j('/ll/launch/build', b)
+export type LaunchBuildReq = { dev: string; name: string; symbol: string; uri: string; devBuySol: number; vaultId?: string; vaultBuySol?: number; auth?: DevAuth; permTax?: boolean; fundInBundle?: boolean; tipSol?: number }
+/** pump.fun launch built on the server (…BANK mint we hold, PumpPortal txs, stake inside the create, vault buy keeper-signed) — same shape as llLaunchBuild */
+export const pumpLaunchBuild = (b: LaunchBuildReq): Promise<{ venue: string; mint: string; txs: string[]; vaultTx: string | null; vaultSpend: number; vaultTokens: number; fundSol?: number }> => j('/pump/launch/build', b)
+export const llLaunchBuild = (b: { dev: string; name: string; symbol: string; uri: string; devBuySol: number; vaultId?: string; vaultBuySol?: number; auth?: DevAuth; permTax?: boolean; fundInBundle?: boolean }): Promise<{ venue: string; mint: string; poolId: string; txs: string[]; vaultTx: string | null; vaultSpend: number; vaultTokens: number; devTokens: number; fundSol?: number }> => j('/ll/launch/build', b)
 export const llTrade = (owner: string, action: 'buy' | 'sell', mint: string, amount: number, slippageBps?: number): Promise<{ tx: string }> => j('/ll/trade', { owner, action, mint, amount, slippageBps })

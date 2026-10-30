@@ -11,7 +11,7 @@ const DIST = __r(HERE, '../dist'); const MIME = { '.html': 'text/html', '.js': '
 createServer((req, res) => { let p = join(DIST, req.url.split('?')[0]); if (!existsSync(p) || p.endsWith('/')) p = join(DIST, 'index.html'); res.setHeader('content-type', MIME[extname(p)] || 'application/octet-stream'); res.end(readFileSync(p)) }).listen(4197)
 
 // ---- mock UNNAMED server (:4198) ----
-const vaultKp = Keypair.generate(); const mintKp = Keypair.generate(); const MINT = mintKp.publicKey.toBase58()
+const vaultKp = Keypair.generate(); const mintKp = Keypair.generate(); const MINT = mintKp.publicKey.toBase58(); const MINT2 = Keypair.generate().publicKey.toBase58(); const MINT3 = Keypair.generate().publicKey.toBase58(); let alreadyLive = false
 const calls = {}; const bh = '11111111111111111111111111111111'
 const v0 = (payer, lamports = 1) => new VersionedTransaction(new TransactionMessage({ payerKey: payer, recentBlockhash: bh, instructions: [SystemProgram.transfer({ fromPubkey: payer, toPubkey: payer, lamports })] }).compileToV0Message())
 const b64 = (tx) => Buffer.from(tx.serialize()).toString('base64')
@@ -24,7 +24,15 @@ createServer(async (req, res) => {
   if (p === '/ll/platform') return json({ venue: 'launchlab', permTaxBps: 0, platformId: 'PLAT', admin: 'ADMIN', feeWallet: 'FEE', taxBps: 200, creatorFeeBps: 50, chain: { id: 'PLAT', exists: true, feeRate: 2, creatorFeeRate: 0.5 } })
   if (p === '/ipfs') return json({ uri: 'https://ipfs.io/ipfs/test' })
   if (p === '/vault/create') return json({ ...vaultPub, dev: b.dev, venue: b.venue })
-  if (p === '/ll/launch/build') { const dev = new PublicKey(b.dev); const vt = v0(vaultKp.publicKey, 2); vt.sign([vaultKp]); return json({ venue: 'launchlab', mint: MINT, poolId: 'POOL', txs: [b64(v0(dev))], vaultTx: b.vaultId ? b64(vt) : null, vaultSpend: 0.5, vaultTokens: 16.5e6, devTokens: 17.1e6 }) }
+  if (p === '/ll/launch/build') {
+    if (alreadyLive) { res.statusCode = 400; return json({ error: 'already live: ' + MINT2 }) }
+    // one-signature launch: the real server appends the dev → vault stake transfer to the create tx (fundInBundle) and reports fundSol
+    const dev = new PublicKey(b.dev); const vt = v0(vaultKp.publicKey, 2); vt.sign([vaultKp]); const fund = b.vaultId && b.fundInBundle ? 7.5 : 0
+    const ct = new VersionedTransaction(new TransactionMessage({ payerKey: dev, recentBlockhash: bh, instructions: [SystemProgram.transfer({ fromPubkey: dev, toPubkey: dev, lamports: 1 }), ...(fund ? [SystemProgram.transfer({ fromPubkey: dev, toPubkey: vaultKp.publicKey, lamports: fund * 1e9 })] : [])] }).compileToV0Message())
+    return json({ venue: 'launchlab', mint: MINT, poolId: 'POOL', txs: [b64(ct)], vaultTx: b.vaultId ? b64(vt) : null, vaultSpend: 0.5, vaultTokens: 16.5e6, devTokens: 17.1e6, fundSol: fund }) }
+  if (p === '/pump/launch/build') { const dev = new PublicKey(b.dev); const vt = v0(vaultKp.publicKey, 2); vt.sign([vaultKp]); const fund = b.vaultId && b.fundInBundle ? 7.5 : 0
+    const ct = new VersionedTransaction(new TransactionMessage({ payerKey: dev, recentBlockhash: bh, instructions: [SystemProgram.transfer({ fromPubkey: dev, toPubkey: dev, lamports: 1 }), ...(fund ? [SystemProgram.transfer({ fromPubkey: dev, toPubkey: vaultKp.publicKey, lamports: fund * 1e9 })] : [])] }).compileToV0Message())
+    return json({ venue: 'pump', mint: MINT3, txs: [b64(ct)], vaultTx: b.vaultId ? b64(vt) : null, vaultSpend: 0.5, vaultTokens: 16.5e6, fundSol: fund }) }
   if (p === '/bundle') return json({ bundleId: 'bundle-1' })
   if (p === '/vault/arm') return json({ ...vaultPub, armed: true, tokens: 16.5e6, chest: 0.5 })
   if (p === '/vaults') return json(calls['/vault/arm'] ? [{ ...vaultPub, armed: true, tokens: 16.5e6, chest: 0.5 }] : [])
@@ -84,8 +92,8 @@ chk('slider to 50%: ≈ 27 SOL', /50% · 2[6-9]\.\d+ SOL/.test(await pg.locator(
 await pg.locator('.modal input[type=range]').nth(0).fill('20'); await pg.waitForTimeout(100)
 const seenToasts = new Set(); await pg.locator('.modal .btn.pri', { hasText: 'Create coin' }).click(); for (let i = 0; i < 16; i++) { await pg.waitForTimeout(500); for (const t of await pg.locator('.toast').allInnerTexts().catch(() => [])) seenToasts.add(t) }
 chk('vault created on the launchlab venue with the explicit block-zero buy (20% ≈ 7 SOL) + 0.5 SOL chest', calls['/vault/create']?.[0]?.venue === 'launchlab' && calls['/vault/create'][0].dev === addr && calls['/vault/create'][0].vaultBuySol > 6.5 && calls['/vault/create'][0].targetPct === 20 && Math.abs(calls['/vault/create'][0].stakeSol - calls['/vault/create'][0].vaultBuySol - 0.5) < 0.01)
-chk('vault funded first (stake transfer sent)', sent.length >= 1)
 const lb = calls['/ll/launch/build']?.[0]
+chk('one signature: no stake transfer sent ahead — the build is asked to put the stake inside the create (fundInBundle)', sent.length === 0 && lb?.fundInBundle === true && !calls['/vault/fund'])
 chk('server asked to build the launch for the dev', !!lb && lb.dev === addr && lb.symbol === 'OURS' && lb.vaultId === 'v1' && lb.vaultBuySol > 6.5 && lb.vaultBuySol < 7.8 && lb.devBuySol === 0.5)
 chk('transfer tax off by default (one fee: the curve tax)', lb?.permTax === false)
 chk('launch build carries a dev signature (unnamed:launch:<vault>:<dev>:<minute>)', !!lb?.auth && lb.auth.msg.startsWith('unnamed:launch:v1:' + addr + ':') && lb.auth.sig.length > 60)
@@ -93,8 +101,12 @@ chk('arm carries a dev signature', !!calls['/vault/arm']?.[0]?.auth && calls['/v
 const bundle = calls['/bundle']?.[0]?.txs || []
 chk('bundle = [create signed by dev, keeper-signed vault buy]', bundle.length === 2 && VersionedTransaction.deserialize(Buffer.from(bundle[0], 'base64')).signatures[0].some((x) => x) && VersionedTransaction.deserialize(Buffer.from(bundle[0], 'base64')).message.staticAccountKeys[0].toBase58() === addr && VersionedTransaction.deserialize(Buffer.from(bundle[1], 'base64')).message.staticAccountKeys[0].toBase58() === vaultKp.publicKey.toBase58())
 chk('vault armed after launch', calls['/vault/arm']?.[0]?.id === 'v1' && calls['/vault/arm'][0].mint === MINT)
+chk('arm books the stake from the create tx (fundSig = the create signature the wallet made)', calls['/vault/arm']?.[0]?.fundSig === (bundle[0] ? (await import('bs58')).default.encode(VersionedTransaction.deserialize(Buffer.from(bundle[0], 'base64')).signatures[0]) : 'x'))
+chk('the create the wallet signed carries the stake transfer to the vault (one prompt)', bundle[0] && VersionedTransaction.deserialize(Buffer.from(bundle[0], 'base64')).message.staticAccountKeys.some((k) => k.equals(vaultKp.publicKey)))
+chk('metadata uploaded once, before the build', (calls['/ipfs'] || []).length === 1)
 const toasts = [...seenToasts]; console.log('TOASTS', toasts.map((t) => t.replace(/\n/g, ' / ').slice(0, 90)).join(' || '))
 chk('success toast says live on UNNAMED · vault in block zero', toasts.some((t) => t.includes('live on BANKER') && t.includes('vault in block zero')))
+chk('success toast shows the stake went with the same signature', toasts.some((t) => /same signature/.test(t)))
 chk('navigated to the coin page', pg.url().includes('#/coin/' + MINT))
 await pg.waitForTimeout(2500); console.log('COINPAGE', (await pg.locator('.main').innerText().catch(() => '')).replace(/\n/g, ' / ').slice(0, 400))
 chk('coin page reads the pool as the exact source (price from /ll/pool, not the indexer)', (await pg.locator('.tile', { hasText: 'Price' }).innerText({ timeout: 3000 }).catch(() => '')).includes('$0.00000600'))
@@ -103,6 +115,27 @@ await pg.locator('.btn.pri.big', { hasText: 'Buy' }).first().click().catch(() =>
 const tr = calls['/ll/trade']?.[0]
 chk('buy routed through /ll/trade (sdk-built, no pumpportal)', !!tr && tr.action === 'buy' && tr.mint === MINT && tr.owner === addr && tr.amount === 0.1)
 chk('buy tx signed by the burner and sent', sent.length >= 2 && VersionedTransaction.deserialize(Buffer.from(sent[sent.length - 1], 'base64')).signatures[0].some((x) => x))
+// ---- retry after a launch that landed late: the server names the live coin, the app opens it instead of launching a second one ----
+alreadyLive = true; const armsBefore = (calls['/vault/arm'] || []).length
+await pg.goto('http://localhost:4197/#/'); await pg.waitForTimeout(800)
+await pg.locator('.top .btn', { hasText: 'Launch' }).click(); await pg.waitForTimeout(400)
+await pg.locator('.modal input:not([type=checkbox])').nth(0).fill('Ours'); await pg.locator('.modal input:not([type=checkbox])').nth(1).fill('OURS'); await pg.locator('.modal input[type=file]').setInputFiles(png); await pg.waitForTimeout(200)
+const seen2 = new Set(); await pg.locator('.modal .btn.pri', { hasText: 'Create coin' }).click(); for (let i = 0; i < 10; i++) { await pg.waitForTimeout(500); for (const t of await pg.locator('.toast').allInnerTexts().catch(() => [])) seen2.add(t) }
+chk('already-live retry: opens the live coin, no second launch', pg.url().includes('#/coin/' + MINT2) && [...seen2].some((t) => /already live/i.test(t)))
+chk('already-live retry: arms onto the live coin (no fundSig: the server finds the create tx)', (calls['/vault/arm'] || []).length === armsBefore + 1 && calls['/vault/arm'].at(-1).mint === MINT2 && !calls['/vault/arm'].at(-1).fundSig)
+// ---- pump.fun launch: server-built too (…BANK mint, stake inside the create, one signature) ----
+alreadyLive = false; const bundlesBefore = (calls['/bundle'] || []).length; const sentBefore = sent.length
+await pg.goto('http://localhost:4197/#/'); await pg.waitForTimeout(800)
+await pg.locator('.top .btn', { hasText: 'Launch' }).click(); await pg.waitForTimeout(400)
+await pg.locator('.venue button').nth(1).click(); await pg.waitForTimeout(200)
+await pg.locator('.modal input:not([type=checkbox])').nth(0).fill('Pumpy'); await pg.locator('.modal input:not([type=checkbox])').nth(1).fill('PMPY'); await pg.locator('.modal input[type=file]').setInputFiles(png); await pg.waitForTimeout(200)
+const seen3 = new Set(); await pg.locator('.modal .btn.pri', { hasText: 'Create coin' }).click(); for (let i = 0; i < 12; i++) { await pg.waitForTimeout(500); for (const t of await pg.locator('.toast').allInnerTexts().catch(() => [])) seen3.add(t) }
+const pb = calls['/pump/launch/build']?.[0]
+console.log('PUMP TOASTS', [...seen3].map((t) => t.replace(/\n/g, ' / ').slice(0, 100)).join(' || '))
+chk('pump: the server builds the launch (fundInBundle, vault, dev signature)', !!pb && pb.fundInBundle === true && pb.vaultId === 'v1' && pb.symbol === 'PMPY' && !!pb.auth)
+chk('pump: no stake transfer sent ahead, one bundle [create+stake, vault buy]', sent.length === sentBefore && (calls['/bundle'] || []).length === bundlesBefore + 1 && calls['/bundle'].at(-1).txs.length === 2)
+chk('pump: armed onto the new coin with the create signature as the stake proof', calls['/vault/arm'].at(-1).mint === MINT3 && !!calls['/vault/arm'].at(-1).fundSig)
+chk('pump: success toast + coin page', [...seen3].some((t) => t.includes('live on pump') && t.includes('vault in block zero')) && pg.url().includes('#/coin/' + MINT3))
 chk('no page errors', errs.filter((e) => !e.startsWith('FAIL') && !/net::|WebSocket|ERR_|Failed to fetch|localStorage/.test(e)).length === 0)
 await pg.screenshot({ path: join(SC, 'launch-coinpage.png') })
 await b.close(); const fails = errs.filter((e) => e.startsWith('FAIL')); if (fails.length) { console.log('ERRORS:', fails.join('; ')); process.exit(1) } process.exit(0)

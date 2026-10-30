@@ -1,4 +1,4 @@
-// Block-level swap detection for graduated coins. Helius standard websocket (all plans): logsSubscribe on the pool address,
+// Block-level swap detection for graduated coins, our LaunchLab pools and pump.fun bonding curves. Helius standard websocket (all plans): logsSubscribe on the pool address,
 // then getTransaction to read the pool's WSOL balance delta → exact buy/sell size in the same slot it landed.
 // Upgrade path: Helius transactionSubscribe (enhanced WS) or LaserStream gRPC — same onSwap() contract, set HELIUS_GRPC.
 import { Connection, PublicKey } from '@solana/web3.js'
@@ -52,6 +52,8 @@ export async function decode(c: Connection, pool: string, sig: string, slot: num
   const tx = await c.getTransaction(sig, { maxSupportedTransactionVersion: 1, commitment: 'confirmed' }); if (!tx || tx.meta?.err) return null
   const keys = tx.transaction.message.getAccountKeys({ accountKeysFromLookups: tx.meta?.loadedAddresses as any }).staticAccountKeys.map((k) => k.toBase58())
   const payer = keys[0]
+  // a pool that holds native SOL itself (the pump.fun bonding curve): its own lamport delta is the exact size of the trade, net of fees
+  const pi = keys.indexOf(pool); if (pi > 0) { const d = ((tx.meta?.postBalances?.[pi] || 0) - (tx.meta?.preBalances?.[pi] || 0)) / 1e9; if (Math.abs(d) >= 0.001) return { pool, sig, slot, side: d > 0 ? 'buy' : 'sell', sol: Math.abs(d), trader: payer, t: Date.now() } }
   const pre = tx.meta?.preTokenBalances || [], post = tx.meta?.postTokenBalances || []
   let delta = 0
   for (const pb of post) { if (pb.mint !== WSOL || pb.owner === payer) continue; const pr = pre.find((x) => x.accountIndex === pb.accountIndex); const d = (+(pb.uiTokenAmount.uiAmount || 0)) - (+(pr?.uiTokenAmount.uiAmount || 0)); if (Math.abs(d) > Math.abs(delta)) delta = d }

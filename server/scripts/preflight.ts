@@ -309,6 +309,50 @@ await step('jito: takes a real launch bundle [create, vault buy] with a fresh bl
   }
 })
 
+await step('one-signature launch: create(+dev buy) with the stake transfer inside → size + simulate as a funded dev', async () => {
+  // Oct 30: the stake no longer goes out ahead of the launch. The server appends dev → vault to the create the dev signs (mint-signed by us,
+  // so it can't be stripped), and the bundle [create+stake, vault buy] is all-or-nothing. This proves the real SDK create still fits and runs.
+  const LL = await import('../src/launchlab.ts'); const { LAUNCHPAD_PLATFORM } = await import('@raydium-io/raydium-sdk-v2'); const { Keypair } = await import('@solana/web3.js')
+  const vault = Keypair.generate().publicKey; const out: string[] = []
+  for (const [dev, perm] of [[0.5, false], [2, true]] as [number, boolean][]) {
+    const built = await LL.buildLaunch(PAYER, { name: 'Preflight One Signature Launch', symbol: 'PREFLIGHT', uri: 'https://ipfs.io/ipfs/bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy' }, dev, LAUNCHPAD_PLATFORM, perm)
+    const size = await built.addTransfer(vault, 7.5e9); const lb = await conn.getLatestBlockhash('confirmed'); const raws = built.restamp(lb.blockhash).map((b) => VersionedTransaction.deserialize(Buffer.from(b, 'base64')))
+    const keys = raws[0].message.staticAccountKeys.map((k) => k.toBase58()); if (!keys.includes(vault.toBase58())) throw new Error('vault not in the create tx')
+    out.push(`dev buy ${dev}${perm ? ' + transfer tax' : ''}: ${size} B · ` + (await sim(raws[0], 'create+stake')).slice(0, 70))
+  }
+  return out.join(' · ')
+})
+await step('jito: takes a one-signature launch bundle [create+stake, vault buy] (unfunded keys — can never land)', async () => {
+  const LL = await import('../src/launchlab.ts'); const C = await import('../src/chain.ts'); const { LAUNCHPAD_PLATFORM } = await import('@raydium-io/raydium-sdk-v2'); const { Keypair } = await import('@solana/web3.js')
+  const dev = Keypair.generate(), vault = Keypair.generate(); const t0 = Date.now()
+  const built = await LL.buildLaunch(dev.publicKey, { name: 'preflight', symbol: 'PRE', uri: 'https://ipfs.io/ipfs/bafkreigh2akiscaildc' }, 0.2, LAUNCHPAD_PLATFORM)
+  await built.addTransfer(vault.publicKey, 1e9)
+  const vt = await LL.buildTrade(vault.publicKey, 'buy', built.mint, 0.5, { poolState: built.afterDev, fromCreate: true, slippageBps: 3000, platformId: LAUNCHPAD_PLATFORM, tipLamports: 1_000_000 })
+  const lb = await conn.getLatestBlockhash('confirmed'); const raws = built.restamp(lb.blockhash).map((b) => VersionedTransaction.deserialize(Buffer.from(b, 'base64')))
+  if (vt.message.header.numRequiredSignatures === 1) vt.message.recentBlockhash = lb.blockhash
+  for (const t of raws) t.sign([dev]); vt.sign([vault])
+  try { const id = await C.sendBundle([...raws.map((t) => t.serialize()), vt.serialize()]); await new Promise((r) => setTimeout(r, 3000)); const st = await C.bundleStatus(id).catch(() => null); return `accepted · ${String(id).slice(0, 10)}… · status ${st?.status || 'not reported'} (unfunded: expected to fail at the leader) · build ${Date.now() - t0} ms` }
+  catch (e: any) { const m = String(e.message || e); if (/expired|blockhash/i.test(m)) throw new Error('Jito refused a FRESH one-signature bundle as expired: ' + m.slice(0, 200)); return 'refused for another reason (fine for unfunded keys): ' + m.slice(0, 160) }
+})
+await step('pump one-signature launch: PumpPortal [create+dev buy+tip, vault buy] + stake inside the create → size + simulate + Jito', async () => {
+  // what /pump/launch/build does: our mint key, the stake appended to the create (mint-signed by us), one blockhash, Jito bundle
+  const { Keypair } = await import('@solana/web3.js'); const L = await import('../src/launch.ts'); const LL = await import('../src/launchlab.ts'); const C = await import('../src/chain.ts')
+  const mintKp = Keypair.generate(); const mint = mintKp.publicKey.toBase58(); const vault = Keypair.generate()
+  const mk = async (dev: string) => { const r = await timeout(fetch(PP, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify([
+    { publicKey: dev, action: 'create', tokenMetadata: { name: 'Preflight One Signature', symbol: 'PREFLIGHT', uri: 'https://ipfs.io/ipfs/bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy' }, mint, denominatedInSol: 'true', amount: 0.5, slippage: 10, priorityFee: 0.005, pool: 'pump' },
+    { publicKey: vault.publicKey.toBase58(), action: 'buy', mint, denominatedInSol: 'true', amount: 1, slippage: 30, priorityFee: 0.00005, pool: 'pump' }]) }), 20000)
+    if (!r.ok) throw new Error(`HTTP ${r.status} ${(await r.text()).slice(0, 160)}`); return (await r.json() as string[]).map((e) => VersionedTransaction.deserialize(bs58.decode(e))) }
+  // 1) as a funded dev: the create with the stake appended must still simulate
+  let [ct] = await mk(PAYER.toBase58()); const luts: any[] = []; for (const l of ct.message.addressTableLookups) { const a = (await conn.getAddressLookupTable(l.accountKey)).value; if (a) luts.push(a) }
+  ct = LL.appendTransfer(ct, luts, PAYER, vault.publicKey, 7.5e9); const size = ct.serialize().length; ct.sign([mintKp])
+  const c = L.inspectCreate(ct, mint, 6, await L.resolveKeys(ct, conn)); if (!c.tipSol) throw new Error('no Jito tip left in the create after the surgery')
+  const simNote = await sim(ct, 'pump create+stake')
+  // 2) unfunded dev: Jito must take the bundle (fresh blockhash), it can never land
+  const dev = Keypair.generate(); let [ct2, vt2] = await mk(dev.publicKey.toBase58()); ct2 = LL.appendTransfer(ct2, [], dev.publicKey, vault.publicKey, 1e9)
+  const lb = await conn.getLatestBlockhash('confirmed'); ct2.message.recentBlockhash = lb.blockhash; vt2.message.recentBlockhash = lb.blockhash; ct2.sign([mintKp, dev]); vt2.sign([vault])
+  let jito = ''; try { const id = await C.sendBundle([ct2.serialize(), vt2.serialize()]); await new Promise((r) => setTimeout(r, 3000)); const st = await C.bundleStatus(id).catch(() => null); jito = `Jito accepted (${st?.status || 'no status'})` } catch (e: any) { const m = String(e.message || e); if (/expired|blockhash/i.test(m)) throw new Error('Jito refused a fresh pump bundle as expired: ' + m.slice(0, 160)); jito = 'Jito refused (not the blockhash): ' + m.slice(0, 100) }
+  return `${c.created} · ${size} B with the stake · tip ${c.tipSol.toFixed(4)} · ${simNote.slice(0, 60)} · ${jito}`
+})
 await step('launchlab: token-2022 launch with the permanent transfer tax → simulate create + vault buy shape', async () => {
   const LL = await import('../src/launchlab.ts'); const { LAUNCHPAD_PLATFORM } = await import('@raydium-io/raydium-sdk-v2')
   const built = await LL.buildLaunch(PAYER, { name: 'preflight', symbol: 'PRE', uri: 'https://ipfs.io/ipfs/bafkreigh2akiscaildc' }, 0.05, LAUNCHPAD_PLATFORM, true)

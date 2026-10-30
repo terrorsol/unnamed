@@ -10,6 +10,7 @@ import { balanceSol, tokenBalance, pumpTrade, conn, confirm, decimals, TREASURY,
 import * as C from './chain.ts'
 import * as D from './desk.ts'
 import { watchPool, streamStats } from './stream.ts'
+import { curvePda } from './pool.ts'
 import * as KEEP from './keeper.ts'
 import * as VM from './vamp.ts'
 import * as MM from './mm.ts'
@@ -57,7 +58,7 @@ export type Act = { t: number; kind: 'stake' | 'seed' | 'buy' | 'trim' | 'cut' |
 export type Vault = { armedAt?: number; launchSpend?: number; taxAccrued?: number; nextAutoArmAt?: number; shared?: boolean; ledgerDirty?: boolean; mmSpent?: number; mmGot?: number; mmTok?: number; mmCost?: number; invGot?: number; stoppedAt?: number; stopNoted?: boolean; epHigh?: number; epStart?: number; cooldownUntil?: number; dayKey?: number; dayDefense?: number; dayChest0?: number; deskPauseUntil?: number; lastDeskFill?: { t: number; p: number } | null; vaultBuySol?: number; lastPushed?: number; vampFlag?: boolean; askRefreshAt?: number; uri?: string; image?: string; permTax?: number; nextPermAt?: number; venue?: 'pump' | 'launchlab'; taxClaimed?: number; nextClaimAt?: number; nextHarvestAt?: number; vampChecked?: number; holders?: any; ddPrev?: number; nextCaptureAt?: number; levelJit?: number; bidRefreshAt?: number; nextTickAt?: number; paper?: boolean; crowd?: { goalSol: number; raised: number; contributors: Record<string, number>; expiresAt: number; refunded?: boolean }; id: string; pub: string; sk: string; mint?: string; symbol?: string; name?: string; dev: string; stakeSol: number; pct: number; cut: number; armed: boolean; renounced: boolean; createdAt: number; copyOf?: string; streamed: number; redeemed: number; supply: number; deskBid: number; imported?: boolean; feePaid?: number; trimmedToday: number; trimDay: number; depositedTokens: number; funders: Record<string, number>; mode: 'floor' | 'mm'; ceiling: number; lastLiq: number; lastLiqT: number; buyTimes: number[]; tranchesFired: number[]; score: { captured: number; captures: number; deskBought: number; deskFills: number; dipBought: number; dips: number; redeployed: number; floor0: number }; lastCapture: number
   avgCost: number; tokens: number; chest: number; spentEpisode: number; high15: { t: number; p: number }[]; samples: { t: number; p: number; v: number }[]; ema5: number | null; ema15: number | null; lastBuy: number; lastTrim: number; activity: Act[]; devPaid: number }
 let vaults: Record<string, Vault> = {}
-const watched = new Map<string, () => void>()
+const watched = new Map<string, { pool: string; off: () => void }>()   // vault id → the pool its per-swap stream is on (re-pointed when the coin migrates)
 let SOLUSD = 0; setInterval(() => fetch(`${process.env.DEX_URL || 'https://api.dexscreener.com'}/tokens/v1/solana/So11111111111111111111111111111111111111112`).then((r) => r.json()).then((a: any[]) => { const x = a?.[0]?.priceUsd; if (x) SOLUSD = +x }).catch(() => {}), 30000)
 export function load() { if (existsSync(FILE)) vaults = JSON.parse(readFileSync(FILE, 'utf8')) }
 function save() { mkdirSync(DIR, { recursive: true }); writeFileSync(FILE, JSON.stringify(vaults)) }
@@ -121,7 +122,9 @@ export function create(dev: string, stakeSol: number, copyOf?: string, mode: 'fl
 export async function fund(id: string, sig: string) {
   const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('already armed')
   if (Object.values(vaults).some((x) => x.activity.some((a) => a.sig === sig))) return pub(v)
-  const tx = await conn.getParsedTransaction(sig, { maxSupportedTransactionVersion: 1, commitment: 'confirmed' }); if (!tx || tx.meta?.err) throw new Error('funding tx not found or failed')
+  // a just-confirmed tx can take a few seconds to show up parsed: wait for it instead of failing the arm
+  let tx: any = null; for (let i = 0; i < 6 && !tx; i++) { tx = await conn.getParsedTransaction(sig, { maxSupportedTransactionVersion: 1, commitment: 'confirmed' }).catch(() => null); if (!tx && i < 5) await new Promise((r) => setTimeout(r, 1000)) }
+  if (!tx || tx.meta?.err) throw new Error('funding tx not found or failed')
   const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58()); const i = keys.indexOf(v.pub); const got = i < 0 ? 0 : (tx.meta!.postBalances[i] - tx.meta!.preBalances[i]) / 1e9
   if (got < 0.001) throw new Error('no SOL to the vault wallet in that tx'); if (!keys.includes(v.dev)) throw new Error('tx not from the vault owner')
   if (v.shared) v.chest = +(v.chest + got).toFixed(9); else v.chest = await balanceSol(v.pub)
@@ -132,9 +135,9 @@ export async function arm(id: string, mint: string, symbol: string, name = '', a
   const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) return pub(v)
   // the coin must exist: a LaunchLab vault armed onto a mint that never went live sat dead on Oct 29. If the given mint has no pool, use the
   // build of this vault that did go live.
-  if (v.venue === 'launchlab' && !v.imported) {
-    if (!(await LL.pool(mint).catch(() => null))) {
-      let live = ''; for (const m of [...(((v as any).builtMints || []) as string[])].reverse()) { if (m !== mint && await LL.pool(m).catch(() => null)) { live = m; break } }
+  if (!v.imported && (v.venue === 'launchlab' || (v as any).builtMints?.length)) {
+    if (!(await onChain(v, mint))) {
+      let live = ''; for (const m of [...(((v as any).builtMints || []) as string[])].reverse()) { if (m !== mint && await onChain(v, m)) { live = m; break } }
       if (!live) throw new Error('that coin is not on chain yet — the vault arms itself once it is'); EV.log('vault', `arm: ${mint.slice(0, 4)}… never went live, arming on ${live.slice(0, 4)}… (built by this vault)`, { id: v.id, mint, live }); mint = live
     }
   }
@@ -147,10 +150,15 @@ export async function arm(id: string, mint: string, symbol: string, name = '', a
   if (v.shared) {
     // shared wallet: the stake is credited from the funding tx (dev → vault wallet), the bundle's spend from the bundle tx the vault signed
     if (fundSig) await fund(id, fundSig).catch(() => {})
-    const funded = v.activity.filter((a) => a.kind === 'stake').reduce((a, x) => a + (x.sol || 0), 0)
+    // one-signature launches: the stake came inside the create tx — find it on chain if the app didn't hand us the signature
+    if (fundedSol(v) < v.stakeSol * 0.95 - 0.001) await bookCreateFunding(v, mint).catch(() => false)
+    const funded = fundedSol(v)
     if (funded < v.stakeSol * 0.95 - 0.001) throw new Error(`vault not funded: ${funded.toFixed(3)} / ${v.stakeSol} SOL — send the stake and call /vault/fund with the tx`)
     // the bundle's block-zero buy (vault-signed, sent by the dev): book its real SOL delta if it landed
-    for (const a of v.activity) if (a.msg?.startsWith('signed block-zero') && a.sig && !a.msg.includes('booked')) { try { v.chest = Math.max(0, +(v.chest + await txDelta(a.sig, v.pub)).toFixed(9)); a.msg += ' · booked' } catch {} }
+    // (a retry signs one per attempt: only the armed coin's buy is waited for; the others are checked once and skipped if they never landed — Oct 29: arm took 30 s+ waiting on dead ones)
+    for (const a of v.activity) if (a.msg?.startsWith('signed block-zero') && a.sig && !a.msg.includes('booked') && !a.msg.includes('never landed')) {
+      const am = (a as any).mint; if (am && am !== mint) { const st = (await conn.getSignatureStatuses([a.sig], { searchTransactionHistory: true }).catch(() => null))?.value?.[0]; if (!st || st.err) { a.msg += ' · never landed'; continue } }
+      try { v.chest = Math.max(0, +(v.chest + await txDelta(a.sig, v.pub)).toFixed(9)); a.msg += ' · booked' } catch {} }
     bal = v.chest
   } else { bal = await balanceSol(v.pub); if (bal < (bundled ? (v.stakeSol - buy) * 0.8 : v.stakeSol * 0.95)) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL`); v.chest = bal }
   v.mint = mint; v.symbol = symbol; v.name = name; v.armed = true; v.armedAt = Date.now(); VM.watch(mint); try { const sup = await conn.getTokenSupply(new PublicKey(mint)); v.supply = +(sup.value.uiAmount || 1e9) } catch {} if (!v.shared) v.activity.unshift({ t: Date.now(), kind: 'stake', sol: bal, msg: 'dev stake received' }); EV.log('vault', `${symbol} armed · chest ${bal.toFixed(3)} SOL`, { mint, id })
@@ -169,6 +177,16 @@ export async function arm(id: string, mint: string, symbol: string, name = '', a
   catch (e: any) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'seed failed: ' + e.message }) }
   save(); return pub(v)
 }
+/** The create tx of `mint` (its oldest signature) carries the dev's stake when the launch was one-signature: book it as the stake. */
+export async function bookCreateFunding(v: Vault, mint: string): Promise<boolean> {
+  if (PAPER) return false
+  let before: string | undefined; let page: any[] = []; let oldest: any[] = []
+  for (let p = 0; p < 10; p++) { page = await conn.getSignaturesForAddress(new PublicKey(mint), { before, limit: 1000 }); if (!page.length) break; oldest = page; before = page[page.length - 1].signature; if (page.length < 1000) break }
+  if (!oldest.length) return false
+  const slot = oldest[oldest.length - 1].slot; const first = oldest.filter((x) => x.slot === slot && !x.err).reverse()
+  for (const x of first) { try { await fund(v.id, x.signature); EV.log('vault', `${v.symbol || v.id} stake booked from the create tx (one-signature launch)`, { id: v.id, sig: x.signature }); return true } catch {} }
+  return false
+}
 /** Every 15s: a funded vault whose coin is on chain but which never armed (bundle dropped, arm never signed, tab closed) arms itself —
  *  the dev already authorized the launch; arm needs no second signature. Unfunded vaults older than 2h are dropped. */
 let armingNow = false
@@ -180,13 +198,14 @@ export async function autoArm() {
     if (Date.now() > nextReclaimAt) { nextReclaimAt = Date.now() + 120_000; MP.reclaim(async (pub) => !!(await conn.getAccountInfo(new PublicKey(pub)))).then((n) => { if (n) EV.log('vault', `${n} unused …${MP.SUFFIX} mint(s) back in the pool (their launches never went live)`) }).catch(() => {}) }
     for (const v of Object.values(vaults)) {
       if (v.armed || v.imported || v.paper || v.createdAt < AUTOARM_SINCE || (v as any).closedAt) continue
-      const funded = v.activity.filter((a) => a.kind === 'stake').reduce((a, x) => a + (x.sol || 0), 0)
-      if (!v.mint) { if (Date.now() - v.createdAt > 2 * 3600_000 && funded === 0 && v.chest === 0) { delete vaults[v.id]; save() } continue }
-      if (v.shared ? funded < v.stakeSol * 0.95 - 0.001 : false) continue
+      const funded = fundedSol(v); const inBundle = !!(v as any).fundInBundle; const stale = Date.now() - v.createdAt > 2 * 3600_000 && funded === 0 && v.chest === 0
+      if (!v.mint) { if (stale) { delete vaults[v.id]; save() } continue }
+      // a one-signature launch has no stake booked until its coin is on chain (the stake is in the create tx): arm() books it from there
+      if (v.shared && !inBundle && funded < v.stakeSol * 0.95 - 0.001) continue
       if (v.nextAutoArmAt && Date.now() < v.nextAutoArmAt) continue; v.nextAutoArmAt = Date.now() + 30_000
-      let exists = await LL.pool(v.mint).then((p) => !!p).catch(() => false)
-      if (!exists) for (const m of [...(((v as any).builtMints || []) as string[])].reverse()) { if (m !== v.mint && await LL.pool(m).then((p) => !!p).catch(() => false)) { v.mint = m; exists = true; break } }   // the build that went live
-      if (!exists) continue
+      let exists = await onChain(v, v.mint)
+      if (!exists) for (const m of [...(((v as any).builtMints || []) as string[])].reverse()) { if (m !== v.mint && await onChain(v, m)) { v.mint = m; exists = true; break } }   // the build that went live
+      if (!exists) { if (inBundle && stale) { delete vaults[v.id]; save() } continue }   // a one-signature launch that never landed spent nothing: drop the empty vault
       try { await arm(v.id, v.mint, v.symbol || '', v.name || '', { sessionWallet: v.dev }); EV.log('vault', `${v.symbol} auto-armed (coin on chain, arm never signed)`, { id: v.id, mint: v.mint }) }
       catch (e: any) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'auto-arm: ' + String(e.message || e).slice(0, 100) }); EV.log('error', `${v.symbol} auto-arm: ${String(e.message || e).slice(0, 140)}`, { id: v.id }) }
     }
@@ -515,20 +534,25 @@ async function tickOne(v: Vault) {
       { const st = MM.stopped(v, p, now); if (st && !v.stopNoted) { v.stopNoted = true; v.activity.unshift({ t: now, kind: 'note', msg: `drawdown stop: mm leg ${(MM.mmPnl(v, p) / Math.max(v.mmSpent || 0, 1e-9) * 100).toFixed(0)}% on ${(v.mmSpent || 0).toFixed(2)} SOL deployed — no new buys, desk bid halved at −15%, resumes at break-even` }); EV.log('vault', `${v.symbol} drawdown stop`, { mint: v.mint, pnl: MM.mmPnl(v, p), spent: v.mmSpent }) } else if (!st && v.stopNoted) { v.stopNoted = false; v.activity.unshift({ t: now, kind: 'note', msg: 'drawdown stop cleared: mm leg back at break-even' }) } }
       if (!v.holders || now - v.holders.t > 60_000) { holderStats(v.mint, v.pub).then((h) => { v.holders = h }).catch(() => {}) }
       if (!v.score) v.score = { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: v.supply ? v.chest / v.supply : 0 }
-      // graduated coins: exact per-swap buys from the pool websocket; reserve-delta only while the stream isn't attached
-      // graduated coins AND our launchlab pools (the quote vault is WSOL, same decode): exact per-swap buys from the pool websocket
-      if ((!m.onCurve || (m as any).venue === 'launchlab') && m.pair && !watched.has(v.id)) { watched.set(v.id, watchPool(m.pair, async (sw) => { D.broadcast({ type: 'swap', mint: v.mint, symbol: v.symbol, ...sw }); tape(v.mint!, { t: sw.t, side: sw.side, sol: sw.sol, trader: sw.trader, sig: sw.sig }); (v as any)._lastSwapAt = Date.now(); if (sw.side !== 'buy' || sw.trader === v.pub) return; try { const mm = await market(v.mint!); if (mm) { await onBuy(v, sw.sol, mm, mm.priceSol, Date.now()); save() } } catch {} })) }
+      // per-swap detection: our launchlab pool, any graduated pool, and — unless the PumpPortal stream is on — the pump.fun bonding curve itself
+      // (the curve account's own SOL delta is the exact buy). Re-pointed when the coin migrates (curve → AMM), so a graduated coin is never left on a dead stream.
+      const pumpPP = m.onCurve && (m as any).venue !== 'launchlab' && !!process.env.PUMPPORTAL_KEY
+      const target = m.onCurve && (m as any).venue !== 'launchlab' ? (pumpPP ? null : curvePda(v.mint).toBase58()) : (m.pair || null)
+      const cur = watched.get(v.id)
+      if (target && cur?.pool !== target) { cur?.off(); watched.set(v.id, { pool: target, off: watchPool(target, async (sw) => { D.broadcast({ type: 'swap', mint: v.mint, symbol: v.symbol, ...sw }); tape(v.mint!, { t: sw.t, side: sw.side, sol: sw.sol, trader: sw.trader, sig: sw.sig }); (v as any)._lastSwapAt = Date.now(); if (sw.side !== 'buy' || sw.trader === v.pub) return
+        // the pool-read backstop may have caught this very buy a moment earlier (the websocket lagged the tick): never sell into one buy twice
+        const bs = (v as any)._bs; if (bs && Date.now() - bs.t < 15000 && Math.abs(sw.sol - bs.sol) <= Math.max(0.02, bs.sol * 0.2)) { (v as any)._bs = null; return }
+        try { const mm = await market(v.mint!); if (mm) { await onBuy(v, sw.sol, mm, mm.priceSol, Date.now()); save() } } catch {} }) }) }
       // reserve-delta fallback when the pool websocket is not delivering (not connected, or no subscription yet)
       // …and a subscription that is 'connected' but silent while the pool's SOL moved counts as not delivering (backstop: the pool read catches the buys)
-      const liqMoved = !!v.lastLiq && !!m.liqSol && Math.abs(m.liqSol - v.lastLiq) >= 0.05; const swapSeen = ((v as any)._lastSwapAt || 0) > (v.lastLiqT || 0)
-      const llStreaming = (m as any).venue === 'launchlab' && watched.has(v.id) && streamStats().connected && (!liqMoved || swapSeen)
-      // launchlab coins without the websocket: every tick compares the pool's real SOL; a change is a swap (buy if up, sell if down) → tape + live ticker
-      if ((m as any).venue === 'launchlab' && !llStreaming && m.liqSol) { const d = m.liqSol - (v.lastLiq || m.liqSol); if (v.lastLiq && Math.abs(d) >= 0.01) { const sw = { t: now, side: d > 0 ? 'buy' as const : 'sell' as const, sol: Math.abs(d), trader: '' }; tape(v.mint!, sw); D.broadcast({ type: 'swap', mint: v.mint, symbol: v.symbol, ...sw }) } }
+      const liqMoved = !!v.lastLiq && !!m.liqSol && Math.abs(m.liqSol - v.lastLiq) >= 0.05; const swapSeen = ((v as any)._lastSwapAt || 0) > (v.lastLiqT || 0) || now - ((v as any)._lastSwapAt || 0) < 20000
+      const streaming = !!target && watched.get(v.id)?.pool === target && streamStats().connected && (!liqMoved || swapSeen)
+      // curve coins without a delivering websocket: every tick compares the pool's real SOL; a change is a swap (buy if up, sell if down) → tape + live ticker
+      if (m.onCurve && !streaming && !pumpPP && m.liqSol) { const d = m.liqSol - (v.lastLiq || m.liqSol); if (v.lastLiq && Math.abs(d) >= 0.01) { const sw = { t: now, side: d > 0 ? 'buy' as const : 'sell' as const, sol: Math.abs(d), trader: '' }; tape(v.mint!, sw); D.broadcast({ type: 'swap', mint: v.mint, symbol: v.symbol, ...sw }) } }
       // pump curve coins without the PumpPortal stream, and launchlab coins until the websocket attaches: the pool read every tick is the buy detector
       // (launchlab coins: only while their websocket is not delivering — never both, or one buy would be sold into twice)
-      const curveNoStream = m.onCurve && ((m as any).venue === 'launchlab' ? !llStreaming : !process.env.PUMPPORTAL_KEY)
-      if (m.liqSol && ((!m.onCurve && (!watched.has(v.id) || !streamStats().connected)) || curveNoStream)) { if (v.lastLiq && now - v.lastLiqT < 20000) { const inflow = m.liqSol - v.lastLiq; if (inflow >= (MM.perBuyOn(v) ? MM.P.initialsMinBuy : R.MM_MIN_BUY_SOL)) await onBuy(v, inflow, m, p, now) } v.lastLiq = m.liqSol; v.lastLiqT = now }
-      else if ((m as any).venue === 'launchlab' && m.liqSol) { v.lastLiq = m.liqSol; v.lastLiqT = now }   // keep the baseline current while the stream delivers
+      if (m.liqSol && !streaming && !pumpPP) { if (v.lastLiq && now - v.lastLiqT < 20000) { const inflow = m.liqSol - v.lastLiq; if (inflow >= (MM.perBuyOn(v) ? MM.P.initialsMinBuy : R.MM_MIN_BUY_SOL)) { (v as any)._bs = { t: now, sol: inflow }; await onBuy(v, inflow, m, p, now) } } v.lastLiq = m.liqSol; v.lastLiqT = now }
+      else if (m.liqSol) { v.lastLiq = m.liqSol; v.lastLiqT = now }   // keep the baseline current while the stream delivers
       // a failed trade (rpc down, pumpportal unreachable) must not skip the quoting below: the action block has its own catch
       try {
       // defense: tranches at −20 / −35 / −50 from the high the crash started at (mm.ts: episode anchor, day cap, pool-impact cap, seller-concentration check, cooldown)
@@ -637,7 +661,7 @@ export async function signBundleTx(id: string, mint: string, txB64: string, maxS
   if (cost + b.tipSol > spend * 1.05 + 0.01) throw new Error(`block-zero buy costs ${cost.toFixed(3)} SOL, policy allows ${spend.toFixed(3)}`)
   if (b.maxSolCost > bal) throw new Error(`max_sol_cost ${b.maxSolCost.toFixed(3)} exceeds the vault balance`)
   KEEP.sign({ id: v.id, chest: bal, sk: kp(v) }, tx, 'launch', cost + b.tipSol)
-  v.mint = mint; (v as any).buildAt = Date.now(); v.activity.unshift({ t: Date.now(), kind: 'note', sig: bs58.encode(tx.signatures[0]), msg: `signed block-zero buy · ${cost.toFixed(3)} SOL for ${(b.tokens / 1e6).toFixed(2)}M tokens (${(b.tokens / (v.supply || 1e9) * 100).toFixed(2)}% of supply)` }); save()
+  v.mint = mint; (v as any).buildAt = Date.now(); v.activity.unshift({ t: Date.now(), kind: 'note', sig: bs58.encode(tx.signatures[0]), mint, msg: `signed block-zero buy · ${cost.toFixed(3)} SOL for ${(b.tokens / 1e6).toFixed(2)}M tokens (${(b.tokens / (v.supply || 1e9) * 100).toFixed(2)}% of supply)` } as any); save()
   return { tx: Buffer.from(tx.serialize()).toString('base64'), spend: cost, tokens: b.tokens }
 }
 /** Submit a Jito bundle (array of base64 signed txs). Returns bundle id. */
@@ -645,16 +669,86 @@ export async function sendBundle(txs: string[]) { return C.sendBundle(txs.map((b
 
 /** LaunchLab launch: create(+dev buy) tx(s) for the dev to sign, plus the vault's block-zero buy already keeper-signed, to go out as one Jito bundle.
  *  The vault must be funded first (stake transferred) — same flow as the pump path. Without a vault it is just the create tx(s). */
-export async function buildLaunch(b: { dev: string; name: string; symbol: string; uri: string; devBuySol?: number; vaultId?: string; vaultBuySol?: number; permTax?: boolean; auth?: { msg?: string; sig?: string } }) {
+/** is this coin on chain? our launchpad: its LaunchLab pool; pump.fun: its bonding curve account */
+export async function onChain(v: Vault, mint: string): Promise<boolean> {
+  if (v.venue === 'launchlab') return LL.pool(mint).then((p) => !!p).catch(() => false)
+  return conn.getAccountInfo(curvePda(mint)).then((a) => !!a).catch(() => false)
+}
+/** a launch of this vault that did go live (a retry must never put a second coin out for the same chest) */
+export async function liveBuild(v: Vault): Promise<string | null> {
+  for (const m of [...(((v as any).builtMints || []) as string[])].reverse().slice(0, 4)) { if (await onChain(v, m)) return m }
+  return null
+}
+const noteBuilt = (v: Vault, mint: string) => { (v as any).buildAt = Date.now(); const bm = ((v as any).builtMints ||= [] as string[]); if (!bm.includes(mint)) bm.push(mint); if (bm.length > 20) bm.splice(0, bm.length - 20) }
+/** pump.fun launch built on the server, the same way as ours: the mint is a …BANK key from our pool (we mint-sign the create, so the dev can't
+ *  rebuild it without the stake), PumpPortal builds [create + dev buy + Jito tip] for the dev and the vault's block-zero buy, and the stake
+ *  rides inside the create — one wallet signature, all-or-nothing in one Jito bundle. */
+export async function buildPumpLaunch(b: { dev: string; name: string; symbol: string; uri: string; devBuySol?: number; vaultId?: string; vaultBuySol?: number; fundInBundle?: boolean; tipSol?: number; auth?: { msg?: string; sig?: string } }) {
+  const dev = new PK(b.dev); const devBuy = Math.max(0, +(b.devBuySol || 0)); const t0 = Date.now()
+  const v = b.vaultId ? vaults[b.vaultId] : null
+  if (b.vaultId) { if (!v) throw new Error('no such vault'); if (v.dev !== b.dev) throw new Error('not your vault'); devAuth(v, 'launch', b.dev, b.auth); if (v.armed) throw new Error('already armed'); v.venue = 'pump'
+    const live = await liveBuild(v); if (live) throw new Error('already live: ' + live) }
+  let bal = 0, fundSol = 0, spend = 0
+  if (v) {
+    bal = v.shared ? v.chest : await balanceSol(v.pub)
+    if (b.fundInBundle && v.shared && fundedSol(v) < v.stakeSol * 0.95 - 0.001) { fundSol = +(v.stakeSol - fundedSol(v)).toFixed(9); bal = +(v.chest + fundSol).toFixed(9) }
+    if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL`)
+    spend = +Math.min(+(b.vaultBuySol ?? v.vaultBuySol ?? v.stakeSol * 0.5), bal - 0.05, MM.P.profitOnly ? +(process.env.PROFIT_LAUNCH_BUY_SOL ?? 0) : Infinity).toFixed(4); if (spend < 0.05) spend = 0
+  }
+  const { kp: mintKp, branded } = MP.next(); const mint = mintKp.publicKey.toBase58()
+  try {
+    const PP = (process.env.PUMPPORTAL_URL || 'https://pumpportal.fun/api') + '/trade-local'
+    const tip = Math.min(0.02, Math.max(0.001, +(b.tipSol ?? process.env.LAUNCH_TIP_SOL ?? 0.005)))
+    const create = { publicKey: b.dev, action: 'create', tokenMetadata: { name: b.name, symbol: b.symbol, uri: b.uri }, mint, denominatedInSol: 'true', amount: devBuy, slippage: 10, priorityFee: tip, pool: 'pump' }
+    const body: any[] = [create]; if (v && spend) body.push({ publicKey: v.pub, action: 'buy', mint, denominatedInSol: 'true', amount: spend, slippage: 30, priorityFee: 0.00005, pool: 'pump' })
+    // bundle mode (array) whenever the vault buys: PumpPortal puts the Jito tip in the first tx. A lone create is a normal tx (priority fee, no tip).
+    const r = await fetch(PP, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body.length > 1 ? body : { ...create, priorityFee: Math.min(tip, 0.002) }) })
+    if (!r.ok) throw new Error('pumpportal: ' + (await r.text().catch(() => String(r.status))).slice(0, 160))
+    let ct: VersionedTransaction, vt: VersionedTransaction | null = null
+    if (body.length > 1) { const enc: string[] = await r.json(); if (enc.length !== 2) throw new Error('pumpportal returned ' + enc.length + ' txs'); [ct, vt] = enc.map((e) => VersionedTransaction.deserialize(bs58.decode(e))) }
+    else ct = VersionedTransaction.deserialize(new Uint8Array(await r.arrayBuffer()))
+    if (!ct.message.staticAccountKeys[0].equals(dev)) throw new Error('create is not paid by the dev')
+    if (fundSol && v) { const luts: any[] = []; for (const l of ct.message.addressTableLookups) { const a = (await conn.getAddressLookupTable(l.accountKey)).value; if (a) luts.push(a) } ct = LL.appendTransfer(ct, luts, dev, new PK(v.pub), Math.round(fundSol * 1e9)); (v as any).fundInBundle = true }
+    let vaultTx: string | null = null, vaultTokens = 0, cost = 0
+    if (vt && v) {
+      // decode what the txs really do: the create pins the dev buy, our token amount pins the vault's real cost (PumpPortal pads max_sol_cost ~3×)
+      const c = L.inspectCreate(ct, mint, 6, await L.resolveKeys(ct, conn)); const bi = L.inspectBuy(vt, v.pub, mint, 6, await L.resolveKeys(vt, conn))
+      cost = L.bundleCost(c.buy?.tokens || 0, bi.tokens).cost; if (!Number.isFinite(cost)) throw new Error('bundle buy asks for more tokens than the curve holds')
+      if (bi.maxSolCost < cost) throw new Error(`max_sol_cost ${bi.maxSolCost.toFixed(4)} below the real cost ${cost.toFixed(4)}`)
+      if (cost + bi.tipSol > spend * 1.05 + 0.01) throw new Error(`block-zero buy costs ${cost.toFixed(3)} SOL, policy allows ${spend.toFixed(3)}`)
+      if (bi.maxSolCost > bal + 0.001) throw new Error(`max_sol_cost ${bi.maxSolCost.toFixed(3)} exceeds the vault's ${bal.toFixed(3)} SOL`)
+      vaultTokens = bi.tokens
+      // one fresh blockhash for both, stamped last; the mint signs the create, the keeper signs the vault buy
+      const lb = await conn.getLatestBlockhash('confirmed'); ct.message.recentBlockhash = lb.blockhash; vt.message.recentBlockhash = lb.blockhash; ct.sign([mintKp])
+      KEEP.sign({ id: v.id, chest: bal, sk: kp(v) }, vt, 'launch', cost + bi.tipSol); vaultTx = Buffer.from(vt.serialize()).toString('base64')
+      v.vaultBuySol = +cost.toFixed(4); v.activity.unshift({ t: Date.now(), kind: 'note', sig: bs58.encode(vt.signatures[0]), mint, msg: `signed block-zero buy · ${cost.toFixed(3)} SOL for ${(bi.tokens / 1e6).toFixed(2)}M tokens (pump)${fundSol ? ` · stake ${fundSol.toFixed(3)} SOL inside the create` : ''}` } as any)
+    } else { const lb = await conn.getLatestBlockhash('confirmed'); ct.message.recentBlockhash = lb.blockhash; ct.sign([mintKp]) }
+    if (v) { v.mint = mint; v.uri = b.uri; v.symbol = b.symbol; v.name = b.name; resolveImage(v); noteBuilt(v, mint); save() }
+    const ms = Date.now() - t0; if (ms > 4000) EV.log('vault', `pump launch build took ${(ms / 1000).toFixed(1)} s`, { mint, ms })
+    return { venue: 'pump', mint, txs: [Buffer.from(ct.serialize()).toString('base64')], vaultTx, vaultSpend: cost, vaultTokens, fundSol, branded }
+  } catch (e) { if (branded) MP.unuse(mintKp); throw e }
+}
+/** SOL the dev has staked into this vault so far (booked funding txs) */
+const fundedSol = (v: Vault) => v.activity.filter((a) => a.kind === 'stake').reduce((a, x) => a + (x.sol || 0), 0)
+export async function buildLaunch(b: { dev: string; name: string; symbol: string; uri: string; devBuySol?: number; vaultId?: string; vaultBuySol?: number; permTax?: boolean; fundInBundle?: boolean; auth?: { msg?: string; sig?: string } }) {
   const dev = new PK(b.dev); const devBuy = Math.max(0, +(b.devBuySol || 0))
-  if (b.vaultId) { const v = vaults[b.vaultId]; if (!v) throw new Error('no such vault'); if (v.dev !== b.dev) throw new Error('not your vault'); devAuth(v, 'launch', b.dev, b.auth) }
+  if (b.vaultId) { const v = vaults[b.vaultId]; if (!v) throw new Error('no such vault'); if (v.dev !== b.dev) throw new Error('not your vault'); devAuth(v, 'launch', b.dev, b.auth)
+    if (v.armed) throw new Error('already armed')
+    // a retry after a launch that looked failed but landed late: never a second coin for one chest — point the app at the live one
+    const live = await liveBuild(v); if (live) throw new Error('already live: ' + live) }
   const t0 = Date.now()
   const built = await LL.buildLaunch(dev, { name: b.name, symbol: b.symbol, uri: b.uri }, devBuy, LL.PLATFORM_ID, !!b.permTax)
-  let vaultTx: string | null = null, vaultSpend = 0, vaultTokens = 0; let launchTxs = built.txs
+  let vaultTx: string | null = null, vaultSpend = 0, vaultTokens = 0; let launchTxs = built.txs; let fundSol = 0
   if (b.vaultId) {
     const v = vaults[b.vaultId]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('already armed')
     v.venue = 'launchlab'
-    const bal = v.shared ? v.chest : await balanceSol(v.pub); if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL${v.shared ? ' — call /vault/fund with the stake tx first' : ''}`)
+    let bal = v.shared ? v.chest : await balanceSol(v.pub)
+    // one-signature launch: the stake isn't sent ahead — it rides inside the create tx the dev signs, so a launch that doesn't land costs nothing
+    // and leaves nothing stuck in a vault. Only for the shared wallet (its ledger books the transfer from the create tx at arm).
+    if (b.fundInBundle && v.shared && fundedSol(v) < v.stakeSol * 0.95 - 0.001) {
+      fundSol = +(v.stakeSol - fundedSol(v)).toFixed(9); await built.addTransfer(new PK(v.pub), Math.round(fundSol * 1e9)); bal = +(v.chest + fundSol).toFixed(9); (v as any).fundInBundle = true
+    }
+    if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL${v.shared ? ' — call /vault/fund with the stake tx first' : ''}`)
     vaultSpend = +Math.min(+(b.vaultBuySol ?? v.vaultBuySol ?? v.stakeSol * 0.5), bal - 0.05, MM.P.profitOnly ? +(process.env.PROFIT_LAUNCH_BUY_SOL ?? 0) : Infinity).toFixed(4)   // 0 = tax-funded: no block-zero buy at all. Profit-only tests: none unless PROFIT_LAUNCH_BUY_SOL
     v.mint = built.mint; v.uri = b.uri; v.symbol = b.symbol; v.name = b.name   // bound now even with no vault buy, so the vault can arm itself once the coin is on chain
     v.vaultBuySol = vaultSpend   // the real block-zero spend (after caps): it is the vault's cost basis and the initials to recover
@@ -664,13 +758,13 @@ export async function buildLaunch(b: { dev: string; name: string; symbol: string
       const lb = await conn.getLatestBlockhash('confirmed'); launchTxs = built.restamp(lb.blockhash); if (tx.message.header.numRequiredSignatures === 1) tx.message.recentBlockhash = lb.blockhash
       KEEP.sign({ id: v.id, chest: bal, sk: kp(v) }, tx, 'launch', vaultSpend)
       vaultTx = Buffer.from(tx.serialize()).toString('base64'); vaultTokens = LL.quote(built.afterDev, vaultSpend).tokens
-      v.mint = built.mint; v.uri = b.uri; v.symbol = b.symbol; v.name = b.name; v.permTax = built.permTax; resolveImage(v); v.activity.unshift({ t: Date.now(), kind: 'note', sig: bs58.encode(tx.signatures[0]), msg: `signed block-zero buy · ${vaultSpend.toFixed(3)} SOL for ${(vaultTokens / 1e6).toFixed(2)}M tokens (launchlab)` }); save()
+      v.mint = built.mint; v.uri = b.uri; v.symbol = b.symbol; v.name = b.name; v.permTax = built.permTax; resolveImage(v); v.activity.unshift({ t: Date.now(), kind: 'note', sig: bs58.encode(tx.signatures[0]), mint: built.mint, msg: `signed block-zero buy · ${vaultSpend.toFixed(3)} SOL for ${(vaultTokens / 1e6).toFixed(2)}M tokens (launchlab)${fundSol ? ` · stake ${fundSol.toFixed(3)} SOL inside the create` : ''}` } as any); save()
     }
   }
   if (!vaultTx) launchTxs = built.restamp((await conn.getLatestBlockhash('confirmed')).blockhash)
   const ms = Date.now() - t0; if (ms > 4000) EV.log('vault', `launch build took ${(ms / 1000).toFixed(1)} s (blockhash stamped at the end)`, { mint: built.mint, ms })
-  if (b.vaultId && vaults[b.vaultId]) { (vaults[b.vaultId] as any).buildAt = Date.now(); const bm = ((vaults[b.vaultId] as any).builtMints ||= [] as string[]); if (!bm.includes(built.mint)) bm.push(built.mint); if (bm.length > 20) bm.splice(0, bm.length - 20); save() }
-  return { venue: 'launchlab', mint: built.mint, poolId: built.poolId, txs: launchTxs, vaultTx, vaultSpend, vaultTokens, devTokens: built.devTokens, permTax: built.permTax, tax: LL.status() }
+  if (b.vaultId && vaults[b.vaultId]) { noteBuilt(vaults[b.vaultId], built.mint); save() }
+  return { venue: 'launchlab', mint: built.mint, poolId: built.poolId, txs: launchTxs, vaultTx, vaultSpend, vaultTokens, devTokens: built.devTokens, permTax: built.permTax, fundSol, tax: LL.status() }
 }
 /** the tax: claim this coin's accrued platform fee from its pool to the platform wallet, then forward it to the chest. Runs from the tick, every ~2–4 min per vault. */
 let claiming = false; let nextClaimAt = 0

@@ -3,7 +3,7 @@
 // to the dev. After graduation the LP lands in a fee-key NFT held by the platform wallet (LP fees forever).
 // Shapes: default SOL config (constant product, 30 SOL × 1.073e9 virtual — same curve as pump, 85 SOL raise, 793.1M on the curve).
 // All txs are built with the official SDK and signed by whoever owns them (dev in the wallet, vault through the keeper).
-import { Connection, Keypair, PublicKey, VersionedTransaction } from '@solana/web3.js'
+import { Connection, Keypair, PublicKey, VersionedTransaction, TransactionMessage, SystemProgram, type AddressLookupTableAccount } from '@solana/web3.js'
 import BN from 'bn.js'
 import { Raydium, TxVersion, LAUNCHPAD_PROGRAM, LAUNCHPAD_PLATFORM, LaunchpadPool, LaunchpadConfig, PlatformConfig, Curve, getPdaLaunchpadConfigId, getPdaLaunchpadPoolId, getPdaPlatformId, getPdaLaunchpadVaultId, getPdaPlatformVault } from '@raydium-io/raydium-sdk-v2'
 import bs58 from 'bs58'
@@ -93,7 +93,19 @@ export async function buildPlatformTx(admin: PublicKey): Promise<{ tx: string; p
   return { tx: Buffer.from(tx.serialize()).toString('base64'), platformId: getPdaPlatformId(PROGRAM, admin).publicKey.toBase58() }
 }
 
-export type LaunchBuild = { mint: string; poolId: string; txs: string[]; restamp: (blockhash: string) => string[]; devTokens: number; devCostSol: number; afterDev: { virtualA: bigint; virtualB: bigint; realA: bigint; realB: bigint }; permTax: number }
+/** the same tx with one more instruction at the end: SOL from `from` (already its fee payer and signer) to `to`. Signatures are cleared — the
+ *  caller re-signs (mint) after stamping the blockhash. Throws if the result no longer fits in a packet. */
+export function appendTransfer(t: VersionedTransaction, luts: AddressLookupTableAccount[], from: PublicKey, to: PublicKey, lamports: number): VersionedTransaction {
+  if (!t.message.staticAccountKeys[0]?.equals(from)) throw new Error('the transfer must come from the fee payer')
+  if (!(lamports > 0) || !Number.isFinite(lamports)) throw new Error('bad stake amount')
+  const m = TransactionMessage.decompile(t.message, { addressLookupTableAccounts: luts })
+  m.instructions.push(SystemProgram.transfer({ fromPubkey: from, toPubkey: to, lamports: Math.floor(lamports) }))
+  const nt = new VersionedTransaction(m.compileToV0Message(luts)); let size = 0
+  try { size = nt.serialize().length } catch { size = 9999 }   // web3.js throws (overruns) past the packet size instead of returning it
+  if (size > 1232) throw new Error(`create + stake transfer is ${size > 9000 ? 'over' : size} bytes (max 1232)`)
+  return nt
+}
+export type LaunchBuild = { mint: string; poolId: string; txs: string[]; restamp: (blockhash: string) => string[]; addTransfer: (to: PublicKey, lamports: number) => Promise<number>; devTokens: number; devCostSol: number; afterDev: { virtualA: bigint; virtualB: bigint; realA: bigint; realB: bigint }; permTax: number }
 /** The create (+ dev buy) tx(s) for the dev to sign; the mint keypair has already co-signed. Platform = ours (must exist on chain). */
 export async function buildLaunch(dev: PublicKey, meta: { name: string; symbol: string; uri: string }, devBuySol: number, platformId: PublicKey | null = PLATFORM_ID, permTax = false): Promise<LaunchBuild> {
   if (!platformId) throw new Error('no platform configured (PLATFORM_ADMIN)')
@@ -112,7 +124,15 @@ export async function buildLaunch(dev: PublicKey, meta: { name: string; symbol: 
   const mintKey = mintKp.publicKey.toBase58()
   const restamp = (blockhash: string) => { for (const t of txs) { t.message.recentBlockhash = blockhash; const keys = t.message.staticAccountKeys.map((k) => k.toBase58()); if (keys.includes(mintKey) && t.message.header.numRequiredSignatures > 1) t.sign([mintKp]) } return txs.map((t) => Buffer.from(t.serialize()).toString('base64')) }
   const z = quoteFresh(devBuySol)
-  return { mint: mintKey, poolId: poolIdOf(mintKey).toBase58(), txs: restamp((await conn.getLatestBlockhash('confirmed')).blockhash), restamp, devTokens: z.tokens, devCostSol: z.cost, afterDev: z.after, permTax: permTax ? PERM_TAX_BPS : 0 }
+  // one-signature launches: the dev's stake rides INSIDE the create tx (dev → vault wallet). The create is mint-signed by us, so the
+  // dev can't strip the transfer and keep the vault's block-zero buy, and nothing moves unless the whole bundle lands.
+  const addTransfer = async (to: PublicKey, lamports: number) => {
+    const i = txs.findIndex((t) => t.message.staticAccountKeys[0]?.equals(dev)); if (i < 0) throw new Error('no create tx paid by the dev')
+    const t = txs[i]; const luts: AddressLookupTableAccount[] = []
+    for (const l of t.message.addressTableLookups) { const a = (await conn.getAddressLookupTable(l.accountKey)).value; if (!a) throw new Error('lookup table not found'); luts.push(a) }
+    txs[i] = appendTransfer(t, luts, dev, to, lamports); return txs[i].serialize().length
+  }
+  return { mint: mintKey, poolId: poolIdOf(mintKey).toBase58(), txs: restamp((await conn.getLatestBlockhash('confirmed')).blockhash), restamp, addTransfer, devTokens: z.tokens, devCostSol: z.cost, afterDev: z.after, permTax: permTax ? PERM_TAX_BPS : 0 }
 }
 // default config curve (SDK LaunchpadPoolInitParam): virtual 30.00085 SOL × 1,073,025,605.6 tokens, 793.1M on the curve, 85 SOL raise
 const CURVE_DEFAULT = { virtualA: 1_073_025_605_596_382n, virtualB: 30_000_852_951n, totalSellA: 793_100_000_000_000n, totalFundRaisingB: 85_000_000_000n, supply: 1_000_000_000_000_000n }

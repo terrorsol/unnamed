@@ -153,23 +153,32 @@ async function confirmOrDropped(conn: Connection, tx: VersionedTransaction, bund
 async function confirmByPollingB58(conn: Connection, tx: VersionedTransaction, ms = 60000) { const { confirmByPolling } = await import('./rpc'); await confirmByPolling(conn, bs58.encode(tx.signatures[0]), ms) }
 
 /** Launch on OUR launchpad (Raydium LaunchLab under our platform config): the server builds create(+dev buy) for the dev to sign and, with a vault, the vault's
- *  block-zero buy already keeper-signed. Both go out as one Jito bundle; if the bundle path fails before anything is sent, the create goes out alone and
- *  the vault seeds on arm. Every trade on the coin pays the platform fee into the chest from the first block. */
-export async function launchOurs(ctx: Ctx, meta: P.CreateMeta, devBuySol: number, vault: { id: string } | null, vaultBuySol: number, deps: { sendBundle: (txs: string[]) => Promise<{ bundleId: string }>; signMsg?: (m: Uint8Array) => Promise<Uint8Array>; permTax?: boolean }): Promise<{ sig: string; mint: string; bundled: boolean }> {
-  const { conn, owner, sign, onStatus } = ctx
-  onStatus?.('Uploading metadata…'); const uri = await P.uploadMetadata(meta, SERVER)
-  // the launch txs carry the server's blockhash (they are pre-signed by the mint and the vault), so slow wallet signing can outlive it: rebuild once and sign again
+ *  block-zero buy already keeper-signed. Both go out as one Jito bundle — never a plain fallback that would put the coin live without the vault buy.
+ *  fundInBundle (one-signature launch): the stake is not sent ahead; the server puts the dev → vault transfer inside the create tx itself, so the
+ *  wallet signs once and a launch that doesn't land costs nothing. Every trade on the coin pays the platform fee into the chest from the first block. */
+export type LaunchDeps = { sendBundle: (txs: string[]) => Promise<{ bundleId: string }>; signMsg?: (m: Uint8Array) => Promise<Uint8Array>; permTax?: boolean; fundInBundle?: boolean; uri?: Promise<string> | string; venue?: 'launchlab' | 'pump' }
+export type LaunchOut = { sig: string; mint: string; bundled: boolean; already?: boolean; fundSol?: number }
+export async function launchOurs(ctx: Ctx, meta: P.CreateMeta, devBuySol: number, vault: { id: string } | null, vaultBuySol: number, deps: LaunchDeps): Promise<LaunchOut> {
+  const { onStatus } = ctx
+  onStatus?.('Uploading metadata…'); const uri = deps.uri ? await deps.uri : await P.uploadMetadata(meta, SERVER)
+  // the launch txs carry the server's blockhash (they are pre-signed by the mint and the vault), so slow wallet signing can outlive it: rebuild and sign again
   for (let attempt = 0; ; attempt++) {
     try { return await launchOursOnce(ctx, meta, uri, devBuySol, vault, vaultBuySol, deps) }
-    catch (e: any) { if (attempt >= 2 || !/blockhash|block height exceeded|expired|dropped/i.test(String(e?.message || e))) throw e; onStatus?.(/dropped/i.test(String(e?.message)) ? 'Jito dropped it — rebuilding, sign again…' : 'That took too long — rebuilding, sign again…') }
+    catch (e: any) {
+      const m = String(e?.message || e)
+      // a retry after a launch that landed late: the server refuses a second coin for the same chest and names the live one
+      const live = m.match(/already live: ([1-9A-HJ-NP-Za-km-z]{32,44})/); if (live) return { sig: '', mint: live[1], bundled: true, already: true }
+      if (attempt >= 2 || !/blockhash|block height exceeded|expired|dropped/i.test(m)) throw e; onStatus?.(/dropped/i.test(m) ? 'Jito dropped it — rebuilding, sign again…' : 'That took too long — rebuilding, sign again…') }
   }
 }
-async function launchOursOnce(ctx: Ctx, meta: P.CreateMeta, uri: string, devBuySol: number, vault: { id: string } | null, vaultBuySol: number, deps: { sendBundle: (txs: string[]) => Promise<{ bundleId: string }>; signMsg?: (m: Uint8Array) => Promise<Uint8Array>; permTax?: boolean }): Promise<{ sig: string; mint: string; bundled: boolean }> {
+async function launchOursOnce(ctx: Ctx, meta: P.CreateMeta, uri: string, devBuySol: number, vault: { id: string } | null, vaultBuySol: number, deps: LaunchDeps): Promise<LaunchOut> {
   const { conn, owner, sign, onStatus } = ctx
   onStatus?.('Building launch…')
-  const b = await K.withDevAuth(vault ? deps.signMsg : undefined, 'launch', vault?.id || '', owner.toBase58(), (auth) => K.llLaunchBuild({ dev: owner.toBase58(), name: meta.name, symbol: meta.symbol, uri, devBuySol, vaultId: vault?.id, vaultBuySol, auth, permTax: !!deps.permTax }))
+  const req = (auth?: K.DevAuth): K.LaunchBuildReq => ({ dev: owner.toBase58(), name: meta.name, symbol: meta.symbol, uri, devBuySol, vaultId: vault?.id, vaultBuySol, auth, permTax: !!deps.permTax, fundInBundle: !!deps.fundInBundle })
+  const b = await K.withDevAuth(vault ? deps.signMsg : undefined, 'launch', vault?.id || '', owner.toBase58(), (auth) => deps.venue === 'pump' ? K.pumpLaunchBuild(req(auth)) : K.llLaunchBuild(req(auth)))
+  const left = b.fundSol ? 'nothing was spent' : 'your stake is still in the vault'
   const txs = b.txs.map((x) => VersionedTransaction.deserialize(Buffer.from(x, 'base64')))
-  onStatus?.(txs.length > 1 ? `Sign ${txs.length} transactions…` : 'Sign the create…')
+  onStatus?.(b.fundSol ? `Sign once: launch + ${(+b.fundSol).toFixed(2)} SOL stake…` : txs.length > 1 ? `Sign ${txs.length} transactions…` : 'Sign the create…')
   const signed: VersionedTransaction[] = []; for (const t of txs) signed.push(await sign(t))
   const sig = bs58.encode(signed[0].signatures[0])
   if (b.vaultTx) {
@@ -178,14 +187,14 @@ async function launchOursOnce(ctx: Ctx, meta: P.CreateMeta, uri: string, devBuyS
     for (let i = 0; i < 3; i++) {
       let bundleId = ''
       try { onStatus?.(i ? `Resending bundle (${i + 1}/3)…` : 'Sending bundle…'); bundleId = (await deps.sendBundle(bundle)).bundleId }
-      catch (e: any) { if (/blockhash|expired/i.test(String(e?.message || e))) throw new Error('blockhash expired — rebuilding'); if (i === 2) throw new Error('Jito is not taking the launch bundle right now — nothing launched, your stake is still in the vault. Press Create again in a minute.'); await new Promise((r) => setTimeout(r, 1200)); continue }
-      try { onStatus?.('Confirming…'); await confirmOrDropped(conn, signed[0], bundleId, 20000); return { sig, mint: b.mint, bundled: true } }
+      catch (e: any) { if (/blockhash|expired/i.test(String(e?.message || e))) throw new Error('blockhash expired — rebuilding'); if (i === 2) throw new Error(`Jito is not taking the launch bundle right now — nothing launched, ${left}. Press Create again in a minute.`); await new Promise((r) => setTimeout(r, 1200)); continue }
+      try { onStatus?.('Landing in block zero…'); await confirmOrDropped(conn, signed[0], bundleId, 20000); return { sig, mint: b.mint, bundled: true, fundSol: b.fundSol } }
       catch (e: any) { if (/blockhash|block height|expired|dropped/i.test(String(e?.message || e))) throw e }
     }
     // last look before saying nothing launched: a bundle can land in the final slots of its blockhash
-    try { onStatus?.('Checking if it landed…'); await confirmByPollingB58(conn, signed[0], 35000); return { sig, mint: b.mint, bundled: true } }
-    catch { throw new Error('the launch bundle did not land — nothing launched, your stake is still in the vault. Press Create again.') }
+    try { onStatus?.('Checking if it landed…'); await confirmByPollingB58(conn, signed[0], 35000); return { sig, mint: b.mint, bundled: true, fundSol: b.fundSol } }
+    catch { throw new Error(`the launch bundle did not land — nothing launched, ${left}. Press Create again.`) }
   }
   for (const t of signed) { const s2 = await conn.sendRawTransaction(t.serialize(), { skipPreflight: false, maxRetries: 3 }); await confirmByPollingB58(conn, t); void s2 }
-  return { sig, mint: b.mint, bundled: false }
+  return { sig, mint: b.mint, bundled: false, fundSol: b.fundSol }
 }

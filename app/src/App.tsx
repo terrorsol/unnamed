@@ -22,6 +22,7 @@ import { SimpleHome, SimplePortfolio, SimpleNav, SimpleTrending, SimpleChests, I
 import { Toasts } from './components/ui'
 import { toast } from './lib/store'
 import * as T from './lib/trade'
+import * as P from './lib/pumpportal'
 import * as D from './lib/dex'
 import { lastLanding, solscan } from './lib/rpc'
 import { loadLedger, recordBuy, recordSell, recordCreate } from './lib/positions'
@@ -240,31 +241,48 @@ export default function App() {
   const onLaunch = async (meta: any, dev: number, stake: number, copyOf?: string, mode: 'floor' | 'mm' = 'mm', ceiling = 0.3, venue: 'launchlab' | 'pump' = 'launchlab', permTax = false, vaultBuy?: number, targetPct?: number) => {
     const buy = +(vaultBuy ?? stake * 0.5).toFixed(4)
     const x = ctx(); if (!x) return needWallet()
+    // the image + metadata upload starts now, alongside the vault, instead of after it
+    const uriP = P.uploadMetadata(meta, K.SERVER); uriP.catch(() => {})
+    // one-signature launch (both venues): the stake rides inside the create tx — one wallet prompt, nothing spent unless the launch lands
+    const oneSig = true
+    let staked = false
     try {
       let vault: K.VaultPub | null = null
-      // a vault funded by a launch that failed later (expired blockhash, rejected signature) is reused on the retry instead of orphaning the stake
-      // reuse a vault funded by a failed attempt only while it still holds that stake and never armed (a refunded or armed one gets a fresh vault)
-      const pend = pendingVault.current; if (stake > 0 && pend && pend.dev === ws.owner && pend.stake === stake && pend.venue === venue) { const fresh = await K.vaultGet(pend.v.id).catch(() => null); if (fresh && !fresh.armed && fresh.chest >= stake * 0.95 - 0.001) vault = fresh; else pendingVault.current = null }
+      // reuse the vault of a failed attempt: an unfunded one (one-signature: nothing was sent) or one still holding exactly this stake, never an armed one
+      const pend = pendingVault.current; if (stake > 0 && pend && pend.dev === ws.owner && pend.stake === stake && pend.venue === venue) { const fresh = await K.vaultGet(pend.v.id).catch(() => null); if (fresh && !fresh.armed && (fresh.chest >= stake * 0.95 - 0.001 || (oneSig && fresh.chest === 0))) { vault = fresh; staked = fresh.chest > 0 } else pendingVault.current = null }
       // a launch that asked for a chest never goes out without one: if the vault can't be made, stop here (nothing has been spent yet)
-      if (stake > 0 && !vault) { setBusy('Creating vault…'); vault = await K.vaultCreate(ws.owner, stake, copyOf, mode, ceiling, venue, buy, targetPct).catch((e) => { throw new Error('vault not created — nothing launched, nothing spent: ' + String(e.message || e)) }) }
-      let sig: string, mint: string, bundled = false
+      if (stake > 0 && !vault) { setBusy('Creating vault…'); vault = await K.vaultCreate(ws.owner, stake, copyOf, mode, ceiling, venue, buy, targetPct).catch((e) => { throw new Error('vault not created — nothing launched, nothing spent: ' + String(e.message || e)) }); if (oneSig) pendingVault.current = { v: vault, dev: ws.owner, stake, venue } }
+      const fundAhead = async (v: K.VaultPub) => {
+        // classic path: send the stake first, the server books it from the tx (one brand wallet holds every chest, so it can't read a deposit off the balance)
+        setBusy('Funding vault…'); const t = new Transaction().add(SystemProgram.transfer({ fromPubkey: x.owner, toPubkey: new PublicKey(v.pub), lamports: Math.floor(stake * 1e9) })); t.feePayer = x.owner; t.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
+        const st = await signLegacy(t); const s2 = await connection.sendRawTransaction(st.serialize()); await confirmByPolling(connection, s2); pendingVault.current = { v, dev: ws.owner, stake, venue }; staked = true
+        for (let i = 0; i < 8; i++) { try { await K.vaultFund(v.id, s2); break } catch (e: any) { if (i === 7) throw new Error('stake sent but not booked: ' + String(e?.message || e).slice(0, 80)); await new Promise((r) => setTimeout(r, 1500)) } }
+      }
+      let r: T.LaunchOut
+      if (vault && oneSig) {
+        const deps = { sendBundle: K.sendBundle, signMsg, permTax, uri: uriP, venue }
+        try { r = await T.launchOurs(x, meta, dev, vault, buy, { ...deps, fundInBundle: !staked }) }
+        catch (e: any) {
+          const m = String(e?.message || e)
+          // pump: a server without the build route yet → the client-built bundle, stake sent first (the path used until Oct 30)
+          if (venue === 'pump' && !staked && /not found|server 404/i.test(m)) { await fundAhead(vault); r = await T.launchBlockZero(x, meta, dev, vault, buy, { bundleSign: K.bundleSign, sendBundle: K.sendBundle, signMsg }) }
+          // the stake transfer didn't fit in the create tx (very long name/uri): fall back to funding first, then the same bundle
+          else if (!staked && /max 1232|lookup table|no create tx paid|not paid by the dev/i.test(m)) { await fundAhead(vault); r = await T.launchOurs(x, meta, dev, vault, buy, { ...deps, fundInBundle: false }) }
+          else throw e
+        }
+      } else r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, null, 0, { sendBundle: K.sendBundle, permTax, uri: uriP }) : { ...(await T.launch(x, meta, dev)), bundled: false }
+      const { sig, mint, bundled } = r
+      pendingVault.current = null; if (sig) recordCreate(ws.owner, mint, meta.symbol, dev, sig); setLedgerV((v) => v + 1); setLaunch(false)
+      if (r.already) toast({ kind: 'ok', title: `${meta.symbol} was already live`, rows: [['Mint', short(mint, 6)], ['Note', 'your earlier attempt landed — opening it, no second coin']] })
+      else toast({ kind: 'ok', title: `${meta.symbol} is live${venue === 'launchlab' ? ' on BANKER' : ' on pump'}${bundled ? ' · vault in block zero' : ''}`, rows: [['Mint', short(mint, 6)], ['Dev buy', S(dev) + ' SOL'], ...(r.fundSol ? [['Stake', S(r.fundSol) + ' SOL · same signature']] as [string, string][] : [])], href: sig ? solscan(sig) : undefined })
+      go('coin/' + mint)
       if (vault) {
-        // fund the vault first so it can buy in block zero (skipped when retrying with an already-funded vault)
-        if (!pend || pend.v.id !== vault.id) { setBusy('Funding vault…'); const t = new Transaction().add(SystemProgram.transfer({ fromPubkey: x.owner, toPubkey: new PublicKey(vault.pub), lamports: Math.floor(stake * 1e9) })); t.feePayer = x.owner; t.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
-        const st = await signLegacy(t); const s2 = await connection.sendRawTransaction(st.serialize()); await confirmByPolling(connection, s2); pendingVault.current = { v: vault, dev: ws.owner, stake, venue }
-          // the server books the stake from the tx itself (one brand wallet holds every chest, so it can't read a deposit off the balance); retried until the tx is indexed
-          for (let i = 0; i < 8; i++) { try { await K.vaultFund(vault.id, s2); break } catch (e: any) { if (i === 7) throw new Error('stake sent but not booked: ' + String(e?.message || e).slice(0, 80)); await new Promise((r) => setTimeout(r, 1500)) } } }
-        const r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, vault, buy, { sendBundle: K.sendBundle, signMsg, permTax }) : await T.launchBlockZero(x, meta, dev, vault, buy, { bundleSign: K.bundleSign, sendBundle: K.sendBundle, signMsg }); sig = r.sig; mint = r.mint; bundled = r.bundled
-      } else { const r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, null, 0, { sendBundle: K.sendBundle, permTax }) : await T.launch(x, meta, dev); sig = r.sig; mint = r.mint }
-      pendingVault.current = null; recordCreate(ws.owner, mint, meta.symbol, dev, sig); setLedgerV((v) => v + 1); setLaunch(false)
-      toast({ kind: 'ok', title: `${meta.symbol} is live${venue === 'launchlab' ? ' on BANKER' : ' on pump'}${bundled ? ' · vault in block zero' : ''}`, rows: [['Mint', short(mint, 6)], ['Dev buy', S(dev) + ' SOL']], href: solscan(sig) }); go('coin/' + mint)
-      if (vault) {
-        try { setBusy('Arming vault…'); const v = await K.withDevAuth(signMsg, 'arm', vault.id, mint, (au) => K.vaultArm(vault.id, mint, meta.symbol, meta.name, au!)); setVaultV((n) => n + 1); toast({ kind: 'ok', title: `Chest is on · aiming for ${v.pct}% of coins`, rows: [['Stake', S(stake) + ' SOL'], ['Vault', short(v.pub, 6)]] }) }
-        catch (e: any) { toast({ kind: 'err', title: 'Your coin is live · the chest has not switched on yet', rows: [['Reason', String(e?.message || e).slice(0, 120)], ['Vault address', vault.pub]] }) }
+        try { setBusy('Arming vault…'); const v = await K.withDevAuth(signMsg, 'arm', vault.id, mint, (au) => K.vaultArm(vault.id, mint, meta.symbol, meta.name, au!, r.fundSol && sig ? sig : undefined)); setVaultV((n) => n + 1); toast({ kind: 'ok', title: `Chest is on · aiming for ${v.pct}% of coins`, rows: [['Chest', S(v.chest) + ' SOL'], ['Vault', short(v.pub, 6)]] }) }
+        catch (e: any) { toast({ kind: 'err', title: 'Your coin is live · the chest switches on by itself in a few seconds', rows: [['Reason', String(e?.message || e).slice(0, 120)], ['Vault address', vault.pub]] }) }
       }
       setTimeout(() => setRk((k) => k + 1), 1500)
     }
-    catch (e: any) { toast({ kind: 'err', title: 'Launch failed', rows: [['Reason', String(e?.message || e).slice(0, 140)], ...(pendingVault.current ? [['Your stake', 'still in the vault — press Create again to retry']] as [string, string][] : [])] }) } finally { setBusy('') }
+    catch (e: any) { toast({ kind: 'err', title: 'Launch failed', rows: [['Reason', String(e?.message || e).slice(0, 140)], ...(staked && pendingVault.current ? [['Your stake', 'still in the vault — press Create again to retry, or withdraw it from My launches']] as [string, string][] : [])] }) } finally { setBusy('') }
   }
   // a launch whose coin went out but whose arm never ran (phantom blocked the message signature, bundle route down, tab closed): arm it from the Vault page
   const onArm = async (v: K.VaultPub) => { if (!v.mint) return; try { setBusy('Arming vault…'); const r = await K.withDevAuth(signMsg, 'arm', v.id, v.mint, (au) => K.vaultArm(v.id, v.mint!, v.symbol || '', v.name || '', au!)); setVaultV((n) => n + 1); toast({ kind: 'ok', title: `Chest is on · aiming for ${r.pct}% of coins`, rows: [['Chest', S(r.chest) + ' SOL']] }) } catch (e: any) { toast({ kind: 'err', title: 'Arm failed', rows: [['Reason', String(e?.message || e).slice(0, 140)]] }) } finally { setBusy('') } }
