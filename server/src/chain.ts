@@ -92,15 +92,18 @@ export const TIP_LAMPORTS = Math.max(MIN_TIP_LAMPORTS, Math.floor(+(process.env.
 export async function sendBundle(raws: Uint8Array[]): Promise<string> {
   if (raws.length > 5) throw new Error('bundle > 5 txs')
   // helius proxies sendBundle only on paid plans ("Method not available on your current plan"); jito's public block engine takes bundles from anyone (tip tx required, rate-limited)
-  const urls = [process.env.JITO_URL, /helius/.test(RPC) ? RPC : null, 'https://mainnet.block-engine.jito.wtf/api/v1/bundles', 'https://ny.mainnet.block-engine.jito.wtf/api/v1/bundles'].filter((x): x is string => !!x)
+  // every Jito region: a block engine that is a few slots behind answers 'expired blockhash' for a fresh one — the next region usually takes it
+  const urls = [process.env.JITO_URL, /helius/.test(RPC) ? RPC : null, ...['mainnet', 'ny.mainnet', 'slc.mainnet', 'amsterdam.mainnet', 'frankfurt.mainnet', 'london.mainnet', 'tokyo.mainnet'].map((r) => `https://${r}.block-engine.jito.wtf/api/v1/bundles`)].filter((x): x is string => !!x)
   const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'sendBundle', params: [raws.map((x) => Buffer.from(x).toString('base64')), { encoding: 'base64' }] })
   let last = ''
   for (const u of urls) {
     try { const b = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body }); const d: any = await b.json().catch(() => ({ error: { message: 'http ' + b.status } }))
-      if (d.error) { last = JSON.stringify(d.error); if (/plan|not available|unauthorized|forbidden/i.test(last)) continue; throw new Error('jito: ' + last) }
-      return d.result as string } catch (e: any) { last = String(e.message || e); if (!/plan|not available|fetch failed|http 4/i.test(last)) throw e }
+      if (d.error) { last = JSON.stringify(d.error); if (/plan|not available|unauthorized|forbidden|expired|blockhash|rate|limit|congest/i.test(last)) continue; throw new Error('jito: ' + last) }
+      return d.result as string } catch (e: any) { last = String(e.message || e); if (!/plan|not available|fetch failed|http 4|http 5/i.test(last)) throw e }
   }
-  throw new Error('jito: ' + last)
+  // say whether OUR node still thinks the blockhash is valid: tells a slow signer (really expired) from a block engine that disagrees
+  let why = ''; try { const tx = VersionedTransaction.deserialize(raws[0]); const ok = (await conn.isBlockhashValid(tx.message.recentBlockhash, { commitment: 'processed' })).value; why = ` · our node says the create's blockhash is ${ok ? 'STILL VALID' : 'expired'}` } catch {}
+  throw new Error('jito: ' + last + why)
 }
 
 /** Holder concentration + authorities straight from chain (used for signals on vaulted coins) */
