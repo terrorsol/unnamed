@@ -637,6 +637,14 @@ export async function reconcile(id: string) {
   v.activity.unshift({ t: Date.now(), kind: 'note', msg }); EV.log('vault', `${v.symbol || v.id} ${msg}`, { id, before, after: { chest: v.chest, tokens: v.tokens }, bal, others }); save()
   return { id, before, after: { chest: v.chest, tokens: v.tokens }, wallet: bal, others }
 }
+/** Operator (admin key): switch a vault off now — no more captures, dip buys, desk quotes or tax credits; whatever it holds stays in the
+ *  wallet (nothing is sold, nothing is paid). For the owner taking his SOL out of the shared wallet himself. Waits for an in-flight trade. */
+export function stop(id: string) {
+  const v = vaults[id]; if (!v) throw new Error('no such vault'); if ((v as any)._capBusy && Date.now() - ((v as any)._capBusyAt || 0) < 120_000) throw new Error('a trade is in flight — try again in a few seconds')
+  v.armed = false; (v as any).closedAt = Date.now(); if (v.mint) { try { D.cancelInternal(v.pub, v.mint) } catch {} try { D.cancelInternalAsk(v.pub, v.mint) } catch {} } v.deskBid = 0
+  v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'switched off by the operator: no more trading; what it holds stays in the wallet' }); EV.log('vault', `${v.symbol || v.id} switched off by the operator`, { id }); save()
+  return { id, armed: v.armed, chest: v.chest, tokens: v.tokens }
+}
 export function retire(id: string) { const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('armed vaults cannot be retired'); const out = { id, chest: v.chest, mint: v.mint }; delete vaults[id]; save(); EV.log('vault', `retired unarmed vault ${id} (ledger ${out.chest} SOL)`, out); return out }
 export const get = (id: string) => vaults[id] ? pub(vaults[id]) : null
 export const byMint = (mint: string) => { const v = Object.values(vaults).find((x) => x.mint === mint); return v ? pub(v) : null }
