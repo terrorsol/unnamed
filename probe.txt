@@ -1,0 +1,124 @@
+start 22:32:12.462 commit b00d9618 stream {"connected":true,"polling":4}
+22:32:12.654 STATE XYZ launchlab mint J4RRpzuCK3TuVdVM6jCQ1jDQQkj1LSBFYJcUsZ6BANK chest 0.1275 tokens 2746808 avgCost 3.640589230950089e-8 captures 1 captured 0.4925
+22:32:12.654 ACT XYZ 21:51:13.758 tax 0.0142 tax → chest sig 4Dmwo9iRZBGScMxGoziszMZ42KTQi96zGQ9vnCJqytiK4ZdQNrC2rtrk7sk5YpdqesP8oAZiQaPxZrb4Ea4QscQB
+22:32:12.654 ACT XYZ 22:02:20.984 tax 0.0020 tax → chest sig 67Lz8z9XYiee23n12x9bvAiPQyFodkuLgPYyuXDmvYyKAYzakL8CfY386BTPnBq97QKToRi5LpE7bCmmHHJaTppD
+22:32:12.654 ACT XYZ 22:14:35.107 tax 0.0008 tax → chest sig 5aYBnnGjtEwQ594V4yCJUNoaiVBEcFcYxvCcj5VYsJi9dS5LzSLfiZiGMdGi8WNJqTjc1gNNGBJBKaRGaEXWuRvv
+22:32:12.654 STATE BANKER launchlab mint nUCiRZJQz1xGbGpM5FthfiF8ZUiDqsy9QcnwxvFBANK chest 43.2784 tokens 28610208 avgCost 3.401600271214361e-8 captures 143 captured 33.4470
+22:32:12.655 ACT BANKER 22:24:35.878 tax 0.0364 tax → chest sig 22XBBHb9rDn1Swp6Dot9SCanReoH5VwreH2b46K4fZLrciUdJh8XA5YodA16R3wmPpoNZjkPMG7aHrgk2fzcTgjc
+22:32:12.655 ACT BANKER 22:27:37.239 note  capture failed: nothing to sell 
+22:32:12.655 ACT BANKER 22:28:29.099 tax 0.1747 tax → chest sig 4awsftYFqit8He2H4MfezFVZnQj1FwacWK2N7MamtvqKEdfNgF3gdgZJ9ZQHPq1cdgoGdzHGJid8N9QGmmqREzRC
+22:32:12.655 STATE BANKER pump mint oLMoTt1bJbtPtY2QXmhWLneYYGXdZcLEeCwjuDRBANK chest 13.8756 tokens 8802191 avgCost 1.3782285906879146e-7 captures 72 captured 13.7133
+22:32:12.655 ACT BANKER 22:15:08.198 capture 0.0046 countered a 0.05 SOL buy · 0% · stretch +-20% sig 3zF53gcLxJY2KTWDLPEkXxKGeK6AKX4oCGzXcma4D2YVfuLLNVfyanV9iF6RTXFJJLGyyRFggprZn5usdVPNG2Bz
+22:32:12.655 ACT BANKER 22:16:45.613 buy 0.2000 accumulating · 0.5% of 15% target sig 4KKRmhoXoFRPgMwzVUpMKVMXr1aDBUBY1Ywqa8W9x9j734odqkXwjM4KkDNPDhMnEZLjhUV4NzdbCJGCyapWtc8d
+22:32:12.655 ACT BANKER 22:18:50.621 buy 0.1517 accumulating · 0.9% of 15% target sig 67BJf5oMzbxMy9xaT1fAK48ZQkYU3Tt9ud1xYoZ2EwFRTczcWnBSQZygSf14kJbLwc8Uz1fb2tTyTJBCCRBidH4g
+22:32:12.655 STATE BANKER launchlab mint 6XnV32nSmeYBZBmH5kczp8fLr6ttu2VSfZoK5HbBANK chest 12.2126 tokens 5686715 avgCost 2.542359780378639e-7 captures 25 captured 11.8207
+22:32:12.655 ACT BANKER 22:29:34.044 capture 0.1629 countered a 1.94 SOL buy · 0% · stretch +-3% sig 2LgTTWUDePBXtrRZM5ea7LjuZnFFMyNo2iepRXyqanrpcnousT8VYmxXrzPfyDkXXk4MW29Pz9LGRQovb6kud57P
+22:32:12.655 ACT BANKER 22:30:00.580 buy 0.2000 tranche 3 · -64% from high sig 5g6mAg3c4WEkuNj3knPDXHJPbsVJ6ZY4qHLGMbJkbLdZmFiKg3ANWbRdfQa3VzaPteKLpgg7vDCFDxpekVRgrLHZ
+22:32:12.655 ACT BANKER 22:32:04.686 buy 0.2000 accumulating · 0.6% of 15% target sig SdTSSqCrLRJXaidk3qA6p3L44foAPg1CZ3Kwv49x2C6a7agYrfiaDrWnsJtsVtBVzcRjzHXDgKoJctoohD9jeKo
+22:32:12.729 EV 22:23:06.939 error ledger drift: wallet 22.0503 < ledgers 57.0703 — a spend was not booked
+22:32:12.729 EV 22:23:54.545 error /vault/refund: the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed
+22:32:12.729 EV 22:23:55.937 error /vault/refund: the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed
+22:32:12.729 EV 22:24:35.878 vault platform fees claimed 0.0364 SOL → 1 chest(s) 0.0364 SOL
+22:32:12.729 EV 22:25:08.747 error ledger drift: wallet 22.4236 < ledgers 57.1067 — a spend was not booked
+22:32:12.729 EV 22:25:57.864 vault BANKER stake booked from the create tx (one-signature launch)
+22:32:12.729 EV 22:25:57.973 vault BANKER armed · chest 0.995 SOL
+22:32:12.729 EV 22:25:58.013 vault BANKER armed by the server 1.9 s after its build (bundle landed)
+22:32:12.729 EV 22:26:04.096 vault BANKER 5.01 SOL of sniper buys landed before the chest switched on — selling into them
+22:32:12.729 EV 22:26:05.858 vault BANKER capture 1.439 SOL
+22:32:12.729 EV 22:26:18.224 vault BANKER capture 0.104 SOL
+22:32:12.729 EV 22:26:30.672 vault BANKER capture 0.057 SOL
+22:32:12.729 EV 22:26:41.089 vault BANKER capture 1.715 SOL
+22:32:12.729 EV 22:26:47.919 vault BANKER capture 1.652 SOL
+22:32:12.729 EV 22:26:54.807 vault BANKER capture 0.216 SOL
+22:32:12.729 EV 22:27:03.772 vault BANKER capture 0.625 SOL
+22:32:12.729 EV 22:27:10.162 vault BANKER capture 0.493 SOL
+22:32:12.729 EV 22:27:11.132 error ledger drift: wallet 23.0307 < ledgers 64.4026 — a spend was not booked
+22:32:12.729 EV 22:27:16.114 vault BANKER capture 0.419 SOL
+22:32:12.729 EV 22:27:25.925 vault BANKER capture 0.402 SOL
+22:32:12.729 EV 22:27:27.557 vault BANKER capture 0.056 SOL
+22:32:12.729 EV 22:27:32.914 vault BANKER capture 0.047 SOL
+22:32:12.729 EV 22:27:38.369 vault BANKER capture 0.112 SOL
+22:32:12.729 EV 22:27:45.172 vault BANKER capture 0.382 SOL
+22:32:12.729 EV 22:27:49.008 vault BANKER capture 0.346 SOL
+22:32:12.729 EV 22:28:04.305 vault BANKER capture 0.114 SOL
+22:32:12.729 EV 22:28:06.620 vault BANKER capture 0.223 SOL
+22:32:12.729 EV 22:28:12.833 vault BANKER capture 0.219 SOL
+22:32:12.729 EV 22:28:16.181 vault BANKER capture 0.214 SOL
+22:32:12.729 EV 22:28:22.819 vault BANKER dip buy 0.2 SOL (tranche 1)
+22:32:12.729 EV 22:28:29.099 vault platform fees claimed 2.3347 SOL → 2 chest(s) 2.3347 SOL
+22:32:12.729 EV 22:28:31.240 vault BANKER capture 2.174 SOL
+22:32:12.729 EV 22:28:36.626 vault BANKER capture 0.230 SOL
+22:32:12.729 EV 22:28:41.037 vault BANKER capture 0.210 SOL
+22:32:12.729 EV 22:29:00.143 vault BANKER capture 0.104 SOL
+22:32:12.729 EV 22:29:02.276 vault BANKER capture 0.106 SOL
+22:32:12.729 EV 22:29:12.999 error ledger drift: wallet 28.5624 < ledgers 69.9342 — a spend was not booked
+22:32:12.729 EV 22:29:23.742 vault BANKER dip buy 0.2 SOL (tranche 2)
+22:32:12.729 EV 22:29:41.521 vault BANKER capture 0.163 SOL
+22:32:12.729 EV 22:29:45.678 vault BANKER sniper report: 55 buys · 38.16 SOL from 44 wallets in the first minute · chest sold 8.064 SOL into them
+22:32:12.729 EV 22:30:03.837 vault BANKER dip buy 0.2 SOL (tranche 3)
+22:32:12.730 EV 22:31:10.056 error /vault/refund: the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed
+22:32:12.730 EV 22:31:13.367 error /vault/refund: the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed
+22:32:12.730 EV 22:31:14.922 error ledger drift: wallet 29.4462 < ledgers 69.6951 — a spend was not booked
+22:32:12.802 HEALTH b00d9618 true {"connected":true,"polling":4} mints 43
+22:32:42.883 STATE BANKER launchlab mint nUCiRZJQz1xGbGpM5FthfiF8ZUiDqsy9QcnwxvFBANK chest 43.2813 tokens 28610208 avgCost 3.401600271214361e-8 captures 143 captured 33.4470
+22:32:42.883 ACT BANKER 22:32:41.189 tax 0.0029 tax → chest sig 2CqiBXvCyXBWURnS4f8sk57QrpfXa6zGYoAeQkk4Cgx8Si4chcXPTZFSbZhDghifa2ceEjdw4F73n9hfJGhVXtYk
+22:32:42.883 STATE BANKER launchlab mint 6XnV32nSmeYBZBmH5kczp8fLr6ttu2VSfZoK5HbBANK chest 12.8049 tokens 5686715 avgCost 2.542359780378639e-7 captures 25 captured 11.8207
+22:32:42.883 ACT BANKER 22:32:41.189 tax 0.5923 tax → chest sig 2CqiBXvCyXBWURnS4f8sk57QrpfXa6zGYoAeQkk4Cgx8Si4chcXPTZFSbZhDghifa2ceEjdw4F73n9hfJGhVXtYk
+22:32:43.022 EV 22:32:41.189 vault platform fees claimed 0.5952 SOL → 2 chest(s) 0.5952 SOL
+22:32:56.214 vaults err {"err":"Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"}
+22:33:01.855 vaults err {"err":"Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"}
+22:33:07.385 vaults err {"err":"Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"}
+22:33:12.817 vaults err {"err":"Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"}
+22:33:14.259 HEALTH undefined undefined undefined mints undefined
+22:33:18.927 vaults err {"err":"Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"}
+22:33:24.620 vaults err {"err":"Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"}
+22:34:16.208 HEALTH 2f50a8ee true {"connected":true,"polling":4} mints 43
+22:34:45.975 STATE BANKER launchlab mint nUCiRZJQz1xGbGpM5FthfiF8ZUiDqsy9QcnwxvFBANK chest 43.3311 tokens 28610208 avgCost 3.401600271214361e-8 captures 143 captured 33.4470
+22:34:45.975 ACT BANKER 22:34:43.731 tax 0.0497 tax → chest sig 46LZFzaEDg28p5APWhvvfMnKTuCuhbvMJhA7LYHN7bJ5HpJGTg3ZGfj8hifiZuJzuHM2cU7V2bb2dJUykdzv9umC
+22:34:45.975 STATE BANKER launchlab mint 6XnV32nSmeYBZBmH5kczp8fLr6ttu2VSfZoK5HbBANK chest 12.8066 tokens 5686715 avgCost 2.542359780378639e-7 captures 25 captured 11.8207
+22:34:45.976 ACT BANKER 22:34:43.731 tax 0.0017 tax → chest sig 46LZFzaEDg28p5APWhvvfMnKTuCuhbvMJhA7LYHN7bJ5HpJGTg3ZGfj8hifiZuJzuHM2cU7V2bb2dJUykdzv9umC
+22:34:46.050 EV 22:34:43.731 vault platform fees claimed 0.0515 SOL → 2 chest(s) 0.0515 SOL
+22:34:54.597 EV 22:34:53.687 error /vault/refund: the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed
+22:34:58.809 EV 22:34:54.869 error /vault/refund: the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed
+22:34:58.809 EV 22:34:55.265 error /vault/refund: the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed
+22:35:03.095 EV 22:35:01.938 error /vault/refund: the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed
+22:35:03.096 EV 22:35:02.707 error /vault/refund: the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed
+22:35:07.277 EV 22:35:04.024 error /vault/refund: the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed
+22:35:20.106 EV 22:35:18.689 error ledger drift: wallet 30.1207 < ledgers 70.1407 — a spend was not booked
+22:35:20.190 HEALTH 2f50a8ee true {"connected":true,"polling":4} mints 43
+22:35:41.566 STATE BANKER launchlab mint 6XnV32nSmeYBZBmH5kczp8fLr6ttu2VSfZoK5HbBANK chest 12.6446 tokens 10237063 avgCost 1.5694614182288628e-7 captures 25 captured 11.8207
+22:35:41.566 ACT BANKER 22:35:37.876 buy 0.1609 accumulating · 1.0% of 15% target sig 3DXhV7kjMVBSXhYzVAkufDhCvsVuJ7SdYgAyV1QdKQwL4fSGzsq8ryqycZMpJZTU93KSEPaAuXKtDapH6d6p5bJq
+22:36:24.035 HEALTH 2f50a8ee true {"connected":true,"polling":4} mints 43
+22:37:23.377 EV 22:37:20.466 error ledger drift: wallet 29.9583 < ledgers 69.9788 — a spend was not booked
+22:37:27.643 HEALTH 2f50a8ee true {"connected":true,"polling":4} mints 43
+22:38:14.192 EV 22:38:10.676 error /vault/refund: the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed
+22:38:14.192 EV 22:38:12.193 error /vault/refund: the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed
+22:38:14.192 EV 22:38:12.789 error /vault/refund: the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed
+22:38:14.192 EV 22:38:13.279 error /vault/refund: the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed
+22:38:18.483 EV 22:38:15.034 error /vault/refund: the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed
+22:38:31.294 EV 22:38:29.637 error /vault/refund: the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed
+22:38:31.358 HEALTH 2f50a8ee true {"connected":true,"polling":4} mints 43
+22:38:35.697 EV 22:38:32.180 error /vault/refund: the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed
+22:38:35.698 EV 22:38:32.515 error /vault/refund: the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed
+22:38:52.512 STATE XYZ launchlab mint J4RRpzuCK3TuVdVM6jCQ1jDQQkj1LSBFYJcUsZ6BANK chest 0.1291 tokens 2746808 avgCost 3.640589230950089e-8 captures 1 captured 0.4925
+22:38:52.512 ACT XYZ 22:38:50.282 tax 0.0016 tax → chest sig 4S3fCExpCznXXksPTTi5hgW8fYRbdU1456z8YXAqMCUgfX2fbJxv5mkaCqqXcVVZWpsxe3RgYz3K9HGH6r34DkTA
+22:38:52.512 STATE BANKER launchlab mint nUCiRZJQz1xGbGpM5FthfiF8ZUiDqsy9QcnwxvFBANK chest 43.3325 tokens 28610208 avgCost 3.401600271214361e-8 captures 143 captured 33.4470
+22:38:52.512 ACT BANKER 22:38:50.282 tax 0.0014 tax → chest sig 4S3fCExpCznXXksPTTi5hgW8fYRbdU1456z8YXAqMCUgfX2fbJxv5mkaCqqXcVVZWpsxe3RgYz3K9HGH6r34DkTA
+22:38:52.512 STATE BANKER launchlab mint 6XnV32nSmeYBZBmH5kczp8fLr6ttu2VSfZoK5HbBANK chest 12.6549 tokens 10237063 avgCost 1.5694614182288628e-7 captures 25 captured 11.8207
+22:38:52.512 ACT BANKER 22:38:50.282 tax 0.0102 tax → chest sig 4S3fCExpCznXXksPTTi5hgW8fYRbdU1456z8YXAqMCUgfX2fbJxv5mkaCqqXcVVZWpsxe3RgYz3K9HGH6r34DkTA
+22:38:52.584 EV 22:38:50.282 vault platform fees claimed 0.0133 SOL → 3 chest(s) 0.0133 SOL
+22:39:22.331 EV 22:39:22.250 error ledger drift: wallet 30.3917 < ledgers 69.9920 — a spend was not booked
+22:39:35.162 HEALTH 2f50a8ee true {"connected":true,"polling":4} mints 43
+22:40:38.850 HEALTH 2f50a8ee true {"connected":true,"polling":4} mints 43
+22:41:25.357 EV 22:41:24.126 error ledger drift: wallet 30.3917 < ledgers 69.9920 — a spend was not booked
+22:41:42.332 HEALTH 2f50a8ee true {"connected":true,"polling":4} mints 43
+22:42:24.896 EV 22:42:24.545 error /vault/refund: the vault still holds tokens — it sells them only above cost, then the chest can be reclaimed
+22:42:41.658 STATE XYZ launchlab mint J4RRpzuCK3TuVdVM6jCQ1jDQQkj1LSBFYJcUsZ6BANK chest 0.1303 tokens 2746808 avgCost 3.640589230950089e-8 captures 1 captured 0.4925
+22:42:41.658 ACT XYZ 22:42:37.803 tax 0.0012 tax → chest sig 2tvfDPpSDvhjEN2ysZe6cAZWCPAwnvRkkhpMQfSh4hej4uEPJccRVTGitd5uH2uFzDdrnj9E1VbmUJZDHxynVKsu
+22:42:41.658 STATE BANKER launchlab mint 6XnV32nSmeYBZBmH5kczp8fLr6ttu2VSfZoK5HbBANK chest 12.6626 tokens 10237063 avgCost 1.5694614182288628e-7 captures 25 captured 11.8207
+22:42:41.658 ACT BANKER 22:42:37.803 tax 0.0077 tax → chest sig 2tvfDPpSDvhjEN2ysZe6cAZWCPAwnvRkkhpMQfSh4hej4uEPJccRVTGitd5uH2uFzDdrnj9E1VbmUJZDHxynVKsu
+22:42:41.724 EV 22:42:37.803 vault platform fees claimed 0.0089 SOL → 2 chest(s) 0.0089 SOL
+22:42:46.081 HEALTH 2f50a8ee true {"connected":true,"polling":4} mints 43
+22:43:28.436 EV 22:43:26.051 error ledger drift: wallet 30.4001 < ledgers 70.0009 — a spend was not booked
+22:43:49.788 HEALTH 2f50a8ee true {"connected":true,"polling":4} mints 43
+end 22:44:44.676
