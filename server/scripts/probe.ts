@@ -18,4 +18,13 @@ for (const v of (Array.isArray(vs) ? vs : [])) {
     console.log(`   last ${sigs.length} pool txs: newest ${sigs[0] ? new Date((sigs[0].blockTime || 0) * 1000).toISOString().slice(11, 19) : '-'} oldest ${sigs.at(-1) ? new Date((sigs.at(-1)!.blockTime || 0) * 1000).toISOString().slice(11, 19) : '-'}`)
   }
 }
+// which coins on our platform are paying the fee right now (the platform fee vault's recent deposits → the mint each trade was on)
+{ const pv = LL.platformVault(); const sigs = await conn.getSignaturesForAddress(pv, { limit: 60 }).catch(() => [])
+  console.log(`\nplatform vault ${pv.toBase58()} · ${sigs.length} recent txs · newest ${sigs[0] ? new Date((sigs[0].blockTime || 0) * 1000).toISOString() : '-'}`)
+  const count = new Map<string, { n: number; last: number }>()
+  for (const x of sigs.slice(0, 25)) { const tx = await conn.getParsedTransaction(x.signature, { maxSupportedTransactionVersion: 0 }).catch(() => null); if (!tx) continue
+    const mints = new Set((tx.meta?.postTokenBalances || []).map((b) => b.mint).filter((m) => m !== 'So11111111111111111111111111111111111111112'))
+    for (const m of mints) { const c = count.get(m) || { n: 0, last: 0 }; c.n++; c.last = Math.max(c.last, x.blockTime || 0); count.set(m, c) } }
+  for (const [m, c] of count) { const p = await LL.pool(m, 0).catch(() => null); console.log(`  ${m} · ${c.n} of the last 25 fee txs · last ${new Date(c.last * 1000).toISOString().slice(11, 19)} · pool ${p ? `status ${p.status} realB ${(Number(p.realB) / 1e9).toFixed(2)} creator ${p.creator}` : 'none'}`) } }
+console.log('rpc', h.rpc, 'ws', JSON.stringify(h.stream))
 process.exit(0)

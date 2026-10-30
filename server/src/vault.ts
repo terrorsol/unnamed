@@ -133,6 +133,7 @@ export async function fund(id: string, sig: string) {
 /** Step 2 (after the coin exists + dev sent the stake): bind mint, seed the position */
 export async function arm(id: string, mint: string, symbol: string, name = '', auth?: { msg?: string; sig?: string }, fundSig?: string) {
   const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) return pub(v)
+  if ((v as any).closedAt) throw new Error('this vault was closed and its chest withdrawn — launch with a new one')   // Oct 29: autoArm re-armed XYZ 3 s after its reclaim
   // the coin must exist: a LaunchLab vault armed onto a mint that never went live sat dead on Oct 29. If the given mint has no pool, use the
   // build of this vault that did go live.
   if (!v.imported && (v.venue === 'launchlab' || (v as any).builtMints?.length)) {
@@ -460,6 +461,9 @@ async function sync(v: Vault, sig?: string, fallback = 0) { if (PAPER) return; a
 async function syncChain(v: Vault, sig?: string, fallback = 0) { v.tokens = (await tokenBalance(v.pub, v.mint!)).ui; if (v.shared) { if (sig) await book(v, sig, fallback) } else v.chest = await balanceSol(v.pub) }
 
 const inflight = new Set<string>()
+// a tick that never returns (an RPC or indexer call hanging) must not freeze its vault: after 3 min the lock is taken back. The stale run
+// can still finish later; its token no longer matches, so it can't release the newer run's lock.
+const inflightAt = new Map<string, { t: number; tok: number }>(); let tickTok = 0
 /** One pass over all armed vaults, concurrently; a vault still confirming a trade from the last pass is skipped, never queued. */
 /** REBIND=<vaultId>:<mint>[,…] (operator): a vault armed onto a mint that never went live is moved to the coin that did — only when the
  *  old mint has no pool and the new one does. Then it re-arms on the live coin. */
@@ -517,9 +521,10 @@ export async function tick() {
   save()
 }
 async function tickOne(v: Vault) {
+  if (inflight.has(v.id)) { const at = inflightAt.get(v.id); if (at && Date.now() - at.t > 180_000) { inflight.delete(v.id); inflightAt.delete(v.id); EV.log('error', `${v.symbol || v.id} tick stuck for ${((Date.now() - at.t) / 1000).toFixed(0)} s — lock released`, { id: v.id }) } }
   if (!v.armed || !v.mint || inflight.has(v.id) || (v as any).closing) return
   if (Date.now() < (v.nextTickAt || 0)) return; v.nextTickAt = Date.now() + 3500 + Math.random() * 3000
-  inflight.add(v.id)
+  inflight.add(v.id); const tok = ++tickTok; inflightAt.set(v.id, { t: Date.now(), tok }); (v as any).lastTickAt = Date.now()
   {
     try {
       const m = await market(v.mint); if (!m || !m.priceSol) return
@@ -600,7 +605,7 @@ async function tickOne(v: Vault) {
       v.ddPrev = ddNow
       if (v.activity.length > 200) v.activity.length = 200
     } catch (e: any) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: String(e.message || e).slice(0, 120) }); EV.log('error', `${v.symbol || v.id} tick: ${String(e.message || e).slice(0, 120)}`, { mint: v.mint }) }
-    finally { inflight.delete(v.id) }
+    finally { if (inflightAt.get(v.id)?.tok === tok) { inflight.delete(v.id); inflightAt.delete(v.id) } }
   }
 }
 
@@ -778,7 +783,7 @@ export async function claimPlatformFees(force = false): Promise<number> {
     const pk = LL.platformKeypair(); const pkB58 = pk.publicKey.toBase58()
     const tx = await LL.buildClaimVault(); const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 }); await confirm(sig)
     const got = Math.max(0, await txDelta(sig, pkB58).catch(() => pending)); if (got < 0.0005) return 0
-    const ours = Object.values(vaults).filter((v) => v.armed && v.venue === 'launchlab' && !v.paper)
+    const ours = Object.values(vaults).filter((v) => v.armed && v.venue === 'launchlab' && !v.paper && !(v as any).closedAt)   // a withdrawn vault earns nothing more
     const W = taxWeights(ours); const total = W.reduce((a, w) => a + w, 0)
     const credits: { v: Vault; sol: number; why: string }[] = []
     for (const [i, v] of ours.entries()) { const share = total > 0 ? got * W[i] / total : 0; v.taxAccrued = 0; if (share < 0.0001) continue
