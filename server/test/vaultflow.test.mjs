@@ -106,3 +106,15 @@ test('the stake can only come from the vault owner: someone else building on thi
   const v = V.create(DEVPK, STAKE, undefined, 'mm', 0.3, 'launchlab', BUY, 20); const other = Keypair.generate().publicKey.toBase58()
   await assert.rejects(V.buildLaunch({ dev: other, name: 'X', symbol: 'X', uri: 'u', devBuySol: 0, vaultId: v.id, vaultBuySol: BUY, fundInBundle: true, auth: { sessionWallet: other } }), /not your vault/)
 })
+
+test('the server arms on its own the moment the bundle lands (no arm call from the app)', async () => {
+  const { v, b } = await launch()
+  const ct = VersionedTransaction.deserialize(Buffer.from(b.txs[0], 'base64')); ct.sign([dev])
+  const vt = VersionedTransaction.deserialize(Buffer.from(b.vaultTx, 'base64'))
+  createSigs.length = 0; const createSig = land(ct, { [DEVPK]: -(STAKE + 0.52), [BANKY]: +STAKE }); land(vt, { [BANKY]: -(b.vaultSpend + 0.005) }); createSigs.push(createSig)
+  poolLive = true; vaultTokens = 197e6
+  let armed = null; for (let i = 0; i < 40 && !armed; i++) { await new Promise((r) => setTimeout(r, 200)); armed = V.list().find((x) => x.id === v.id) || null }
+  assert.ok(armed, 'armed by the landing watcher'); assert.ok(Math.abs(armed.chest - (STAKE - b.vaultSpend - 0.005)) < 1e-6, 'stake in, vault buy out')
+  assert.equal(armed.activity.filter((x) => x.kind === 'stake').length, 1)
+  poolLive = false; createSigs.length = 0
+})
