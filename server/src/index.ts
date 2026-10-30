@@ -101,7 +101,7 @@ const server = createServer(async (req, res) => {
     if (p === '/vault/paper' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.paperArm(b.mint, +(b.chestSol || 20), b.mode || 'mm')) }
     if (p === '/import/activate' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.importActivate(b.id, b.sig)) }
     if (p === '/vault/attach' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.attach(String(b.dev || ''), String(b.mint || ''), { ...(b.auth || {}), sessionWallet }, { symbol: b.symbol, name: b.name })) }
-    if (p === '/vault/deposit' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.deposit(b.id, b.from, b.sig)) }
+    if (p === '/vault/deposit' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await V.deposit(b.id, b.from, b.sig, sessionWallet)) }
     // ---- LaunchLab: our launchpad ----
     if (p === '/ll/platform' && req.method === 'GET') { const chain = await LL.platform(); const walletSol = (await C.conn.getBalance(LL.platformKeypair().publicKey).catch(() => 0)) / 1e9; return json(res, 200, { ...LL.status(), chain, ready: !!chain?.exists, walletSol, setup: chain?.exists ? null : LL.SELF_ADMIN ? `send 0.02 SOL to ${LL.platformKeypair().publicKey.toBase58()} — the server creates the platform config itself within a minute` : 'the admin wallet signs the one-time setup in Settings' }) }
     if (p === '/ll/platform/build' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, await LL.buildPlatformTx(new PublicKey(b.admin))) }

@@ -3,7 +3,7 @@
 // LaunchLab is mocked (module mock); the shared Connection object is patched per method. Run with --experimental-test-module-mocks.
 import test, { mock } from 'node:test'
 import assert from 'node:assert/strict'
-import { Keypair, PublicKey, VersionedTransaction, TransactionMessage, SystemProgram } from '@solana/web3.js'
+import { Keypair, PublicKey, VersionedTransaction, TransactionMessage, SystemProgram, SystemInstruction } from '@solana/web3.js'
 import bs58 from 'bs58'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -18,17 +18,20 @@ const DEVPK = dev.publicKey.toBase58()
 
 // ---- fake chain ----
 const parsed = new Map()          // sig → parsed tx (keys + pre/post lamports)
-let poolLive = false, vaultTokens = 0
+let poolLive = false, vaultTokens = 0, blockhashValid = false, tradeN = 0
 const createSigs = []             // signatures in the order they landed on the mint
 const land = (tx, deltas) => { const sig = bs58.encode(tx.signatures[0]); const keys = [...new Set([...tx.message.staticAccountKeys.map((k) => k.toBase58()), ...Object.keys(deltas)])]
-  parsed.set(sig, { meta: { err: null, preBalances: keys.map(() => 100e9), postBalances: keys.map((k) => 100e9 + Math.round((deltas[k] || 0) * 1e9)) }, transaction: { message: { accountKeys: keys.map((k) => ({ pubkey: new PublicKey(k) })) } } }); return sig }
+  // parsed instructions the way the RPC returns them: system transfers decoded, everything else opaque
+  const instructions = TransactionMessage.decompile(tx.message).instructions.map((ix) => { if (!ix.programId.equals(SystemProgram.programId)) return { programId: ix.programId }; try { const d = SystemInstruction.decodeTransfer(ix); return { program: 'system', parsed: { type: 'transfer', info: { source: d.fromPubkey.toBase58(), destination: d.toPubkey.toBase58(), lamports: Number(d.lamports) } } } } catch { return { program: 'system', parsed: { type: 'other' } } } })
+  parsed.set(sig, { blockTime: Math.floor(Date.now() / 1000), meta: { err: null, innerInstructions: [], preBalances: keys.map(() => 100e9), postBalances: keys.map((k) => 100e9 + Math.round((deltas[k] || 0) * 1e9)) }, transaction: { message: { instructions, accountKeys: keys.map((k) => ({ pubkey: new PublicKey(k) })) } } }); return sig }
 
 mock.module('../src/launchlab.ts', { namedExports: {
   PLATFORM_ID: Keypair.generate().publicKey, TAX_BPS: 200, CURVE_CUSTOM: false,
   status: () => ({ venue: 'launchlab' }), isOurs: () => true, platformKeypair: () => SHARED, platformVaultSol: async () => 0,
+  poolIdOf: (m) => new PublicKey(m),   // stand-in: the pool account is the mint here (getAccountInfo below answers for it)
   pool: async (m) => (poolLive && m === MINT ? { poolId: 'POOL', status: 0, creator: DEVPK, liqSol: 45, priceSol: 1e-7, realB: 0n } : null),
   quote: (_s, solIn) => ({ tokens: solIn * 27e6, after: { virtualA: 1073025605596382n, virtualB: 30000852951n, realA: 0n, realB: BigInt(Math.round((0.5 + solIn) * 0.977e9)) } }),
-  buildTrade: async (owner) => new VersionedTransaction(new TransactionMessage({ payerKey: owner, recentBlockhash: bh, instructions: [SystemProgram.transfer({ fromPubkey: owner, toPubkey: new PublicKey('96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5'), lamports: 5e6 })] }).compileToV0Message()),
+  buildTrade: async (owner) => new VersionedTransaction(new TransactionMessage({ payerKey: owner, recentBlockhash: bh, instructions: [SystemProgram.transfer({ fromPubkey: owner, toPubkey: new PublicKey('96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5'), lamports: 5e6 + (++tradeN) })] }).compileToV0Message()),   // unique per build, like a real one
   buildLaunch: async (devPk, _meta, devBuy) => {
     mintKp = Keypair.generate(); MINT = mintKp.publicKey.toBase58()   // every launch is a new coin (as with the real mint pool)
     const txs = [new VersionedTransaction(new TransactionMessage({ payerKey: devPk, recentBlockhash: bh, instructions: [SystemProgram.createAccount({ fromPubkey: devPk, newAccountPubkey: mintKp.publicKey, lamports: 1e6, space: 82, programId: SystemProgram.programId })] }).compileToV0Message())]
@@ -46,7 +49,8 @@ Object.assign(C.conn, {
   getSignaturesForAddress: async () => createSigs.map((signature) => ({ signature, slot: 7, err: null })).reverse(),
   getTokenSupply: async () => ({ value: { uiAmount: 1e9, decimals: 6 } }),
   getParsedTokenAccountsByOwner: async () => ({ value: vaultTokens ? [{ account: { data: { parsed: { info: { tokenAmount: { uiAmount: vaultTokens, amount: String(vaultTokens * 1e6) } } } } } }] : [] }),
-  getAccountInfo: async () => null, getBalance: async () => 0,
+  getAccountInfo: async (pk) => (poolLive && pk.toBase58() === MINT ? { data: Buffer.alloc(0), owner: SystemProgram.programId, lamports: 1, executable: false } : null), getBalance: async () => 0,
+  isBlockhashValid: async () => ({ value: blockhashValid }),
 })
 const V = await import('../src/vault.ts')
 
@@ -117,4 +121,29 @@ test('the server arms on its own the moment the bundle lands (no arm call from t
   assert.ok(armed, 'armed by the landing watcher'); assert.ok(Math.abs(armed.chest - (STAKE - b.vaultSpend - 0.005)) < 1e-6, 'stake in, vault buy out')
   assert.equal(armed.activity.filter((x) => x.kind === 'stake').length, 1)
   poolLive = false; createSigs.length = 0
+})
+
+test('a second build while the first can still land is refused (two coins, two buys on one stake); allowed once its blockhash is gone', async () => {
+  const { v } = await launch(); blockhashValid = true
+  await assert.rejects(V.buildLaunch({ dev: DEVPK, name: 'Bank', symbol: 'BANK', uri: 'u', devBuySol: 0.5, vaultId: v.id, vaultBuySol: BUY, fundInBundle: true, auth: { sessionWallet: DEVPK } }), /can still land/)
+  blockhashValid = false
+  const b2 = await V.buildLaunch({ dev: DEVPK, name: 'Bank', symbol: 'BANK', uri: 'u', devBuySol: 0.5, vaultId: v.id, vaultBuySol: BUY, fundInBundle: true, auth: { sessionWallet: DEVPK } })
+  assert.ok(b2.vaultTx)
+})
+
+test('parallel /vault/fund calls on one stake book it once; a stake tx cannot be booked into a second vault', async () => {
+  const v = V.create(DEVPK, 2, undefined, 'mm', 0.3, 'launchlab', 1, 10); const w = V.create(DEVPK, 2, undefined, 'mm', 0.3, 'launchlab', 1, 10)
+  const t = new VersionedTransaction(new TransactionMessage({ payerKey: dev.publicKey, recentBlockhash: bh, instructions: [SystemProgram.transfer({ fromPubkey: dev.publicKey, toPubkey: SHARED.publicKey, lamports: 2e9 })] }).compileToV0Message()); t.sign([dev])
+  const sig = land(t, { [DEVPK]: -2, [BANKY]: +2 })
+  const rs = await Promise.allSettled(Array.from({ length: 10 }, () => V.fund(v.id, sig)))
+  assert.ok(rs.some((r) => r.status === 'fulfilled'))
+  const after = await V.fund(v.id, sig); assert.ok(Math.abs(after.chest - 2) < 1e-9, 'booked once: ' + after.chest)
+  await assert.rejects(V.fund(w.id, sig), /already booked/)
+})
+
+test('only the dev\'s own transfer counts: SOL someone else sent to the shared wallet is not a stake', async () => {
+  const v = V.create(DEVPK, 2, undefined, 'mm', 0.3, 'launchlab', 1, 10); const other = Keypair.generate()
+  const t = new VersionedTransaction(new TransactionMessage({ payerKey: dev.publicKey, recentBlockhash: bh, instructions: [SystemProgram.transfer({ fromPubkey: other.publicKey, toPubkey: SHARED.publicKey, lamports: 3e9 })] }).compileToV0Message()); t.sign([dev, other])
+  const sig = land(t, { [BANKY]: +3 })
+  await assert.rejects(V.fund(v.id, sig), /no SOL from the vault owner/)
 })

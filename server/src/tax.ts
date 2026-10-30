@@ -1,7 +1,13 @@
-/** per-coin weights for one platform-fee claim: the taxed volume each coin's stream observed. When nothing was observed (stream dropped,
- *  server restarted before the accrual was saved) and only one coin can have produced the fee, that coin gets all of it — the fee never
- *  sits unattributed just because the tape missed the trades. With several coins and no observations it stays unattributed (never guessed). */
+/** Per-coin credit for one platform-fee claim. A claim drains the platform fee vault for EVERY pool on our platform, including coins with no
+ *  chest, so a chest is credited what its own observed volume paid — taxAccrued (2% of the swaps its feed saw), with 25% headroom for swaps
+ *  the feed sized a little low — never a share of fees it didn't observe. What nobody observed stays unattributed (platform), never guessed.
+ *  Oct 30 review: the old 'only one armed vault → it gets everything' rule let a free attached chest collect every chest-less coin's fee. */
+export const TAX_HEADROOM = 1.25
 export function taxWeights(ours: { taxAccrued?: number }[]): number[] {
-  const w = ours.map((v) => Math.max(0, v.taxAccrued || 0)); if (w.some((x) => x > 0)) return w
-  return ours.length === 1 ? [1] : w
+  return ours.map((v) => Math.max(0, v.taxAccrued || 0))
+}
+/** split `got` by the weights, each credit capped at its own accrual × headroom; the remainder is unattributed */
+export function taxCredits(got: number, accrued: number[]): number[] {
+  const total = accrued.reduce((a, w) => a + w, 0); if (!(total > 0) || !(got > 0)) return accrued.map(() => 0)
+  return accrued.map((w) => Math.min(got * w / total, w * TAX_HEADROOM))
 }

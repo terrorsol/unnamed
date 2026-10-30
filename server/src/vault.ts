@@ -15,7 +15,7 @@ import * as KEEP from './keeper.ts'
 import * as VM from './vamp.ts'
 import * as MM from './mm.ts'
 import * as EV from './events.ts'
-import { taxWeights } from './tax.ts'
+import { taxWeights, taxCredits } from './tax.ts'
 import * as MP from './mintpool.ts'
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import { PublicKey, SystemProgram, Transaction, ComputeBudgetProgram } from '@solana/web3.js'
@@ -79,7 +79,27 @@ export type Vault = { armedAt?: number; launchSpend?: number; taxAccrued?: numbe
 let vaults: Record<string, Vault> = {}
 const watched = new Map<string, { pool: string; off: () => void }>()   // vault id → the pool its per-swap stream is on (re-pointed when the coin migrates)
 let SOLUSD = 0; setInterval(() => fetch(`${process.env.DEX_URL || 'https://api.dexscreener.com'}/tokens/v1/solana/So11111111111111111111111111111111111111112`).then((r) => r.json()).then((a: any[]) => { const x = a?.[0]?.priceUsd; if (x) SOLUSD = +x }).catch(() => {}), 30000)
-export function load() { if (existsSync(FILE)) vaults = JSON.parse(readFileSync(FILE, 'utf8')) }
+export function load() { if (existsSync(FILE)) vaults = JSON.parse(readFileSync(FILE, 'utf8')); for (const v of Object.values(vaults)) for (const a of v.activity || []) if (a.sig && a.kind === 'stake' && !booked[a.sig]) booked[a.sig] = v.id }
+/** Every signature whose SOL was booked INTO a chest, ever (persisted; activity is trimmed to 200 entries, so it can't be the record).
+ *  A signature is claimed synchronously before any await, so parallel calls can't both book it (Oct 30 review: ten parallel /vault/fund
+ *  calls on one stake would each have added it). */
+const BOOKED_FILE = () => DIR + '/booked-sigs.json'
+const booked: Record<string, string> = (() => { try { return JSON.parse(readFileSync(BOOKED_FILE(), 'utf8')) } catch { return {} } })()
+const booking = new Set<string>()
+function claimSig(sig: string) { if (!sig || booked[sig] || booking.has(sig)) return false; booking.add(sig); return true }
+function commitSig(sig: string, id: string) { booked[sig] = id; booking.delete(sig); try { mkdirSync(DIR, { recursive: true }); writeFileSync(BOOKED_FILE(), JSON.stringify(booked)) } catch {} }
+const releaseSig = (sig: string) => { booking.delete(sig) }
+export const bookedTo = (sig: string) => booked[sig] || null
+/** SOL moved by plain system transfers from `from` to `to` in a parsed tx (top-level and inner) — the only SOL a stake, deposit or
+ *  contribution may count, never the account's whole delta (the shared wallet is in many txs that aren't anybody's deposit) */
+export function transfersSol(tx: any, from: string, to: string): number {
+  let l = 0; const all = [...(tx?.transaction?.message?.instructions || []), ...((tx?.meta?.innerInstructions || []).flatMap((x: any) => x.instructions || []))]
+  for (const ix of all) { const p = ix?.parsed; if (ix?.program === 'system' && (p?.type === 'transfer' || p?.type === 'transferWithSeed') && p.info?.source === from && p.info?.destination === to) l += +p.info.lamports || 0 }
+  return l / 1e9
+}
+/** a tx that touches a mint some OTHER vault built belongs to that vault's launch — never bookable here */
+function otherVaultsMint(keys: string[], id: string) { for (const w of Object.values(vaults)) if (w.id !== id) for (const m of [...(((w as any).builtMints || []) as string[]), ...(w.mint ? [w.mint] : [])]) if (keys.includes(m)) return w.id; return null }
+async function parsedTx(sig: string, tries = 6) { let tx: any = null; for (let i = 0; i < tries && !tx; i++) { tx = await conn.getParsedTransaction(sig, { maxSupportedTransactionVersion: 1, commitment: 'confirmed' }).catch(() => null); if (!tx && i < tries - 1) await new Promise((r) => setTimeout(r, 1000)) } return tx }
 function save() { mkdirSync(DIR, { recursive: true }); writeFileSync(FILE, JSON.stringify(vaults)) }
 const kp = (v: Vault) => Keypair.fromSecretKey(dec(v.sk))
 /** One brand wallet for every vault (VAULT_KEY, base58 secret): the same address is the top holder on every coin we launch or import.
@@ -140,23 +160,27 @@ export function create(dev: string, stakeSol: number, copyOf?: string, mode: 'fl
 /** Step 1b: the dev's stake transfer landed (sig). Required for shared-wallet vaults (the ledger can't see deposits in the wallet balance); harmless for per-key vaults. */
 export async function fund(id: string, sig: string) {
   const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('already armed')
-  // already booked as a stake → done. (Only stake entries count: the same signature as some other entry — e.g. the vault's own block-zero
-  // buy in the same slot as the create — is not funding, and used to be taken as 'already booked'.)
-  if (Object.values(vaults).some((x) => x.activity.some((a) => a.sig === sig && a.kind === 'stake'))) return pub(v)
-  // a just-confirmed tx can take a few seconds to show up parsed: wait for it instead of failing the arm
-  let tx: any = null; for (let i = 0; i < 6 && !tx; i++) { tx = await conn.getParsedTransaction(sig, { maxSupportedTransactionVersion: 1, commitment: 'confirmed' }).catch(() => null); if (!tx && i < 5) await new Promise((r) => setTimeout(r, 1000)) }
-  if (!tx || tx.meta?.err) throw new Error('funding tx not found or failed')
-  const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58()); const i = keys.indexOf(v.pub); const got = i < 0 ? 0 : (tx.meta!.postBalances[i] - tx.meta!.preBalances[i]) / 1e9
-  if (got < 0.001) throw new Error('no SOL to the vault wallet in that tx'); if (!keys.includes(v.dev)) throw new Error('tx not from the vault owner')
-  if (v.shared) v.chest = +(v.chest + got).toFixed(9); else v.chest = await balanceSol(v.pub)
-  v.activity.unshift({ t: Date.now(), kind: 'stake', sol: got, sig, msg: 'dev stake received' }); save(); return pub(v)
+  if (booked[sig] === id) return pub(v)   // already booked here
+  if (!claimSig(sig)) throw new Error('that tx is already booked')
+  try {
+    // a just-confirmed tx can take a few seconds to show up parsed: wait for it instead of failing the arm
+    const tx = await parsedTx(sig); if (!tx || tx.meta?.err) throw new Error('funding tx not found or failed')
+    if ((tx.blockTime || 0) * 1000 < v.createdAt - 120_000) throw new Error('that tx is older than this vault')
+    const keys = tx.transaction.message.accountKeys.map((k: any) => k.pubkey.toBase58())
+    if (otherVaultsMint(keys, id)) throw new Error("that tx belongs to another vault's launch")
+    // only the dev's own plain transfer to the vault wallet counts (one-signature: the transfer the server appended to the create)
+    const got = transfersSol(tx, v.dev, v.pub); if (got < 0.001) throw new Error('no SOL from the vault owner to the vault wallet in that tx')
+    if (v.shared) v.chest = +(v.chest + got).toFixed(9); else v.chest = await balanceSol(v.pub)
+    v.activity.unshift({ t: Date.now(), kind: 'stake', sol: got, sig, msg: 'dev stake received' }); commitSig(sig, id); save(); return pub(v)
+  } catch (e) { releaseSig(sig); throw e }
 }
 /** Step 2 (after the coin exists + dev sent the stake): bind mint, seed the position */
 /** one arm at a time per vault: the app's arm and autoArm can land together right after a launch, and two concurrent runs would both
  *  book the block-zero buy against the chest (the ledger would go to 0 while the SOL is still there) */
 const armLocks = new Map<string, Promise<any>>()
 export async function arm(id: string, mint: string, symbol: string, name = '', auth?: { msg?: string; sig?: string; sessionWallet?: string | null }, fundSig?: string) {
-  const cur = armLocks.get(id); if (cur) { await cur.catch(() => {}); const v = vaults[id]; if (v?.armed) return pub(v) }
+  // wait out every run in flight (a run that FAILS must not let all its waiters start their own at once — review, Oct 30)
+  for (let cur = armLocks.get(id); cur; cur = armLocks.get(id)) { await cur.catch(() => {}); const v = vaults[id]; if (v?.armed) return pub(v) }
   const run = armOnce(id, mint, symbol, name, auth, fundSig); armLocks.set(id, run)
   try { return await run } finally { if (armLocks.get(id) === run) armLocks.delete(id) }
 }
@@ -171,6 +195,10 @@ async function armOnce(id: string, mint: string, symbol: string, name = '', auth
       if (!live) throw new Error('that coin is not on chain yet — the vault arms itself once it is'); EV.log('vault', `arm: ${mint.slice(0, 4)}… never went live, arming on ${live.slice(0, 4)}… (built by this vault)`, { id: v.id, mint, live }); mint = live
     }
   }
+  // only a coin this vault launched: a vault armed onto someone else's mint would read the shared wallet's whole balance of that coin as
+  // its own, and pay its dev out of it (review, Oct 30)
+  if (!v.imported) { const mine = new Set([...(((v as any).builtMints || []) as string[]), ...(v.mint ? [v.mint] : [])]); if (!mine.has(mint)) throw new Error('this vault did not launch that coin') }
+  { const other = otherLiveVault(mint, v.id); if (other) throw new Error(`another chest (${other.symbol || other.id}) already sits on that coin`) }
   // arming needs the dev: a session/message signature, OR the coin itself — a LaunchLab pool whose on-chain creator is the vault's dev (only that wallet could have created it)
   if (!v.imported) { try { devAuth(v, 'arm', mint, auth) } catch (e) { const pl = await LL.pool(mint).catch(() => null); if (!pl || pl.creator !== v.dev) throw e } }
   // after a block-zero bundle half the stake is already in tokens, so the SOL check is against the other half
@@ -186,9 +214,7 @@ async function armOnce(id: string, mint: string, symbol: string, name = '', auth
     if (funded < v.stakeSol * 0.95 - 0.001) throw new Error(`vault not funded: ${funded.toFixed(3)} / ${v.stakeSol} SOL — send the stake and call /vault/fund with the tx`)
     // the bundle's block-zero buy (vault-signed, sent by the dev): book its real SOL delta if it landed
     // (a retry signs one per attempt: only the armed coin's buy is waited for; the others are checked once and skipped if they never landed — Oct 29: arm took 30 s+ waiting on dead ones)
-    for (const a of v.activity) if (a.msg?.startsWith('signed block-zero') && a.sig && !a.msg.includes('booked') && !a.msg.includes('never landed')) {
-      const am = (a as any).mint; if (am && am !== mint) { const st = (await conn.getSignatureStatuses([a.sig], { searchTransactionHistory: true }).catch(() => null))?.value?.[0]; if (!st || st.err) { a.msg += ' · never landed'; continue } }
-      try { v.chest = Math.max(0, +(v.chest + await txDelta(a.sig, v.pub)).toFixed(9)); a.msg += ' · booked' } catch {} }
+    await settleLaunchBuys(v, mint)   // throws (arm retried) while any signed block-zero buy is unknown — never armed with an unbooked spend
     bal = v.chest
   } else { bal = await balanceSol(v.pub); if (bal < (bundled ? (v.stakeSol - buy) * 0.8 : v.stakeSol * 0.95)) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL`); v.chest = bal }
   v.mint = mint; v.symbol = symbol; v.name = name; v.armed = true; v.armedAt = Date.now(); VM.watch(mint); try { const sup = await conn.getTokenSupply(new PublicKey(mint)); v.supply = +(sup.value.uiAmount || 1e9) } catch {} if (!v.shared) v.activity.unshift({ t: Date.now(), kind: 'stake', sol: bal, msg: 'dev stake received' }); EV.log('vault', `${symbol} armed · chest ${bal.toFixed(3)} SOL`, { mint, id })
@@ -209,6 +235,24 @@ async function armOnce(id: string, mint: string, symbol: string, name = '', auth
   try { const sig = await trade(v, 'buy', seed, true, 0); await sync(v, sig, -seed); v.avgCost = seed / Math.max(v.tokens, 1e-9); v.activity.unshift({ t: Date.now(), kind: 'seed', sol: seed, tokens: v.tokens, sig, msg: 'block-zero vault supply' }) }
   catch (e: any) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'seed failed: ' + e.message }) }
   save(); return pub(v)
+}
+/** another vault, in any live state, already on this mint (closed-and-empty ones don't count) */
+function otherLiveVault(mint: string, id: string) { return Object.values(vaults).find((x) => x.id !== id && x.mint === mint && !((x as any).closedAt && (x.tokens || 0) <= 0 && (x.chest || 0) < 0.01) && (x.armed || (x.tokens || 0) > 0 || (x.chest || 0) > 0.0001)) || null }
+/** Book every block-zero buy this vault signed that landed, mark the ones that provably never will. Throws when one is still unknown (RPC
+ *  down, or its blockhash may still be live), so the caller (arm, refund) retries instead of going on with an unbooked spend (review, Oct 30). */
+async function settleLaunchBuys(v: Vault, armedMint?: string) {
+  for (const a of v.activity) {
+    if (!a.msg?.startsWith('signed block-zero') || !a.sig || a.msg.includes('booked') || a.msg.includes('never landed')) continue
+    const am = (a as any).mint
+    if (!armedMint || (am && am !== armedMint)) {
+      const r = await conn.getSignatureStatuses([a.sig], { searchTransactionHistory: true }).catch(() => null); if (!r) throw new Error('could not check an earlier launch attempt — retrying')
+      const st = r.value[0]
+      if (!st || st.err) { if (st?.err || Date.now() - a.t > 180_000) { a.msg += ' · never landed'; continue } throw new Error('an earlier launch attempt may still land — retrying shortly') }
+    }
+    const d = await txDelta(a.sig, v.pub)   // throws until indexed → the caller retries
+    const next = +(v.chest + d).toFixed(9); if (next < -0.001) { v.ledgerDirty = true; EV.log('error', `${v.symbol || v.id} ledger would go negative booking its block-zero buy (${v.chest.toFixed(4)} ${d.toFixed(4)}) — flagged`, { id: v.id, sig: a.sig }) }
+    v.chest = Math.max(0, next); a.msg += ' · booked'; save()
+  }
 }
 /** The create tx of `mint` (its oldest signature) carries the dev's stake when the launch was one-signature: book it as the stake. */
 export async function bookCreateFunding(v: Vault, mint: string): Promise<boolean> {
@@ -261,6 +305,7 @@ export async function attach(dev: string, mint: string, auth?: { msg?: string; s
   if (pl.creator !== dev) throw new Error('only the wallet that created this coin can attach its chest')
   devAuth({ id: 'attach', dev }, 'attach', mint, auth)
   const live = Object.values(vaults).find((x) => x.mint === mint && x.armed && !(x as any).closedAt); if (live) return pub(live)
+  if (otherLiveVault(mint, '')) throw new Error('a closed chest on this coin still holds coins or SOL — withdraw it first')
   const k = newKey(); const id = bs58.encode(randomBytes(8)); const m = await market(mint).catch(() => null)
   const v: Vault = { id, venue: 'launchlab', shared: !!SHARED, vaultBuySol: 0, pub: k.publicKey.toBase58(), sk: enc(k.secretKey), dev, stakeSol: 0, pct: 5, cut: 5, armed: true, armedAt: Date.now(), renounced: false, createdAt: Date.now(), streamed: 0, redeemed: 0, supply: 1e9, deskBid: 0, trimmedToday: 0, trimDay: 0, depositedTokens: 0, funders: {}, avgCost: 0, tokens: 0, chest: 0, spentEpisode: 0, high15: [], samples: [], ema5: null, ema15: null, lastBuy: 0, lastTrim: 0, activity: [], devPaid: 0, mint, symbol: (m as any)?.symbol || String(hint?.symbol || '').slice(0, 12), name: String(hint?.name || '').slice(0, 40) } as any
   v.mode = 'mm'; v.ceiling = R.MM_MAX_CAPTURE
@@ -284,9 +329,10 @@ export async function autoArm() {
       // a one-signature launch has no stake booked until its coin is on chain (the stake is in the create tx): arm() books it from there
       if (v.shared && !inBundle && funded < v.stakeSol * 0.95 - 0.001) continue
       if (v.nextAutoArmAt && Date.now() < v.nextAutoArmAt) continue; v.nextAutoArmAt = Date.now() + 30_000
-      let exists = await onChain(v, v.mint)
-      if (!exists) for (const m of [...(((v as any).builtMints || []) as string[])].reverse()) { if (m !== v.mint && await onChain(v, m)) { v.mint = m; exists = true; break } }   // the build that went live
-      if (!exists) { if (inBundle && stale) { delete vaults[v.id]; save() } continue }   // a one-signature launch that never landed spent nothing: drop the empty vault
+      let unknown = false; const st0 = await onChainOrUnknown(v, v.mint); let exists = st0 === true; if (st0 === null) unknown = true
+      if (!exists) for (const m of [...(((v as any).builtMints || []) as string[])].reverse()) { if (m === v.mint) continue; const st = await onChainOrUnknown(v, m); if (st === null) unknown = true; if (st) { v.mint = m; exists = true; break } }   // the build that went live
+      // a one-signature launch that never landed spent nothing: drop the empty vault — only when every build is definitely absent (never on one bad RPC answer)
+      if (!exists) { if (inBundle && stale && !unknown) { delete vaults[v.id]; save() } continue }
       try { await arm(v.id, v.mint, v.symbol || '', v.name || '', { sessionWallet: v.dev }); EV.log('vault', `${v.symbol} auto-armed (coin on chain, arm never signed)`, { id: v.id, mint: v.mint }) }
       catch (e: any) { v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'auto-arm: ' + String(e.message || e).slice(0, 100) }); EV.log('error', `${v.symbol} auto-arm: ${String(e.message || e).slice(0, 140)}`, { id: v.id }) }
     }
@@ -301,6 +347,7 @@ export async function importQuote(mint: string) {
 }
 /** Step 1: reserve a vault for an existing coin (owner = whoever pays) */
 export async function importCreate(owner: string, mint: string) {
+  if (otherLiveVault(mint, '')) throw new Error('this coin already has a chest')
   const q = await importQuote(mint); const k = newKey(); const id = bs58.encode(randomBytes(8))
   const venue: 'pump' | 'launchlab' = (await LL.pool(mint).catch(() => null)) ? 'launchlab' : 'pump'
   vaults[id] = { id, venue, shared: !!SHARED, pub: k.publicKey.toBase58(), sk: enc(k.secretKey), mint, symbol: q.symbol, dev: owner, stakeSol: R.IMPORT_SEED_SOL, pct: 0, cut: 5, armed: false, renounced: false, createdAt: Date.now(), streamed: 0, redeemed: 0, supply: 1e9, deskBid: 0, imported: true, feePaid: 0, trimmedToday: 0, trimDay: 0, depositedTokens: 0, funders: {}, mode: 'mm', ceiling: R.MM_MAX_CAPTURE, lastLiq: 0, lastLiqT: 0, buyTimes: [], tranchesFired: [], score: { captured: 0, captures: 0, deskBought: 0, deskFills: 0, dipBought: 0, dips: 0, redeployed: 0, floor0: 0 }, lastCapture: 0, avgCost: 0, tokens: 0, chest: 0, spentEpisode: 0, high15: [], samples: [], ema5: null, ema15: null, lastBuy: 0, lastTrim: 0, activity: [], devPaid: 0 }
@@ -309,17 +356,21 @@ export async function importCreate(owner: string, mint: string) {
 /** Step 2: after the fee tx (10 → treasury, 5 → vault) confirms, arm it. Verifies the tx on-chain. */
 export async function importActivate(id: string, sig: string) {
   const v = vaults[id]; if (!v || !v.imported) throw new Error('no such import'); if (v.armed) return pub(v)
-  const tx = await conn.getParsedTransaction(sig, { maxSupportedTransactionVersion: 1, commitment: 'confirmed' }); if (!tx || tx.meta?.err) throw new Error('fee transaction not found or failed')
+  if (!claimSig(sig)) throw new Error('that tx is already booked')
+  try { return await importActivateOnce(v, sig) } catch (e) { releaseSig(sig); throw e }
+}
+async function importActivateOnce(v: Vault, sig: string) {
+  const tx: any = await parsedTx(sig, 3); if (!tx || tx.meta?.err) throw new Error('fee transaction not found or failed')
+  if ((tx.blockTime || 0) * 1000 < v.createdAt - 120_000) throw new Error('that tx is older than this import')
   const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58()); const pre = tx.meta!.preBalances, post = tx.meta!.postBalances
   const delta = (pk: string) => { const i = keys.indexOf(pk); return i < 0 ? 0 : (post[i] - pre[i]) / 1e9 }
   if (delta(TREASURY) < R.IMPORT_FEE_SOL - R.IMPORT_SEED_SOL - 0.001) throw new Error('treasury fee not found in tx')
-  if (delta(v.pub) < R.IMPORT_SEED_SOL - 0.001) throw new Error('chest seed not found in tx')
-  if (!keys.includes(v.dev)) throw new Error('tx not from the vault owner')
-  if (Object.values(vaults).some((x) => x.activity.some((a) => a.sig === sig))) throw new Error('that tx is already booked')
-  if (v.shared) v.chest = +(v.chest + delta(v.pub)).toFixed(9)
+  const seed = transfersSol(tx, v.dev, v.pub); if (seed < R.IMPORT_SEED_SOL - 0.001) throw new Error('chest seed (a transfer from the vault owner) not found in tx')
+  if (transfersSol(tx, v.dev, TREASURY) < R.IMPORT_FEE_SOL - R.IMPORT_SEED_SOL - 0.001) throw new Error('treasury fee from the vault owner not found in tx')
+  if (v.shared) v.chest = +(v.chest + seed).toFixed(9)
   v.feePaid = R.IMPORT_FEE_SOL; v.funders[v.dev] = (v.funders[v.dev] || 0) + R.IMPORT_SEED_SOL
   try { const sup = await conn.getTokenSupply(new PublicKey(v.mint!)); v.supply = +(sup.value.uiAmount || 1e9) } catch {}
-  await sync(v); v.armed = true; v.armedAt = Date.now(); v.activity.unshift({ t: Date.now(), kind: 'stake', sol: v.chest, sig, msg: `vault activated · ${R.IMPORT_FEE_SOL} SOL import (${R.IMPORT_SEED_SOL} seeded)` }); save(); return pub(v)
+  await sync(v); v.armed = true; v.armedAt = Date.now(); v.activity.unshift({ t: Date.now(), kind: 'stake', sol: v.chest, sig, msg: `vault activated · ${R.IMPORT_FEE_SOL} SOL import (${R.IMPORT_SEED_SOL} seeded)` }); commitSig(sig, v.id); save(); return pub(v)
 }
 /** PAPER only: arm a vault on any live coin with a virtual chest and inventory — no payment, no chain. */
 export async function paperArm(mint: string, chestSol = 20, mode: 'floor' | 'mm' = 'mm') {
@@ -360,11 +411,13 @@ export const crowdOpen = () => Object.values(vaults).filter((v) => v.crowd && !v
 /** Record a contribution (verified on-chain: SOL from `from` landed in the vault wallet in `sig`). Arms when funded. */
 export async function importContribute(id: string, from: string, sig: string) {
   const v = vaults[id]; if (!v || !v.crowd || v.armed) throw new Error('not an open crowd import')
-  const tx = await conn.getParsedTransaction(sig, { maxSupportedTransactionVersion: 1, commitment: 'confirmed' }); if (!tx || tx.meta?.err) throw new Error('contribution tx not found or failed')
-  const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58()); const pre = tx.meta!.preBalances, post = tx.meta!.postBalances
-  const i = keys.indexOf(v.pub); const got = i < 0 ? 0 : (post[i] - pre[i]) / 1e9
-  if (got < 0.05 - 1e-6) throw new Error('contribution must be ≥ 0.05 SOL to the vault wallet'); if (!keys.includes(from)) throw new Error('tx not from contributor')
-  if (v.activity.some((a) => a.sig === sig)) return pub(v)
+  if (booked[sig] === id) return pub(v); if (!claimSig(sig)) throw new Error('that tx is already booked')
+  let got = 0
+  try { const tx: any = await parsedTx(sig, 3); if (!tx || tx.meta?.err) throw new Error('contribution tx not found or failed')
+    if ((tx.blockTime || 0) * 1000 < v.createdAt - 120_000) throw new Error('that tx is older than this takeover')
+    got = transfersSol(tx, from, v.pub); if (got < 0.05 - 1e-6) throw new Error('contribution must be ≥ 0.05 SOL sent from your wallet to the vault wallet')
+  } catch (e) { releaseSig(sig); throw e }
+  commitSig(sig, id)
   v.crowd.contributors[from] = (v.crowd.contributors[from] || 0) + got; v.crowd.raised += got; v.funders[from] = (v.funders[from] || 0) + got; if (v.shared) v.chest = +(v.chest + got).toFixed(9)
   v.activity.unshift({ t: Date.now(), kind: 'stake', sol: got, sig, msg: `${got.toFixed(2)} SOL toward the takeover (${v.crowd.raised.toFixed(2)}/${v.crowd.goalSol})` })
   if (v.crowd.raised >= v.crowd.goalSol - 1e-6) await crowdArm(v)
@@ -388,17 +441,25 @@ export async function crowdSweep() {
   }
 }
 /** Anyone can top up a chest; the owner can also deposit tokens (cost basis = price at deposit). Verified against chain balances. */
-export async function deposit(id: string, from: string, sig: string) {
+export async function deposit(id: string, from: string, sig: string, sessionWallet?: string | null) {
   const v = vaults[id]; if (!v || !v.armed) throw new Error('vault not armed')
-  if (Object.values(vaults).some((x) => x.activity.some((a) => a.sig === sig))) throw new Error('that tx is already booked')
+  // you can only book your own transfer: the depositor is the signed-in wallet (with the gate on, every write has one)
+  if (sessionWallet && from !== sessionWallet) throw new Error('deposit from another wallet — connect the wallet that sent it')
+  if (!claimSig(sig)) throw new Error('that tx is already booked')
+  try { return await depositOnce(v, from, sig) } catch (e) { releaseSig(sig); throw e }
+}
+async function depositOnce(v: Vault, from: string, sig: string) {
+  const tx: any = await parsedTx(sig, 4); if (!tx || tx.meta?.err) throw new Error('no deposit detected yet — wait a few seconds and retry')
+  if ((tx.blockTime || 0) * 1000 < (v.armedAt || v.createdAt) - 120_000) throw new Error('that tx is older than this chest')
+  const keys = tx.transaction.message.accountKeys.map((k: any) => k.pubkey.toBase58()); if (otherVaultsMint(keys, v.id)) throw new Error("that tx belongs to another vault's launch")
   const beforeSol = v.chest, beforeTok = v.tokens; await sync(v)
   let dSol = v.chest - beforeSol; const dTok = v.tokens - beforeTok
-  if (v.shared) { dSol = await txDelta(sig, v.pub); if (dSol > 0) v.chest = +(v.chest + dSol).toFixed(9) }
+  if (v.shared) { dSol = transfersSol(tx, from, v.pub); if (dSol > 0) v.chest = +(v.chest + dSol).toFixed(9) }
   if (dSol < 0.001 && dTok <= 0) throw new Error('no deposit detected yet — wait a few seconds and retry')
   if (MAX_CHEST_SOL > 0 && v.chest > MAX_CHEST_SOL) v.activity.unshift({ t: Date.now(), kind: 'note', msg: `chest above the ${MAX_CHEST_SOL} SOL beta cap — further deposits are refused in the app until the program ships` })
   if (dSol >= 0.001) { v.funders[from] = (v.funders[from] || 0) + dSol; v.activity.unshift({ t: Date.now(), kind: 'stake', sol: dSol, sig, msg: `chest top-up from ${from.slice(0, 4)}…` }) }
   if (dTok > 0) { const m = await market(v.mint!); const px = m?.priceSol || 0; v.avgCost = (v.avgCost * beforeTok + px * dTok) / Math.max(v.tokens, 1e-9); v.depositedTokens += dTok; v.activity.unshift({ t: Date.now(), kind: 'seed', tokens: dTok, price: px, sig, msg: `${from === v.dev ? 'dev' : from.slice(0, 4) + '…'} vaulted ${(dTok / (v.supply || 1e9) * 100).toFixed(2)}% of supply` }); if (from === v.dev) v.pct = +Math.min(50, v.tokens / (v.supply || 1e9) * 100).toFixed(2) }
-  save(); return pub(v)
+  commitSig(sig, v.id); save(); return pub(v)
 }
 export function renounce(id: string, dev: string) { const v = vaults[id]; if (!v || v.dev !== dev) throw new Error('not yours'); v.cut = 0; v.renounced = true; v.activity.unshift({ t: Date.now(), kind: 'note', msg: 'dev renounced cut' }); save(); return pub(v) }
 /** A launch that never armed (bundle dropped, arm never signed, coin abandoned): the dev takes the stake back. Signed by the dev; only before arm; pays to the wallet that funded it. */
@@ -413,6 +474,8 @@ export async function refund(id: string, auth?: { msg?: string; sig?: string }) 
   devAuth(v, 'refund', v.mint || 'none', auth)
   // a launch built in the last 2 minutes may still land with this stake inside its bundle: refunding now would make the vault's block-zero buy fail
   if (!v.armed && (v as any).buildAt && Date.now() - (v as any).buildAt < 120_000) throw new Error('a launch with this vault is still in flight — wait 2 minutes, then refund if nothing launched')
+  // a signed block-zero buy that landed (or may still land) is a spend from this chest: book it first, or refuse until it is known
+  if (v.shared) await settleLaunchBuys(v)
   // a payout that did not confirm in time must never be paid twice: wait until its blockhash can no longer land, or until it is found landed
   { const pp = (v as any)._payPending; if (pp) { const st = (await conn.getSignatureStatuses([pp.sig]).catch(() => null))?.value?.[0]
     if (st && !st.err) throw new Error('the last payout landed — refresh, it is in your wallet')
@@ -711,7 +774,10 @@ export async function respondRfq(mint: string, sizeSol: number, maxBps: number, 
   return b
 }
 
-D.setOnVaultFill((pub, sol, tokens, seller) => { const v = Object.values(vaults).find((x) => x.pub === pub); if (!v || !v.score) return; MM.onDeskFill(v, sol, tokens, v.samples.at(-1)?.p || 0, Date.now(), seller); if (v.shared) v.chest = Math.max(0, +(v.chest - sol).toFixed(9)); v.score.deskBought += sol; v.score.deskFills++; v.score.redeployed += sol; v.deskBid = 0; v.activity.unshift({ t: Date.now(), kind: 'buy', sol, tokens, msg: 'desk fill · bought a block off-chart' }); sync(v).then(save).catch(() => {}) })
+// desk fills: the vault is found by wallet AND coin — every shared vault has the same wallet, so the wallet alone named the first vault in
+// the file (review, Oct 30: the bidding vault's chest never went down)
+D.setOnVaultAskFill((pub, mint, sol, tokens, sig) => { const v = Object.values(vaults).find((x) => x.pub === pub && x.mint === mint && x.armed); if (!v) { EV.log('error', `ask fill ${sig.slice(0, 8)}… on ${mint.slice(0, 4)}… matched no vault`, { sig }); return } if (!claimSig(sig)) return; if (v.shared) v.chest = +(v.chest + sol).toFixed(9); commitSig(sig, v.id); v.activity.unshift({ t: Date.now(), kind: 'capture', sol, tokens, sig, msg: 'desk: sold a block off-chart at spot' }); sync(v).then(save).catch(() => {}) })
+D.setOnVaultFill((pub, sol, tokens, seller, mint, sig) => { const v = Object.values(vaults).find((x) => x.pub === pub && (!mint || x.mint === mint) && x.armed); if (!v || !v.score) return; if (sig) commitSig(sig, v.id); MM.onDeskFill(v, sol, tokens, v.samples.at(-1)?.p || 0, Date.now(), seller); if (v.shared) v.chest = Math.max(0, +(v.chest - sol).toFixed(9)); v.score.deskBought += sol; v.score.deskFills++; v.score.redeployed += sol; v.deskBid = 0; v.activity.unshift({ t: Date.now(), kind: 'buy', sol, tokens, msg: 'desk fill · bought a block off-chart' }); sync(v).then(save).catch(() => {}) })
 // exact buys for curve coins via the pump.fun stream
 let pws: any = null
 export function startStream() {
@@ -735,6 +801,8 @@ import { devAuth } from './auth.ts'
 export { devAuth }
 import { PublicKey as PK, SystemProgram as SP, Transaction as TX } from '@solana/web3.js'
 export async function signBundleTx(id: string, mint: string, txB64: string, maxSol: number, createB64?: string, auth?: { msg?: string; sig?: string }) {
+  // the client-built pump bundle (client-held mint, no build guard) is superseded by /pump/launch/build: off unless explicitly allowed
+  if (process.env.ALLOW_CLIENT_BUNDLE !== '1') throw new Error('not found — client-built bundles are off; this server builds pump launches itself')
   const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('already armed'); devAuth(v, 'bundle', mint, auth)
   const bal = v.shared ? v.chest : await balanceSol(v.pub); if (bal < v.stakeSol * 0.95) throw new Error(`vault not funded: ${bal.toFixed(3)} / ${v.stakeSol} SOL${v.shared ? ' — call /vault/fund with the stake tx first' : ''}`)
   const spend = Math.min(maxSol, v.vaultBuySol ?? bal * 0.5, bal - 0.05, MM.P.profitOnly ? +(process.env.PROFIT_LAUNCH_BUY_SOL ?? 0) : Infinity); if (spend < 0.05) throw new Error(MM.P.profitOnly ? 'profit-only test mode: no block-zero vault buy (set PROFIT_LAUNCH_BUY_SOL to allow one)' : 'nothing to spend')
@@ -765,9 +833,22 @@ export async function sendBundle(txs: string[]) { return C.sendBundle(txs.map((b
 /** LaunchLab launch: create(+dev buy) tx(s) for the dev to sign, plus the vault's block-zero buy already keeper-signed, to go out as one Jito bundle.
  *  The vault must be funded first (stake transferred) — same flow as the pump path. Without a vault it is just the create tx(s). */
 /** is this coin on chain? our launchpad: its LaunchLab pool; pump.fun: its bonding curve account */
-export async function onChain(v: Vault, mint: string): Promise<boolean> {
-  if (v.venue === 'launchlab') return LL.pool(mint).then((p) => !!p).catch(() => false)
-  return conn.getAccountInfo(curvePda(mint)).then((a) => !!a).catch(() => false)
+export async function onChain(v: Vault, mint: string): Promise<boolean> { return (await onChainOrUnknown(v, mint)) === true }
+/** true / false from a successful read, null when the RPC failed (never treated as 'not there': a vault is never dropped on one bad response) */
+export async function onChainOrUnknown(v: Vault, mint: string): Promise<boolean | null> {
+  const acct = v.venue === 'launchlab' ? LL.poolIdOf(mint) : curvePda(mint)
+  return conn.getAccountInfo(acct).then((a) => !!a, () => null)
+}
+/** A launch build of this vault whose bundle can still land: until it lands or its blockhash is gone, no second build (two builds that both
+ *  land = two coins and two keeper-signed buys against one stake — review, Oct 30). Returns null when clear. */
+async function launchInFlight(v: Vault): Promise<string | null> {
+  const pl = (v as any).pendingLaunch as { mint: string; sig?: string; blockhash: string; at: number } | undefined; if (!pl) return null
+  if (await onChainOrUnknown(v, pl.mint) === true) return 'already live: ' + pl.mint
+  if (pl.sig) { const r = await conn.getSignatureStatuses([pl.sig], { searchTransactionHistory: true }).catch(() => null); if (!r) return 'could not check the last launch attempt — try again in a few seconds'; if (r.value[0] && !r.value[0].err) return 'already live: ' + pl.mint }
+  const valid = await conn.isBlockhashValid(pl.blockhash, { commitment: 'processed' }).then((x) => x.value, () => null)
+  if (valid === null) return 'could not check the last launch attempt — try again in a few seconds'
+  if (valid) return 'the last launch attempt can still land — waiting for it to expire'
+  delete (v as any).pendingLaunch; save(); return null
 }
 /** a launch of this vault that did go live (a retry must never put a second coin out for the same chest) */
 export async function liveBuild(v: Vault): Promise<string | null> {
@@ -781,8 +862,9 @@ const noteBuilt = (v: Vault, mint: string) => { (v as any).buildAt = Date.now();
 export async function buildPumpLaunch(b: { dev: string; name: string; symbol: string; uri: string; devBuySol?: number; vaultId?: string; vaultBuySol?: number; fundInBundle?: boolean; tipSol?: number; auth?: { msg?: string; sig?: string } }) {
   const dev = new PK(b.dev); const devBuy = Math.max(0, +(b.devBuySol || 0)); const t0 = Date.now()
   const v = b.vaultId ? vaults[b.vaultId] : null
-  if (b.vaultId) { if (!v) throw new Error('no such vault'); if (v.dev !== b.dev) throw new Error('not your vault'); devAuth(v, 'launch', b.dev, b.auth); if (v.armed) throw new Error('already armed'); v.venue = 'pump'
-    const live = await liveBuild(v); if (live) throw new Error('already live: ' + live) }
+  if (b.vaultId) { if (!v) throw new Error('no such vault'); if (v.dev !== b.dev) throw new Error('not your vault'); devAuth(v, 'launch', b.dev, b.auth); if ((v as any).closedAt) throw new Error('this vault was closed — launch with a new one'); v.venue = 'pump'
+    const live = await liveBuild(v); if (live) throw new Error('already live: ' + live); if (v.armed) throw new Error(v.mint ? 'already live: ' + v.mint : 'already armed')
+    const fl = await launchInFlight(v); if (fl) throw new Error(fl) }
   let bal = 0, fundSol = 0, spend = 0
   if (v) {
     bal = v.shared ? v.chest : await balanceSol(v.pub)
@@ -820,7 +902,7 @@ export async function buildPumpLaunch(b: { dev: string; name: string; symbol: st
       KEEP.sign({ id: v.id, chest: bal, sk: kp(v) }, vt, 'launch', cost + bi.tipSol); vaultTx = Buffer.from(vt.serialize()).toString('base64'); setTimeout(() => watchLanding(v.id, bs58.encode(vt.signatures[0]), mint), 0)
       v.vaultBuySol = +cost.toFixed(4); v.activity.unshift({ t: Date.now(), kind: 'note', sig: bs58.encode(vt.signatures[0]), mint, msg: `signed block-zero buy · ${cost.toFixed(3)} SOL for ${(bi.tokens / 1e6).toFixed(2)}M tokens (pump)${fundSol ? ` · stake ${fundSol.toFixed(3)} SOL inside the create` : ''}` } as any)
     } else { const lb = await conn.getLatestBlockhash('confirmed'); ct.message.recentBlockhash = lb.blockhash; ct.sign([mintKp]) }
-    if (v) { v.mint = mint; v.uri = b.uri; v.symbol = b.symbol; v.name = b.name; resolveImage(v); noteBuilt(v, mint); save() }
+    if (v) { v.mint = mint; v.uri = b.uri; v.symbol = b.symbol; v.name = b.name; resolveImage(v); noteBuilt(v, mint); (v as any).pendingLaunch = { mint, sig: vt ? bs58.encode(vt.signatures[0]) : undefined, blockhash: ct.message.recentBlockhash, at: Date.now() }; save() }
     const ms = Date.now() - t0; if (ms > 4000) EV.log('vault', `pump launch build took ${(ms / 1000).toFixed(1)} s`, { mint, ms })
     return { venue: 'pump', mint, txs: [Buffer.from(ct.serialize()).toString('base64')], vaultTx, vaultSpend: cost, vaultTokens, fundSol, branded }
   } catch (e) { if (branded) MP.unuse(mintKp); throw e }
@@ -830,9 +912,10 @@ const fundedSol = (v: Vault) => v.activity.filter((a) => a.kind === 'stake').red
 export async function buildLaunch(b: { dev: string; name: string; symbol: string; uri: string; devBuySol?: number; vaultId?: string; vaultBuySol?: number; permTax?: boolean; fundInBundle?: boolean; auth?: { msg?: string; sig?: string } }) {
   const dev = new PK(b.dev); const devBuy = Math.max(0, +(b.devBuySol || 0))
   if (b.vaultId) { const v = vaults[b.vaultId]; if (!v) throw new Error('no such vault'); if (v.dev !== b.dev) throw new Error('not your vault'); devAuth(v, 'launch', b.dev, b.auth)
-    if (v.armed) throw new Error('already armed')
+    if ((v as any).closedAt) throw new Error('this vault was closed — launch with a new one')
     // a retry after a launch that looked failed but landed late: never a second coin for one chest — point the app at the live one
-    const live = await liveBuild(v); if (live) throw new Error('already live: ' + live) }
+    const live = await liveBuild(v); if (live) throw new Error('already live: ' + live); if (v.armed) throw new Error(v.mint ? 'already live: ' + v.mint : 'already armed')
+    const fl = await launchInFlight(v); if (fl) throw new Error(fl) }
   const t0 = Date.now()
   const built = await LL.buildLaunch(dev, { name: b.name, symbol: b.symbol, uri: b.uri }, devBuy, LL.PLATFORM_ID, !!b.permTax); track(built.mint)
   let vaultTx: string | null = null, vaultSpend = 0, vaultTokens = 0; let launchTxs = built.txs; let fundSol = 0
@@ -850,7 +933,7 @@ export async function buildLaunch(b: { dev: string; name: string; symbol: string
     v.mint = built.mint; v.uri = b.uri; v.symbol = b.symbol; v.name = b.name   // bound now even with no vault buy, so the vault can arm itself once the coin is on chain
     v.vaultBuySol = vaultSpend   // the real block-zero spend (after caps): it is the vault's cost basis and the initials to recover
     if (vaultSpend >= 0.05) {
-      const tx = await LL.buildTrade(kp(v).publicKey, 'buy', built.mint, vaultSpend, { poolState: built.afterDev, fromCreate: true, slippageBps: 3000, tipLamports: Math.floor(+(process.env.LAUNCH_TIP_SOL || process.env.TIP_SOL || 0.003) * 1e9), permTaxBps: built.permTax })
+      const tx = await LL.buildTrade(kp(v).publicKey, 'buy', built.mint, vaultSpend, { poolState: built.afterDev, fromCreate: true, slippageBps: 1000, tipLamports: Math.floor(+(process.env.LAUNCH_TIP_SOL || process.env.TIP_SOL || 0.003) * 1e9), permTaxBps: built.permTax })
       // one fresh blockhash for the whole bundle, stamped last (create re-signed by the mint, the vault buy signed after) — nothing slow runs after this
       const lb = await conn.getLatestBlockhash('confirmed'); launchTxs = built.restamp(lb.blockhash); if (tx.message.header.numRequiredSignatures === 1) tx.message.recentBlockhash = lb.blockhash
       KEEP.sign({ id: v.id, chest: bal, sk: kp(v) }, tx, 'launch', vaultSpend)
@@ -860,6 +943,7 @@ export async function buildLaunch(b: { dev: string; name: string; symbol: string
     }
   }
   if (!vaultTx) launchTxs = built.restamp((await conn.getLatestBlockhash('confirmed')).blockhash)
+  if (b.vaultId && vaults[b.vaultId]) { const ct0 = VersionedTransaction.deserialize(Buffer.from(launchTxs[0], 'base64')); (vaults[b.vaultId] as any).pendingLaunch = { mint: built.mint, sig: vaultTx ? bs58.encode(VersionedTransaction.deserialize(Buffer.from(vaultTx, 'base64')).signatures[0]) : undefined, blockhash: ct0.message.recentBlockhash, at: Date.now() } }
   const ms = Date.now() - t0; if (ms > 4000) EV.log('vault', `launch build took ${(ms / 1000).toFixed(1)} s (blockhash stamped at the end)`, { mint: built.mint, ms })
   if (b.vaultId && vaults[b.vaultId]) { noteBuilt(vaults[b.vaultId], built.mint); save() }
   return { venue: 'launchlab', mint: built.mint, poolId: built.poolId, txs: launchTxs, vaultTx, vaultSpend, vaultTokens, devTokens: built.devTokens, permTax: built.permTax, fundSol, tax: LL.status() }
@@ -874,49 +958,63 @@ export async function claimPlatformFees(force = false): Promise<number> {
   if (pendingClaim) { claiming = true; try { await settlePendingClaim() } finally { claiming = false } if (pendingClaim) return 0 }
   if (!force && Date.now() < nextClaimAt) return 0
   claiming = true; nextClaimAt = Date.now() + 180_000 + Math.random() * 60_000
+  let snap: { ids: string[]; w: number[] } | null = null
   try {
     const pending = await LL.platformVaultSol(); if (pending < 0.005) return 0
     const pkB58 = LL.platformKeypair().publicKey.toBase58()
-    const tx = await LL.buildClaimVault(); const raw = tx.serialize(); const sig = await conn.sendRawTransaction(raw, { skipPreflight: false, maxRetries: 3 })
+    const tx = await LL.buildClaimVault(); const raw = tx.serialize(); const sig = bs58.encode(tx.signatures[0])
     const ours = Object.values(vaults).filter((v) => v.armed && v.venue === 'launchlab' && !v.paper && !(v as any).closedAt)   // a withdrawn vault earns nothing more
-    const snap = { ids: ours.map((v) => v.id), w: taxWeights(ours) }; for (const v of ours) v.taxAccrued = 0
+    snap = { ids: ours.map((v) => v.id), w: taxWeights(ours) }
+    // written down BEFORE it is sent: a restart mid-confirm then still knows the claim and its weights (review, Oct 30)
+    pendingClaim = { sig, at: Date.now(), pending, blockhash: tx.message.recentBlockhash, ...snap }; savePending(); for (const v of ours) v.taxAccrued = 0; save()
+    await conn.sendRawTransaction(raw, { skipPreflight: false, maxRetries: 3 })
     const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 2500)
     try { await confirm(sig, 75_000) } catch (e: any) {
       if (!/timeout/i.test(String(e.message))) throw e
-      pendingClaim = { sig, at: Date.now(), pending, ...snap }; EV.log('vault', `platform fee claim ${sig.slice(0, 8)}… not confirmed yet — it will be credited when it lands`, { sig }); savePending(); save(); return 0
+      EV.log('vault', `platform fee claim ${sig.slice(0, 8)}… not confirmed yet — it will be credited when it lands`, { sig }); return 0
     } finally { clearInterval(rb) }
+    pendingClaim = null; savePending()
     const got = Math.max(0, await txDelta(sig, pkB58).catch(() => pending)); if (got < 0.0005) return 0
     await distributeFees(sig, got, snap); return got
-  } catch (e: any) { EV.log('error', 'platform fee claim: ' + String(e.message || e).slice(0, 140)); return 0 } finally { claiming = false }
+  } catch (e: any) {
+    // failed or never sent: nothing was claimed — the weights go back for the next claim
+    if (pendingClaim && snap) { restoreWeights(snap); pendingClaim = null; savePending() }
+    EV.log('error', 'platform fee claim: ' + String(e.message || e).slice(0, 140)); return 0
+  } finally { claiming = false }
 }
-/** the claim that timed out, kept across restarts in the vault file's sidecar */
-let pendingClaim: { sig: string; at: number; pending: number; ids: string[]; w: number[] } | null = (() => { try { return JSON.parse(readFileSync(DIR + '/pending-claim.json', 'utf8')) } catch { return null } })()
+/** the claim in flight, kept across restarts (written before it is sent) */
+let pendingClaim: { sig: string; at: number; pending: number; blockhash?: string; ids: string[]; w: number[] } | null = (() => { try { return JSON.parse(readFileSync(DIR + '/pending-claim.json', 'utf8')) } catch { return null } })()
 const savePending = () => { try { mkdirSync(DIR, { recursive: true }); writeFileSync(DIR + '/pending-claim.json', JSON.stringify(pendingClaim)) } catch {} }
+const restoreWeights = (pc: { ids: string[]; w: number[] }) => { for (const [i, id] of pc.ids.entries()) { const v = vaults[id]; if (v) v.taxAccrued = +((v.taxAccrued || 0) + (pc.w[i] || 0)).toFixed(9) } save() }
 async function settlePendingClaim() {
-  const pc = pendingClaim!; const st = (await conn.getSignatureStatuses([pc.sig], { searchTransactionHistory: true }).catch(() => null))?.value?.[0]
+  const pc = pendingClaim!; const r = await conn.getSignatureStatuses([pc.sig], { searchTransactionHistory: true }).catch(() => null)
+  if (!r) return   // RPC down: unknown, ask again next time — never written off on a bad answer
+  const st = r.value[0]
   if (st && !st.err && (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized')) {
     pendingClaim = null; savePending(); const got = Math.max(0, await txDelta(pc.sig, LL.platformKeypair().publicKey.toBase58()).catch(() => pc.pending))
     EV.log('vault', `late platform fee claim landed: ${got.toFixed(4)} SOL`, { sig: pc.sig }); if (got >= 0.0005) await distributeFees(pc.sig, got, pc); return
   }
-  if (st?.err || Date.now() - pc.at > 180_000) { // failed, or its blockhash is long gone: it never landed — put the weights back for the next claim
-    for (const [i, id] of pc.ids.entries()) { const v = vaults[id]; if (v) v.taxAccrued = +((v.taxAccrued || 0) + (pc.w[i] || 0)).toFixed(9) }
-    pendingClaim = null; savePending(); nextClaimAt = 0
-  }
+  if (st?.err) { restoreWeights(pc); pendingClaim = null; savePending(); nextClaimAt = 0; return }
+  // not seen: it can only be written off once its blockhash is gone (then it can never land)
+  const valid = pc.blockhash ? await conn.isBlockhashValid(pc.blockhash, { commitment: 'processed' }).then((x) => x.value, () => null) : (Date.now() - pc.at > 180_000 ? false : null)
+  if (valid === false) { restoreWeights(pc); pendingClaim = null; savePending(); nextClaimAt = 0 }
 }
 /** credit one landed claim to the chests by the weights captured when it was sent */
 async function distributeFees(sig: string, got: number, snap: { ids: string[]; w: number[] }) {
   const pk = LL.platformKeypair(); const pkB58 = pk.publicKey.toBase58()
   const ours = snap.ids.map((id) => vaults[id]).filter(Boolean) as Vault[]; const W = snap.ids.map((id, i) => vaults[id] ? snap.w[i] : 0).filter((_, i) => vaults[snap.ids[i]])
-  const total = W.reduce((a, w) => a + w, 0)
+  const C = taxCredits(got, W)   // each chest: what its own observed volume paid (+25%), never a share of chest-less coins' fees
   const credits: { v: Vault; sol: number; why: string }[] = []
-  for (const [i, v] of ours.entries()) { const share = total > 0 ? got * W[i] / total : 0; if (share < 0.0001) continue
+  for (const [i, v] of ours.entries()) { const share = C[i] || 0; if (share < 0.0001) continue
     const orig = v.copyOf ? ours.find((x) => x.mint === v.copyOf) : null; const toOrig = orig ? (v.vampFlag ? share : share / 2) : 0
     if (share - toOrig > 0) credits.push({ v, sol: share - toOrig, why: toOrig ? `tax → chest (${v.vampFlag ? 'all' : 'half'} of it to original ${orig!.symbol})` : 'tax → chest' })
     if (orig && toOrig > 0) credits.push({ v: orig, sol: toOrig, why: `tax from ${v.vampFlag ? 'flagged copy' : 'copy'} ${v.symbol}` }) }
   // the platform wallet IS the shared vault wallet: crediting a shared chest is a ledger move. A per-key vault gets a real transfer.
   const fwd = new TX(); let fwdAny = false
+  // (a shared chest whose wallet is not the platform wallet gets a transfer and is credited exactly c.sol — never the shared wallet's whole
+  // delta for that tx, which would give each such chest the sum of all of them)
   for (const c of credits) { if (c.v.shared && c.v.pub === pkB58) { c.v.chest = +(c.v.chest + c.sol).toFixed(9) } else { fwd.add(SP.transfer({ fromPubkey: pk.publicKey, toPubkey: new PK(c.v.pub), lamports: Math.floor(c.sol * 1e9) })); fwdAny = true } }
-  let sig2 = sig; if (fwdAny) { fwd.feePayer = pk.publicKey; fwd.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash; fwd.sign(pk); sig2 = await conn.sendRawTransaction(fwd.serialize(), { maxRetries: 3 }); await confirm(sig2); for (const c of credits) if (!(c.v.shared && c.v.pub === pkB58)) await book(c.v, sig2, c.sol) }
+  let sig2 = sig; if (fwdAny) { fwd.feePayer = pk.publicKey; fwd.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash; fwd.sign(pk); sig2 = await conn.sendRawTransaction(fwd.serialize(), { maxRetries: 3 }); await confirm(sig2); for (const c of credits) if (!(c.v.shared && c.v.pub === pkB58)) { if (c.v.shared) c.v.chest = +(c.v.chest + c.sol).toFixed(9); else await book(c.v, sig2, c.sol) } }
   for (const c of credits) { c.v.taxClaimed = (c.v.taxClaimed || 0) + c.sol; c.v.activity.unshift({ t: Date.now(), kind: 'tax', sol: c.sol, sig: sig2, msg: c.why }) }
   const credited = credits.reduce((a, c) => a + c.sol, 0); EV.log('vault', `platform fees claimed ${got.toFixed(4)} SOL → ${credits.length} chest(s) ${credited.toFixed(4)} SOL${got - credited > 0.0005 ? ` (${(got - credited).toFixed(4)} unattributed → treasury)` : ''}`, { sig })
   save()

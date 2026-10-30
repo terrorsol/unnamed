@@ -264,10 +264,12 @@ export default function App() {
       }
       let r: T.LaunchOut
       if (vault && oneSig) {
-        const deps = { sendBundle: K.sendBundle, signMsg, permTax, uri: uriP, venue }
-        try { r = await T.launchOurs(x, meta, dev, vault, buy, { ...deps, fundInBundle: !staked }) }
+        const deps = { sendBundle: K.sendBundle, signMsg, permTax, uri: uriP, venue }; const d1: T.LaunchDeps = { ...deps, fundInBundle: !staked }
+        try { r = await T.launchOurs(x, meta, dev, vault, buy, d1) }
         catch (e: any) {
           const m = String(e?.message || e)
+          // once a one-signature create was signed in this click its stake may still land: never send a second stake on top of it
+          if (d1.signed) throw e
           // pump: a server without the build route yet → the client-built bundle, stake sent first (the path used until Oct 30)
           if (venue === 'pump' && !staked && /not found|server 404/i.test(m)) { await fundAhead(vault); r = await T.launchBlockZero(x, meta, dev, vault, buy, { bundleSign: K.bundleSign, sendBundle: K.sendBundle, signMsg }) }
           // the stake transfer didn't fit in the create tx (very long name/uri): fall back to funding first, then the same bundle

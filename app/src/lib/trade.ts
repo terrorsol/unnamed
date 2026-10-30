@@ -156,7 +156,7 @@ async function confirmByPollingB58(conn: Connection, tx: VersionedTransaction, m
  *  block-zero buy already keeper-signed. Both go out as one Jito bundle — never a plain fallback that would put the coin live without the vault buy.
  *  fundInBundle (one-signature launch): the stake is not sent ahead; the server puts the dev → vault transfer inside the create tx itself, so the
  *  wallet signs once and a launch that doesn't land costs nothing. Every trade on the coin pays the platform fee into the chest from the first block. */
-export type LaunchDeps = { sendBundle: (txs: string[]) => Promise<{ bundleId: string }>; signMsg?: (m: Uint8Array) => Promise<Uint8Array>; permTax?: boolean; fundInBundle?: boolean; uri?: Promise<string> | string; venue?: 'launchlab' | 'pump' }
+export type LaunchDeps = { sendBundle: (txs: string[]) => Promise<{ bundleId: string }>; signMsg?: (m: Uint8Array) => Promise<Uint8Array>; permTax?: boolean; fundInBundle?: boolean; uri?: Promise<string> | string; venue?: 'launchlab' | 'pump'; signed?: boolean }
 export type LaunchOut = { sig: string; mint: string; bundled: boolean; already?: boolean; fundSol?: number }
 export async function launchOurs(ctx: Ctx, meta: P.CreateMeta, devBuySol: number, vault: { id: string } | null, vaultBuySol: number, deps: LaunchDeps): Promise<LaunchOut> {
   const { onStatus } = ctx
@@ -175,11 +175,17 @@ async function launchOursOnce(ctx: Ctx, meta: P.CreateMeta, uri: string, devBuyS
   const { conn, owner, sign, onStatus } = ctx
   onStatus?.('Building launch…')
   const req = (auth?: K.DevAuth): K.LaunchBuildReq => ({ dev: owner.toBase58(), name: meta.name, symbol: meta.symbol, uri, devBuySol, vaultId: vault?.id, vaultBuySol, auth, permTax: !!deps.permTax, fundInBundle: !!deps.fundInBundle })
-  const b = await K.withDevAuth(vault ? deps.signMsg : undefined, 'launch', vault?.id || '', owner.toBase58(), (auth) => deps.venue === 'pump' ? K.pumpLaunchBuild(req(auth)) : K.llLaunchBuild(req(auth)))
+  // the server refuses a new build while the last attempt can still land (two coins, two buys on one stake): wait it out (≤ ~100 s)
+  let b: Awaited<ReturnType<typeof K.llLaunchBuild>> | undefined
+  for (const t0 = Date.now(); ;) {
+    try { b = await K.withDevAuth(vault ? deps.signMsg : undefined, 'launch', vault?.id || '', owner.toBase58(), (auth) => deps.venue === 'pump' ? K.pumpLaunchBuild(req(auth)) : K.llLaunchBuild(req(auth))) as any; break }
+    catch (e: any) { if (!/can still land|could not check the last launch/i.test(String(e?.message || e)) || Date.now() - t0 > 100_000) throw e; onStatus?.(`Waiting for the last attempt to expire (${Math.round((Date.now() - t0) / 1000)} s)…`); await new Promise((r) => setTimeout(r, 4000)) }
+  }
+  if (!b) throw new Error('launch build failed')
   const left = b.fundSol ? 'nothing was spent' : 'your stake is still in the vault'
   const txs = b.txs.map((x) => VersionedTransaction.deserialize(Buffer.from(x, 'base64')))
   onStatus?.(b.fundSol ? `Sign once: launch + ${(+b.fundSol).toFixed(2)} SOL stake…` : txs.length > 1 ? `Sign ${txs.length} transactions…` : 'Sign the create…')
-  const signed: VersionedTransaction[] = []; for (const t of txs) signed.push(await sign(t))
+  const signed: VersionedTransaction[] = []; for (const t of txs) signed.push(await sign(t)); deps.signed = true   // from here a stake may be on its way: never fund ahead in this click
   const sig = bs58.encode(signed[0].signatures[0])
   if (b.vaultTx) {
     // the vault's block-zero buy only exists inside the bundle: never fall back to a plain launch that would put the coin live without it

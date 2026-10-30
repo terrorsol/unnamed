@@ -129,7 +129,7 @@ export async function askFill(id: string, buyer: string, txB64: string, sol?: nu
   if (why) { a.status = 'open'; throw new Error('fill rejected: ' + why) }
   if (a.internal) {
     // the vault is the seller: keeper co-signs the token transfer, we send and settle right here
-    try { a.internal.sign(tx, 0); const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 }); await confirm(sig)
+    try { a.internal.sign(tx, 0); const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 }); await confirm(sig); onVaultAskFill?.(a.seller, a.mint, Number(BigInt(q.sellerLamports)) / 1e9, q.tokens, sig)
       pending.set('a:' + id, { resolve: () => {}, reject: () => {}, timer: setTimeout(() => {}, 0), buyer, tokens: q.tokens, takeSol: q.takeSol } as any); settleAsk(id, true, sig); return { sig } }
     catch (e: any) { a.status = 'open'; throw new Error('vault fill failed: ' + String(e.message).slice(0, 100)) }
   }
@@ -203,7 +203,7 @@ export async function fill(id: string, seller: string, txB64: string, sol?: numb
     try {
       if (b.sol > b.internal.maxSol()) throw new Error('vault bid no longer affordable')
       if (b.internal.sign) b.internal.sign(tx, q.takeSol); else tx.partialSign(b.internal.kp); const raw = tx.serialize(); const sig = await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }); const rb = setInterval(() => conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}), 2000); try { await confirm(sig) } finally { clearInterval(rb) }
-      settleAmount(b, q.takeSol); recordFill({ t: Date.now(), mint: b.mint, symbol: b.symbol, seller, bidder: b.bidder, sol: q.takeSol, discBps: b.discBps, tokens: q.tokens, sig, vault: true }); rfqNoteFill(id, q.takeSol); onVaultFill?.(b.bidder, q.takeSol, q.tokens, seller); return { sig }
+      settleAmount(b, q.takeSol); recordFill({ t: Date.now(), mint: b.mint, symbol: b.symbol, seller, bidder: b.bidder, sol: q.takeSol, discBps: b.discBps, tokens: q.tokens, sig, vault: true }); rfqNoteFill(id, q.takeSol); onVaultFill?.(b.bidder, q.takeSol, q.tokens, seller, b.mint, sig); return { sig }
     } catch (e) { b.status = 'open'; throw e }
   }
   return new Promise((resolve, reject) => {
@@ -231,7 +231,10 @@ export function registerBidderSocket(ws: WebSocket) { sockets.add(ws); ws.on('cl
 /** Push a 'book changed' note for a mint to every client; they re-read the book immediately instead of waiting for the poll. */
 export const bookChanged = (mint: string) => broadcast({ type: 'book', mint, t: Date.now() })
 export const broadcast = (o: any, except?: WebSocket) => { const s = JSON.stringify(o); for (const w of sockets) if (w !== except && w.readyState === 1) w.send(s) }
-export let onVaultFill: ((bidder: string, sol: number, tokens: number, seller?: string) => void) | null = null
+export let onVaultFill: ((bidder: string, sol: number, tokens: number, seller?: string, mint?: string, sig?: string) => void) | null = null
+/** a vault's standing ask was taken: the buyer's SOL landed in the vault wallet (credited to THAT vault's chest, and the signature recorded so nobody can book it as their own deposit) */
+export let onVaultAskFill: ((seller: string, mint: string, sol: number, tokens: number, sig: string) => void) | null = null
+export function setOnVaultAskFill(f: typeof onVaultAskFill) { onVaultAskFill = f }
 export function setOnVaultFill(f: typeof onVaultFill) { onVaultFill = f }
 let vaultResponder: ((mint: string, sizeSol: number, maxBps: number, rfqId: string) => Promise<Bid | null>) | null = null
 export function setVaultResponder(f: typeof vaultResponder) { vaultResponder = f }

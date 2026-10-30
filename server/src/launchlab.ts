@@ -127,7 +127,8 @@ export async function buildLaunch(dev: PublicKey, meta: { name: string; symbol: 
   // one-signature launches: the dev's stake rides INSIDE the create tx (dev → vault wallet). The create is mint-signed by us, so the
   // dev can't strip the transfer and keep the vault's block-zero buy, and nothing moves unless the whole bundle lands.
   const addTransfer = async (to: PublicKey, lamports: number) => {
-    const i = txs.findIndex((t) => t.message.staticAccountKeys[0]?.equals(dev)); if (i < 0) throw new Error('no create tx paid by the dev')
+    // the stake goes into THE create: paid by the dev and signed by the mint (so it can't be re-sent without it)
+    const i = txs.findIndex((t) => t.message.staticAccountKeys[0]?.equals(dev) && t.message.header.numRequiredSignatures > 1 && t.message.staticAccountKeys.slice(0, t.message.header.numRequiredSignatures).some((k) => k.toBase58() === mintKey)); if (i < 0) throw new Error('no create tx paid by the dev and signed by the mint')
     const t = txs[i]; const luts: AddressLookupTableAccount[] = []
     for (const l of t.message.addressTableLookups) { const a = (await conn.getAddressLookupTable(l.accountKey)).value; if (!a) throw new Error('lookup table not found'); luts.push(a) }
     txs[i] = appendTransfer(t, luts, dev, to, lamports); return txs[i].serialize().length
