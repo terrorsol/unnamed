@@ -267,7 +267,8 @@ export default function App() {
           // pump: a server without the build route yet → the client-built bundle, stake sent first (the path used until Oct 30)
           if (venue === 'pump' && !staked && /not found|server 404/i.test(m)) { await fundAhead(vault); r = await T.launchBlockZero(x, meta, dev, vault, buy, { bundleSign: K.bundleSign, sendBundle: K.sendBundle, signMsg }) }
           // the stake transfer didn't fit in the create tx (very long name/uri): fall back to funding first, then the same bundle
-          else if (!staked && /max 1232|lookup table|no create tx paid|not paid by the dev/i.test(m)) { await fundAhead(vault); r = await T.launchOurs(x, meta, dev, vault, buy, { ...deps, fundInBundle: false }) }
+          // (and a server that predates one-signature launches answers 'vault not funded': same fallback)
+          else if (!staked && /max 1232|lookup table|no create tx paid|not paid by the dev|vault not funded: 0\.000/i.test(m)) { await fundAhead(vault); r = await T.launchOurs(x, meta, dev, vault, buy, { ...deps, fundInBundle: false }) }
           else throw e
         }
       } else r = venue === 'launchlab' ? await T.launchOurs(x, meta, dev, null, 0, { sendBundle: K.sendBundle, permTax, uri: uriP }) : { ...(await T.launch(x, meta, dev)), bundled: false }
