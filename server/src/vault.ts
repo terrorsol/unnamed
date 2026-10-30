@@ -623,6 +623,20 @@ async function refundOnce(id: string, auth?: { msg?: string; sig?: string }) {
   EV.log('vault', `${v.symbol || id} refunded ${sol} SOL to the dev (${reclaim ? 'test reclaim: whole chest' : 'stake back, vault never traded'})`, { id, sig }); save(); return { sig, sol }
 }
 /** admin: drop a vault that never armed (its stake was returned by hand from the shared wallet); refuses armed vaults */
+/** Operator (admin key): book a shared vault's chest to what the wallet really holds when something outside the server traded from the
+ *  shared wallet (Oct 30: the owner ran his own market maker from it — 33.6 SOL of buys the ledger never saw, so the chest read ~24 SOL
+ *  high). chest = wallet SOL − every OTHER shared vault's ledger − a 0.01 reserve; coins re-read from chain. Refused while the vault has a
+ *  trade, a payout or a late book in flight. The old and new values are written to the vault's activity and the event log. */
+export async function reconcile(id: string) {
+  const v = vaults[id]; if (!v) throw new Error('no such vault'); if (!v.shared || !SHARED) throw new Error('only a shared-wallet vault has a ledger to reconcile')
+  if ((v as any)._capBusy || inflight.has(v.id) || (v as any)._payPending || lateBooks.some((x) => x.id === v.id) || lateCredits.some((x) => x.id === v.id)) throw new Error('a trade or payout of this chest is still in flight — try again in a minute')
+  const bal = await balanceSol(SHARED.publicKey.toBase58()); const others = Object.values(vaults).filter((x) => x.shared && !x.paper && x.id !== v.id).reduce((a, x) => a + Math.max(0, x.chest || 0), 0)
+  const before = { chest: v.chest, tokens: v.tokens }
+  v.chest = +Math.max(0, bal - others - 0.01).toFixed(9); if (v.mint) v.tokens = (await tokenBalance(v.pub, v.mint)).ui; v.ledgerDirty = false
+  const msg = `reconciled to the wallet: chest ${before.chest.toFixed(4)} → ${v.chest.toFixed(4)} SOL, coins ${Math.round(before.tokens)} → ${Math.round(v.tokens)} (wallet ${bal.toFixed(4)} SOL, other chests ${others.toFixed(4)})`
+  v.activity.unshift({ t: Date.now(), kind: 'note', msg }); EV.log('vault', `${v.symbol || v.id} ${msg}`, { id, before, after: { chest: v.chest, tokens: v.tokens }, bal, others }); save()
+  return { id, before, after: { chest: v.chest, tokens: v.tokens }, wallet: bal, others }
+}
 export function retire(id: string) { const v = vaults[id]; if (!v) throw new Error('no such vault'); if (v.armed) throw new Error('armed vaults cannot be retired'); const out = { id, chest: v.chest, mint: v.mint }; delete vaults[id]; save(); EV.log('vault', `retired unarmed vault ${id} (ledger ${out.chest} SOL)`, out); return out }
 export const get = (id: string) => vaults[id] ? pub(vaults[id]) : null
 export const byMint = (mint: string) => { const v = Object.values(vaults).find((x) => x.mint === mint); return v ? pub(v) : null }
