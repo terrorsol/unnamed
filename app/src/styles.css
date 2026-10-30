@@ -471,3 +471,9 @@ tbody tr{transition:background .12s,transform .12s}tbody tr:hover{transform:tran
 .lp-msg{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--fg2)}.lp-msg span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @keyframes lpPulse{50%{box-shadow:0 0 0 5px rgba(43,212,106,.08)}}
 @media (prefers-reduced-motion:reduce){.lp-steps span.on i{animation:none}}
+
+/* chest: launch buy paid back + its last moves */
+.prog-back{margin-top:10px;display:flex;flex-direction:column;gap:5px}
+.prog-fill.back i{background:linear-gradient(90deg,var(--up),#8ff0b4)}
+.prog-feed{margin-top:10px;display:flex;flex-direction:column;gap:4px}
+.prog-fi{display:flex;align-items:center;gap:8px;font-size:12px;min-width:0}.prog-fi .pf-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg2)}.prog-fi b{font-size:12px}.prog-fi .nm{min-width:44px;text-align:right}

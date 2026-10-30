@@ -62,6 +62,7 @@ export function ProgressCard({ coin, vault, solPrice, held = 0, simple = false }
   const myFloorSol = vault && held > 0 ? (held / (vault.supply || 1e9)) * chest * 0.93 : 0
   const last = vault?.activity?.find((a) => MOVE[a.kind])
   const fees = vault?.taxClaimed || 0
+  const feed = (vault?.activity || []).filter((a) => a.kind === 'capture' || a.kind === 'tax' || a.kind === 'buy').slice(0, 4)
   return <div className="card prog">
     <div className="prog-hd"><span className="lbl" style={{ margin: 0 }}>{simple ? 'Next goal' : 'Next milestone'}</span><span className="sp" /><b className="num">{L.next ? F(L.next) : 'every milestone hit'}</b></div>
     <div className="prog-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(L.frac * 100)}><i style={{ width: `${Math.max(2, L.frac * 100)}%` }} /></div>
@@ -75,7 +76,14 @@ export function ProgressCard({ coin, vault, solPrice, held = 0, simple = false }
         <div className="nm">${S(chestUsd, 0)} · backs {backs < 1 ? backs.toFixed(1) : backs.toFixed(0)}% of the coin's value · {fees > 0 ? `${S(fees, 3)} SOL from fees so far` : '2% of every trade adds to it'}</div>
       </div>
     </div> : <div className="nm" style={{ marginTop: 8 }}>No chest on this coin yet.</div>}
+    {vault && (vault.vaultBuySol || 0) >= 0.05 && (() => { const back = Math.min(vault.vaultBuySol!, vault.mm?.inv || 0); const f = back / vault.vaultBuySol!
+      // the chest's own launch buy, paid back out of the snipers' and buyers' flow: the number that says the chest is not a bag
+      return <div className="prog-back"><div className="row" style={{ gap: 6 }}><span className="lbl" style={{ margin: 0 }}>Launch buy paid back</span><span className="sp" /><b className="num">{S(back, 2)} / {S(vault.vaultBuySol!, 2)} SOL</b></div>
+        <div className="prog-fill back"><i style={{ width: `${Math.max(2, f * 100)}%` }} /></div>
+        <div className="nm">{f >= 0.999 ? 'All of it — every coin the chest still holds is free' : 'sold into incoming buys, a slice of each, never into a dump'}</div></div> })()}
     {vault && myFloorSol > 0 && <div className="kv" style={{ marginTop: 6 }}><span>Your coins at the floor</span><b className="num up">≈ {S(myFloorSol, 4)} SOL (${S(myFloorSol * solPrice, 2)})</b></div>}
-    {last && <div className="prog-last"><span className="prog-mv">{MOVE[last.kind][0]}</span><span>The chest {MOVE[last.kind][1]}{last.sol ? ` · ${S(last.sol, 3)} SOL` : ''}</span><span className="sp" /><span className="nm">{ago(last.t)} ago</span></div>}
+    {vault && feed.length >= 2 && (() => { const moves = feed
+      return <div className="prog-feed"><span className="lbl" style={{ margin: 0 }}>What the chest did</span>{moves.map((a, i) => <div key={i} className="prog-fi"><span className="prog-mv">{MOVE[a.kind]?.[0]}</span><span className="pf-t">{a.kind === 'capture' ? (a.msg?.match(/sold into a ([\d.]+) SOL buy/) ? `sold into a ${a.msg!.match(/sold into a ([\d.]+) SOL buy/)![1]} SOL buy` : 'took profit on a pump') : MOVE[a.kind]?.[1]}</span><span className="sp" /><b className="num">{a.kind === 'buy' ? '−' : '+'}{S(a.sol || 0, 3)}</b><span className="nm">{ago(a.t)}</span></div>)}</div> })()}
+    {last && feed.length < 2 && <div className="prog-last"><span className="prog-mv">{MOVE[last.kind][0]}</span><span>The chest {MOVE[last.kind][1]}{last.sol ? ` · ${S(last.sol, 3)} SOL` : ''}</span><span className="sp" /><span className="nm">{ago(last.t)} ago</span></div>}
   </div>
 }
