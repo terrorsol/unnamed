@@ -1,0 +1,378 @@
+{
+ "at": 1793471903837,
+ "vamps": [
+  {
+   "mint": "CEB3egedvQ8V3jRzwcAvuj3ZDLQiwN2EnXqP8pCypump",
+   "symbol": "Satoshi",
+   "original": "Df7kaKskbRMAYEkPEGJ1e33n4RPWDNs9GP9pzPjgpump",
+   "originalSymbol": "Satoshi",
+   "score": 0.85,
+   "reasons": [
+    "same ticker",
+    "same name",
+    "launched 6 min after the original",
+    "14% of the original's mcap"
+   ],
+   "ageMin": 6,
+   "mcapUsd": 11630
+  },
+  {
+   "mint": "HMrS9CtbVfXFfxHoohZ1ZGMAbdbCMC95XbbcAnPupump",
+   "symbol": "satoshi",
+   "original": "Df7kaKskbRMAYEkPEGJ1e33n4RPWDNs9GP9pzPjgpump",
+   "originalSymbol": "Satoshi",
+   "score": 0.85,
+   "reasons": [
+    "same ticker",
+    "same name",
+    "launched 10 min after the original",
+    "4% of the original's mcap"
+   ],
+   "ageMin": 1,
+   "mcapUsd": 2862.68
+  },
+  {
+   "mint": "DMe3YipU8SR7EUBPKAieSfxtBHGj6cEub4uRmLYNnUCL",
+   "symbol": "Satoshi",
+   "original": "Df7kaKskbRMAYEkPEGJ1e33n4RPWDNs9GP9pzPjgpump",
+   "originalSymbol": "Satoshi",
+   "score": 0.85,
+   "reasons": [
+    "same ticker",
+    "same name",
+    "launched 11 min after the original",
+    "0% of the original's mcap"
+   ],
+   "ageMin": 0,
+   "mcapUsd": 0
+  },
+  {
+   "mint": "3TSYdpZfmbRsnNBdkpktMtWGDToTDpj2Msky7yzppump",
+   "symbol": "Bitty",
+   "original": "9VAcRibENGDxTEKreiYrZtrhw9WbBzsNSg775Tiopump",
+   "originalSymbol": "BITTY",
+   "score": 0.85,
+   "reasons": [
+    "same ticker",
+    "same name",
+    "launched 0 min after the original",
+    "0% of the original's mcap"
+   ],
+   "ageMin": 0,
+   "mcapUsd": 0.24
+  },
+  {
+   "mint": "ANB57B3Uf3fxuFgm76MbQsi6uDK8VtjjJYPFNJ71ETCH",
+   "symbol": "BITTY",
+   "original": "9VAcRibENGDxTEKreiYrZtrhw9WbBzsNSg775Tiopump",
+   "originalSymbol": "BITTY",
+   "score": 0.85,
+   "reasons": [
+    "same ticker",
+    "same name",
+    "launched 0 min after the original",
+    "0% of the original's mcap"
+   ],
+   "ageMin": 0,
+   "mcapUsd": 0
+  },
+  {
+   "mint": "Mx4UvAW4VbF2zDGDe6bt66P4G81gdpLzXRAwrHhxS1S",
+   "symbol": "Satoshi",
+   "original": "Df7kaKskbRMAYEkPEGJ1e33n4RPWDNs9GP9pzPjgpump",
+   "originalSymbol": "Satoshi",
+   "score": 0.8,
+   "reasons": [
+    "same ticker",
+    "same name",
+    "launched 9 min after the original"
+   ],
+   "ageMin": 2,
+   "mcapUsd": 47686.91
+  },
+  {
+   "mint": "EHM5MtfM6aSvL7jEPiRtSexJfx1dM1qrVsSQPGcRpump",
+   "symbol": "t1",
+   "original": "Rb3gwb5txH9Pph1SkFmwjTCy27hRvKSQJ6bH3KRpump",
+   "originalSymbol": "t1",
+   "score": 0.8,
+   "reasons": [
+    "same ticker",
+    "same name",
+    "launched 0 min after the original"
+   ],
+   "ageMin": 3,
+   "mcapUsd": 2716.9
+  },
+  {
+   "mint": "3Y2EfSyMjSEpgqFRcCxnr8fSZQ4yQBGpuof6LyeNUBt2",
+   "symbol": "t1",
+   "original": "Rb3gwb5txH9Pph1SkFmwjTCy27hRvKSQJ6bH3KRpump",
+   "originalSymbol": "t1",
+   "score": 0.8,
+   "reasons": [
+    "same ticker",
+    "same name",
+    "launched 0 min after the original"
+   ],
+   "ageMin": 3,
+   "mcapUsd": 3073.5
+  },
+  {
+   "mint": "4CLJSkwJ7JsNvrtZrVwqcXecYrAwUTSkTC1p7gzqpump",
+   "symbol": "LUMI",
+   "original": "HvitmAeh6TkToQonoiNwqWcrZsYdYiaSZHP7yMmspump",
+   "originalSymbol": "LUMI",
+   "score": 0.75,
+   "reasons": [
+    "same ticker",
+    "same name",
+    "launched 6.6 h after the original",
+    "4% of the original's mcap"
+   ],
+   "ageMin": 660,
+   "mcapUsd": 7613
+  },
+  {
+   "mint": "2LuuPJPfzLa73DG5J6DJZSkSx3X7qLG1WgcJPq5fpump",
+   "symbol": "BNB",
+   "original": "EYqygbhZjP7EbM4fSn8devctnksAvPAD1Bt57XBFpump",
+   "originalSymbol": "BNB",
+   "score": 0.55,
+   "reasons": [
+    "same ticker",
+    "launched 21.7 h after the original",
+    "0% of the original's mcap"
+   ],
+   "ageMin": 3,
+   "mcapUsd": 308.57
+  }
+ ],
+ "families": [
+  {
+   "key": "bnb",
+   "members": [
+    {
+     "mint": "EYqygbhZjP7EbM4fSn8devctnksAvPAD1Bt57XBFpump",
+     "symbol": "BNB",
+     "mcapUsd": 323266,
+     "vol1h": 184262.04,
+     "createdAt": 1793393408000,
+     "leader": true,
+     "score": 157.8
+    },
+    {
+     "mint": "2LuuPJPfzLa73DG5J6DJZSkSx3X7qLG1WgcJPq5fpump",
+     "symbol": "BNB",
+     "mcapUsd": 308.57,
+     "vol1h": 86.82,
+     "createdAt": 1793471701000,
+     "leader": false,
+     "score": 0,
+     "vampOf": "EYqygbhZjP7EbM4fSn8devctnksAvPAD1Bt57XBFpump"
+    }
+   ]
+  },
+  {
+   "key": "gato",
+   "members": [
+    {
+     "mint": "HsprHxBRgiVaQdRf3TnKNuZZtaX9JUSPgMFdAkk6pump",
+     "symbol": "GATO",
+     "mcapUsd": 6965729,
+     "vol1h": 61397.47,
+     "createdAt": 1787660841000,
+     "leader": true,
+     "score": 1787.7
+    },
+    {
+     "mint": "55A3VxMBfzw6uSe64zms5iMPw9k6kx9WzzusbCU6pump",
+     "symbol": "Gato",
+     "mcapUsd": 126869,
+     "vol1h": 4446.1,
+     "createdAt": 1792191249000,
+     "leader": false,
+     "score": 8.3
+    }
+   ]
+  },
+  {
+   "key": "lumi",
+   "members": [
+    {
+     "mint": "HvitmAeh6TkToQonoiNwqWcrZsYdYiaSZHP7yMmspump",
+     "symbol": "LUMI",
+     "mcapUsd": 192995,
+     "vol1h": 51672.09,
+     "createdAt": 1793408519000,
+     "leader": true,
+     "score": 47.6
+    },
+    {
+     "mint": "4CLJSkwJ7JsNvrtZrVwqcXecYrAwUTSkTC1p7gzqpump",
+     "symbol": "LUMI",
+     "mcapUsd": 7613,
+     "vol1h": 805.41,
+     "createdAt": 1793432281000,
+     "leader": false,
+     "score": 0.2,
+     "vampOf": "HvitmAeh6TkToQonoiNwqWcrZsYdYiaSZHP7yMmspump"
+    }
+   ]
+  },
+  {
+   "key": "satoshi",
+   "members": [
+    {
+     "mint": "Df7kaKskbRMAYEkPEGJ1e33n4RPWDNs9GP9pzPjgpump",
+     "symbol": "Satoshi",
+     "mcapUsd": 80808,
+     "vol1h": 173105.33,
+     "createdAt": 1793471233000,
+     "leader": true,
+     "score": 1.1
+    },
+    {
+     "mint": "4JYhAyQfRqs7EpsVVCXvB4sw14X37QEMb1cqc72qpump",
+     "symbol": "Satoshi",
+     "mcapUsd": 4120,
+     "vol1h": 59372.41,
+     "createdAt": 1793470727000,
+     "leader": false,
+     "score": 0.1
+    },
+    {
+     "mint": "CEB3egedvQ8V3jRzwcAvuj3ZDLQiwN2EnXqP8pCypump",
+     "symbol": "Satoshi",
+     "mcapUsd": 11630,
+     "vol1h": 37734.37,
+     "createdAt": 1793471563000,
+     "leader": false,
+     "score": 0,
+     "vampOf": "Df7kaKskbRMAYEkPEGJ1e33n4RPWDNs9GP9pzPjgpump"
+    },
+    {
+     "mint": "Mx4UvAW4VbF2zDGDe6bt66P4G81gdpLzXRAwrHhxS1S",
+     "symbol": "Satoshi",
+     "mcapUsd": 47686.91,
+     "vol1h": 8097.54,
+     "createdAt": 1793471800000,
+     "leader": false,
+     "score": 0,
+     "vampOf": "Df7kaKskbRMAYEkPEGJ1e33n4RPWDNs9GP9pzPjgpump"
+    },
+    {
+     "mint": "HMrS9CtbVfXFfxHoohZ1ZGMAbdbCMC95XbbcAnPupump",
+     "symbol": "satoshi",
+     "mcapUsd": 2862.68,
+     "vol1h": 94.57,
+     "createdAt": 1793471859000,
+     "leader": false,
+     "score": 0,
+     "vampOf": "Df7kaKskbRMAYEkPEGJ1e33n4RPWDNs9GP9pzPjgpump"
+    },
+    {
+     "mint": "DMe3YipU8SR7EUBPKAieSfxtBHGj6cEub4uRmLYNnUCL",
+     "symbol": "Satoshi",
+     "mcapUsd": 0,
+     "vol1h": 0,
+     "createdAt": 1793471886000,
+     "leader": false,
+     "score": 0,
+     "vampOf": "Df7kaKskbRMAYEkPEGJ1e33n4RPWDNs9GP9pzPjgpump"
+    }
+   ]
+  },
+  {
+   "key": "btc",
+   "members": [
+    {
+     "mint": "C5xph2yL6gMdxmuLGxJBkGpmuDFfyi5fqkBNhvL6pump",
+     "symbol": "BTC",
+     "mcapUsd": 11737138,
+     "vol1h": 16085.99,
+     "createdAt": 1789330218000,
+     "leader": true,
+     "score": 1489.3
+    },
+    {
+     "mint": "CRimDhsrMjecJTUqc1jy2UwKNaDM4RQwDYgL4V1Y9Btc",
+     "symbol": "BTC",
+     "mcapUsd": 0,
+     "vol1h": 0,
+     "createdAt": 1793439984000,
+     "leader": false,
+     "score": 0
+    }
+   ]
+  },
+  {
+   "key": "bitty",
+   "members": [
+    {
+     "mint": "9VAcRibENGDxTEKreiYrZtrhw9WbBzsNSg775Tiopump",
+     "symbol": "BITTY",
+     "mcapUsd": 2685.27,
+     "vol1h": 0.94,
+     "createdAt": 1793471863000,
+     "leader": true,
+     "score": 0
+    },
+    {
+     "mint": "3TSYdpZfmbRsnNBdkpktMtWGDToTDpj2Msky7yzppump",
+     "symbol": "Bitty",
+     "mcapUsd": 0.24,
+     "vol1h": 0.04,
+     "createdAt": 1793471877000,
+     "leader": false,
+     "score": 0,
+     "vampOf": "9VAcRibENGDxTEKreiYrZtrhw9WbBzsNSg775Tiopump"
+    },
+    {
+     "mint": "ANB57B3Uf3fxuFgm76MbQsi6uDK8VtjjJYPFNJ71ETCH",
+     "symbol": "BITTY",
+     "mcapUsd": 0,
+     "vol1h": 0,
+     "createdAt": 1793471884000,
+     "leader": false,
+     "score": 0,
+     "vampOf": "9VAcRibENGDxTEKreiYrZtrhw9WbBzsNSg775Tiopump"
+    }
+   ]
+  },
+  {
+   "key": "t1",
+   "members": [
+    {
+     "mint": "Rb3gwb5txH9Pph1SkFmwjTCy27hRvKSQJ6bH3KRpump",
+     "symbol": "t1",
+     "mcapUsd": 3368.17,
+     "vol1h": 6718.87,
+     "createdAt": 1793471690000,
+     "leader": true,
+     "score": 0
+    },
+    {
+     "mint": "EHM5MtfM6aSvL7jEPiRtSexJfx1dM1qrVsSQPGcRpump",
+     "symbol": "t1",
+     "mcapUsd": 2716.9,
+     "vol1h": 4709.12,
+     "createdAt": 1793471697000,
+     "leader": false,
+     "score": 0,
+     "vampOf": "Rb3gwb5txH9Pph1SkFmwjTCy27hRvKSQJ6bH3KRpump"
+    },
+    {
+     "mint": "3Y2EfSyMjSEpgqFRcCxnr8fSZQ4yQBGpuof6LyeNUBt2",
+     "symbol": "t1",
+     "mcapUsd": 3073.5,
+     "vol1h": 844.47,
+     "createdAt": 1793471704000,
+     "leader": false,
+     "score": 0,
+     "vampOf": "Rb3gwb5txH9Pph1SkFmwjTCy27hRvKSQJ6bH3KRpump"
+    }
+   ]
+  }
+ ]
+}
